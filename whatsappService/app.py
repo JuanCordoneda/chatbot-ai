@@ -73,7 +73,18 @@ def whatsapp_service(body):
         print(e)
         return False
     
+def normalizar_numero(numero):
+    # Meta manda 5492233407778 pero acepta 54223153407778
+    # 5492233407778 → 54 + 2233 + 15 + 407778 = 542233 15 407778
+    # Pero el registrado fue 54223153407778 = 54 + 2231 + 53407778 (codigo area 2231)
+    # Hardcodeamos el mapeo exacto para este numero
+    mapeo = {
+        "5492233407778": "54223153407778"
+    }
+    return mapeo.get(numero, numero)
+
 def enviar_mensaje(text, numero):
+    numero = normalizar_numero(numero)
     url = f"{OPENAI_SERVICE_URL}/getresponsegpt?user_prompt={text}"
     response_gpt = requests.get(url).content.decode("utf-8")
     
@@ -86,6 +97,37 @@ def enviar_mensaje(text, numero):
     }
     
     return body
+
+@app.route("/send-template", methods=["POST"])
+def send_template():
+    try:
+        data = request.get_json()
+        number = data.get("to")
+        template_name = data.get("template", "hello_world")
+        language_code = data.get("language", "en_US")
+
+        if not number:
+            return {"error": "El campo 'to' es requerido."}, 400
+
+        body = {
+            "messaging_product": "whatsapp",
+            "to": number,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code}
+            }
+        }
+
+        success = whatsapp_service(body)
+        if success:
+            return {"status": "ok", "message": f"Template '{template_name}' enviado a {number}."}, 200
+        else:
+            return {"status": "error", "message": "Fallo al enviar el template."}, 500
+
+    except Exception as e:
+        print(e)
+        return {"error": str(e)}, 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8501, debug=False)  # Cambia debug a False para producción

@@ -9,3 +9,4 @@ instance/
 .python-version
 venv/
 *.db
+admin-key.json

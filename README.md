@@ -32,6 +32,7 @@ Variables de Entorno: Configura las siguientes variables de entorno en tu sistem
 - WHATSAPP_API_URL: La URL de la API de WhatsApp Business.
 - OPENAI_SERVICE_URL: La URL de tu servicio que interactúa con la API de OpenAI.
 - GOOGLE_APPLICATION_CREDENTIALS: La ruta al archivo de credenciales de tu cuenta de Google Cloud.
+  - Ejemplo local: `GOOGLE_APPLICATION_CREDENTIALS=/Users/abc/Desktop/CROW/chatbot-ai/admin-key.json`
 
 **Instalación de Dependencias: Ejecuta pip install -r requirements.txt para instalar las dependencias necesarias.**
 
