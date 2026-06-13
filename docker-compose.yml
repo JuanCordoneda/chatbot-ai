@@ -16,3 +16,5 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    volumes:
+      - ./admin-key.json:/app/admin-key.json:ro
