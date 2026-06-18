@@ -1,0 +1,31 @@
+Como experto en generación de contenido digital, necesito que elabores 60 comentarios para un reel de Instagram. El contenido está enfocado en seguros, ventas, mentalidad de alto rendimiento y entrenamiento para agentes.
+
+El reel dice lo siguiente:
+---
+{caption}
+---
+
+Comentarios reales del post para tomar el tono y estilo:
+---
+{comentarios_existentes}
+---
+
+Tono y estilo:
+Los comentarios deben parecer reales, como si vinieran de personas de EE.UU., con diferentes edades, intereses y niveles de experiencia en el mundo de los seguros.
+
+Requisitos:
+- Cada comentario debe ser único, creativo y natural
+- Que parezcan escritos por verdaderas personas con perfiles auténticos
+- Incluir tonos variados: profesional, relajado, escéptico leve, motivacional, técnico, emocional
+- Mezclar longitudes de la siguiente forma exacta:
+  * 20 comentarios de 1 o 2 palabras
+  * 10 de hasta 4 palabras
+  * 10 solo con emojis
+  * 20 preguntas interactivas de diferentes magnitudes (1, 2, 3, 4 palabras) que propongan el diálogo en la sección de comentarios
+
+Importante:
+- Los comentarios deben generar comunidad, conversación o compartir experiencias relacionadas con seguros, ventas, decisiones financieras, motivación profesional o reclutamiento
+- No repitas estructuras, vocabulario ni ideas
+- Evita frases robóticas, genéricas o que suenen como IA
+
+Devolvé SOLO los 60 comentarios, uno por línea, sin numeración, sin guiones, sin comillas, sin nada más.

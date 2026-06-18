@@ -1,0 +1,27 @@
+Como experto en generación de contenido digital, necesito que elabores 60 comentarios para un reel de Instagram.
+
+El reel dice lo siguiente:
+---
+{caption}
+---
+
+Comentarios reales del post para tomar el tono y estilo:
+---
+{comentarios_existentes}
+---
+
+Requisitos:
+- Cada comentario debe ser único, creativo y natural
+- Que parezcan escritos por verdaderas personas con perfiles auténticos
+- Incluir tonos variados: profesional, relajado, motivacional, emocional
+- Mezclar longitudes de la siguiente forma exacta:
+  * 20 comentarios de 1 o 2 palabras
+  * 10 de hasta 4 palabras
+  * 10 solo con emojis
+  * 20 preguntas interactivas de diferentes magnitudes que propongan el diálogo
+
+Importante:
+- No repitas estructuras, vocabulario ni ideas
+- Evita frases robóticas, genéricas o que suenen como IA
+
+Devolvé SOLO los 60 comentarios, uno por línea, sin numeración, sin guiones, sin comillas, sin nada más.

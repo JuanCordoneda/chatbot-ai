@@ -85,7 +85,7 @@ def normalizar_numero(numero):
 
 def enviar_mensaje(text, numero):
     numero = normalizar_numero(numero)
-    url = f"{OPENAI_SERVICE_URL}/getresponsegpt?user_prompt={text}"
+    url = f"{OPENAI_SERVICE_URL}/getresponsegpt?user_prompt={text}&phone_number={numero}"
     response_gpt = requests.get(url).content.decode("utf-8")
     
     body = {
