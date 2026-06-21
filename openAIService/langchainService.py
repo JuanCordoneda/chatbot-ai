@@ -1,6 +1,8 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify, Response, stream_with_context
 import os
 import json
+import time
+import uuid
 import threading
 import anthropic
 from datetime import datetime, timedelta, timezone
@@ -24,6 +26,9 @@ _sessions: dict[str, dict] = {}
 _sessions_lock = threading.Lock()
 _calendar_service = None
 _calendar_lock = threading.Lock()
+
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
 
 # ── Session management ────────────────────────────────────────────────────────
@@ -231,6 +236,150 @@ def clear_session():
     with _sessions_lock:
         _sessions.pop(phone, None)
     return "ok"
+
+
+# ── Web app endpoints ─────────────────────────────────────────────────────────
+
+@app.route("/procesar_post", methods=["POST"])
+def procesar_post_web():
+    data = request.get_json(silent=True) or {}
+    post_url = data.get("url", "").strip()
+
+    if not post_url:
+        return jsonify({"error": "Falta el campo 'url'"}), 400
+    if not es_link_instagram(post_url):
+        return jsonify({"error": "El link no parece ser de Instagram"}), 400
+
+    job_id = str(uuid.uuid4())
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "comentarios": [],
+            "progreso": [],
+            "meta": {},
+            "scrape_ready": False,
+            "done": False,
+            "error": None,
+        }
+
+    def run():
+        from modules.post_processor import scrape_post
+        from modules.ai_generator import generar_comentarios_stream
+        from modules.engagement_flow import detectar_cliente
+
+        job = _jobs[job_id]
+        try:
+            t0 = time.time()
+            job["progreso"].append("Accediendo al post de Instagram...")
+            post_data = scrape_post(post_url, max_comments=5)
+            t_scrape = time.time() - t0
+            print(f"[TIMING] scrape: {t_scrape:.2f}s", flush=True)
+            job["progreso"].append(f"[debug] scrape: {t_scrape:.2f}s")
+
+            if post_data.transcription and not post_data.transcription.startswith("("):
+                job["progreso"].append("Video transcripto correctamente.")
+            elif post_data.photo_description:
+                job["progreso"].append("Imagen analizada.")
+
+            client_id = detectar_cliente(post_data.owner_username) if post_data.owner_username else None
+            if client_id:
+                job["progreso"].append(f"Cliente detectado: {client_id}")
+
+            job["meta"] = {
+                "client_id": client_id,
+                "owner_username": post_data.owner_username,
+                "transcription": post_data.transcription,
+                "photo_description": post_data.photo_description,
+                "caption": post_data.caption,
+            }
+            job["scrape_ready"] = True
+
+            t1 = time.time()
+            job["progreso"].append("Generando comentarios con IA...")
+            for comentario in generar_comentarios_stream(
+                post_data.caption, post_data.comments, client_id,
+                post_data.transcription, post_data.photo_description,
+            ):
+                job["comentarios"].append(comentario)
+            t_ai = time.time() - t1
+            print(f"[TIMING] ai generation: {t_ai:.2f}s | total: {time.time()-t0:.2f}s", flush=True)
+            job["progreso"].append(f"[debug] IA: {t_ai:.2f}s | total: {time.time()-t0:.2f}s")
+
+            job["done"] = True
+        except Exception as e:
+            print(f"[ERROR] job failed: {e}", flush=True)
+            job["error"] = str(e)
+            job["done"] = True
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/procesar_post/stream/<job_id>", methods=["GET"])
+def procesar_post_stream(job_id):
+    with _jobs_lock:
+        if job_id not in _jobs:
+            return jsonify({"error": "Job no encontrado"}), 404
+
+    offset_c = int(request.args.get("offset", 0))
+    offset_p = int(request.args.get("progreso_offset", 0))
+
+    def generate():
+        def evento(tipo, **kwargs):
+            return f"data: {json.dumps({'tipo': tipo, **kwargs}, ensure_ascii=False)}\n\n"
+
+        job = _jobs[job_id]
+        oc = offset_c
+        op = offset_p
+        scrape_sent = offset_c > 0  # si reconecta con offset > 0, ya se envió
+
+        while True:
+            while op < len(job["progreso"]):
+                yield evento("progreso", mensaje=job["progreso"][op])
+                op += 1
+
+            if not scrape_sent and job["scrape_ready"]:
+                yield evento("scrape", **job["meta"])
+                scrape_sent = True
+
+            while oc < len(job["comentarios"]):
+                yield evento("comentario", texto=job["comentarios"][oc], index=oc)
+                oc += 1
+
+            if job["done"]:
+                if job["error"]:
+                    yield evento("error", mensaje=job["error"])
+                else:
+                    yield evento("listo", **job["meta"], total=len(job["comentarios"]))
+                break
+
+            time.sleep(0.1)
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+
+@app.route("/publicar", methods=["POST"])
+def publicar_web():
+    data = request.get_json(silent=True) or {}
+    post_url = data.get("url", "").strip()
+    comentarios = data.get("comentarios", [])
+
+    if not post_url or not comentarios:
+        return jsonify({"error": "Faltan datos (url o comentarios)"}), 400
+
+    try:
+        from modules.reporter import generar_informe
+        try:
+            from modules.growi_client import ejecutar_campana
+            resultado = ejecutar_campana(post_url, comentarios)
+            informe = generar_informe(post_url, comentarios, resultado)
+        except NotImplementedError as e:
+            informe = generar_informe(post_url, comentarios, None, error=str(e))
+        except Exception as e:
+            informe = generar_informe(post_url, comentarios, None, error=f"Error en Growi: {e}")
+
+        return jsonify({"informe": informe})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

@@ -18,3 +18,13 @@ services:
       - .env
     volumes:
       - ./admin-key.json:/app/admin-key.json:ro
+      - ./openAIService/session-crowagency.ofc:/app/session-crowagency.ofc:ro
+
+  web-service:
+    build: ./webService
+    ports:
+      - "8502:8502"
+    env_file:
+      - .env
+    depends_on:
+      - openai-service

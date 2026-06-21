@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GROWI — Engagement</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Loading overlay (modal centrado) -->
+  <div id="loading-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <div class="overlay-spinner">
+        <svg viewBox="0 0 50 50" class="spinner-svg">
+          <circle cx="25" cy="25" r="20" fill="none" stroke="#242424" stroke-width="4"/>
+          <circle cx="25" cy="25" r="20" fill="none" stroke="#F5A800" stroke-width="4"
+            stroke-linecap="round" stroke-dasharray="31.4 94.2"
+            class="spinner-arc"/>
+        </svg>
+        <img src="/static/growi.png" alt="GROWI" class="overlay-logo-sm" />
+      </div>
+      <p class="overlay-title">Procesando post</p>
+      <p class="overlay-status" id="loading-text">Iniciando...</p>
+    </div>
+  </div>
+
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <img src="/static/growi.png" alt="GROWI" class="logo" />
+      <span class="header-tag">Engagement Tool</span>
+      <div class="header-actions">
+        <button class="btn-icon" onclick="location.reload()" title="Reiniciar">↺</button>
+        <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
+      </div>
+    </header>
+
+    <main class="main">
+
+      <!-- STEP 1: input -->
+      <section id="step-input">
+        <div class="hero">
+          <h1 class="hero-title">Generá comentarios<br/><span class="accent">con IA en segundos</span></h1>
+          <p class="hero-sub">Pegá el link del post de Instagram y GROWI genera los comentarios listos para publicar.</p>
+        </div>
+        <div class="card input-card">
+          <div class="input-row">
+            <input
+              type="text"
+              id="ig-link"
+              class="ig-input"
+              placeholder="https://www.instagram.com/p/..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button class="btn-primary" onclick="generarComentarios()">Generar →</button>
+          </div>
+          <div id="error-msg" class="error hidden"></div>
+        </div>
+      </section>
+
+      <!-- STEP 3: resultados -->
+      <section id="step-comentarios" class="hidden">
+
+        <!-- Info scrapeada -->
+        <div class="card scrape-card">
+          <div class="scrape-grid">
+            <div class="scrape-item">
+              <span class="scrape-label">Cuenta</span>
+              <span id="scrape-owner" class="scrape-value">—</span>
+            </div>
+            <div class="scrape-item">
+              <span class="scrape-label">Cliente</span>
+              <span id="client-badge" class="scrape-value">—</span>
+            </div>
+          </div>
+          <div class="scrape-details-row">
+            <details id="scrape-caption-block" class="hidden scrape-details" open>
+              <summary>Pie de página</summary>
+              <p id="scrape-caption-text"></p>
+            </details>
+            <details id="photo-description-block" class="hidden scrape-details" open>
+              <summary>Descripción de imagen</summary>
+              <p id="photo-description-text"></p>
+            </details>
+            <details id="transcription-block" class="hidden scrape-details" open>
+              <summary>Transcripción del video</summary>
+              <p id="transcription-text"></p>
+            </details>
+          </div>
+        </div>
+
+        <!-- Comentarios -->
+        <div class="card comments-card">
+          <div class="comments-header">
+            <div class="comments-title-row">
+              <h2 class="card-title">Comentarios</h2>
+              <span id="status-listo" class="badge-listo hidden">✓ Listo</span>
+            </div>
+            <p id="stream-status" class="stream-status"></p>
+          </div>
+
+          <div id="skeleton-list" class="skeleton-list">
+            <div class="skeleton-item"></div>
+            <div class="skeleton-item"></div>
+            <div class="skeleton-item"></div>
+            <div class="skeleton-item"></div>
+            <div class="skeleton-item"></div>
+          </div>
+
+          <div id="lista-comentarios"></div>
+
+          <!-- Acciones — ocultas hasta que hay resultados -->
+          <div id="comments-actions-bar" class="comments-actions-bar hidden">
+            <div class="select-row">
+              <button class="btn-ghost btn-sm" onclick="seleccionarTodos()">Seleccionar todos</button>
+              <button class="btn-ghost btn-sm" onclick="deseleccionarTodos()">Limpiar</button>
+              <span class="count-label" id="count-label">0 seleccionados</span>
+            </div>
+            <div class="publish-bar">
+              <button id="btn-publicar" class="btn-primary" onclick="publicar()" disabled>
+                Publicar seleccionados
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nuevo post bar -->
+        <div class="nuevo-post-bar">
+          <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
+          <button class="btn-reiniciar" onclick="reiniciar()">↺ Nuevo post</button>
+        </div>
+        </div>
+
+      </section>
+
+      <!-- STEP 4: resultado publicación -->
+      <section id="step-resultado" class="hidden">
+        <div class="card">
+          <h2 class="card-title">Resultado</h2>
+          <div class="resultado-box" id="resultado-content"></div>
+          <div class="btn-row" style="margin-top:20px">
+            <button class="btn-primary" onclick="reiniciar()">Procesar otro post</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
