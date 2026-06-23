@@ -19,6 +19,10 @@ services:
     volumes:
       - ./admin-key.json:/app/admin-key.json:ro
       - ./openAIService/session-crowagency.ofc:/app/session-crowagency.ofc:ro
+      - ./openAIService/langchainService.py:/app/langchainService.py
+      - ./openAIService/modules:/app/modules
+      - ./openAIService/prompts:/app/prompts
+      - ./openAIService/clients_map.json:/app/clients_map.json
 
   web-service:
     build: ./webService
@@ -28,3 +32,7 @@ services:
       - .env
     depends_on:
       - openai-service
+    volumes:
+      - ./webService/app.py:/app/app.py
+      - ./webService/templates:/app/templates
+      - ./webService/static:/app/static

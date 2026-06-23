@@ -6,6 +6,10 @@ app = Flask(__name__)
 
 OPENAI_SERVICE_URL = os.environ.get("OPENAI_SERVICE_URL", "http://openai-service:8000")
 
+GROWI_CRM_URL    = os.environ.get("GROWI_CRM_URL", "https://crm.growiagency.com")
+GROWI_PHPSESSID  = os.environ.get("GROWI_CRM_PHPSESSID", "")
+GROWI_REMEMBERME = os.environ.get("GROWI_CRM_REMEMBERME", "")
+
 
 @app.route("/")
 def index():
@@ -68,6 +72,78 @@ def publicar():
             f"{OPENAI_SERVICE_URL}/publicar",
             json={"url": post_url, "comentarios": comentarios},
             timeout=60,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/nombre_red", methods=["GET"])
+def nombre_red():
+    red_id = request.args.get("red", "1")
+    try:
+        resp = requests.get(
+            f"{GROWI_CRM_URL}/paginas/obtener_nombre.php",
+            params={"red": red_id},
+            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
+            headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/costo_trafico", methods=["POST"])
+def costo_trafico():
+    data = request.get_json()
+    try:
+        resp = requests.post(
+            f"{GROWI_CRM_URL}/paginas/obtenercostotrafico.php",
+            json=data,
+            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
+            headers={
+                "referer": f"{GROWI_CRM_URL}/paginas/trafico.php",
+                "content-type": "application/json",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/demora", methods=["GET"])
+def demora():
+    redsocial = request.args.get("redsocial", "")
+    producto  = request.args.get("producto", "")
+    try:
+        resp = requests.get(
+            f"{GROWI_CRM_URL}/paginas/obtener_demora.php",
+            params={"redsocial": redsocial, "producto": producto},
+            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
+            headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/productos", methods=["GET"])
+def productos():
+    rrss_id = request.args.get("rrss", "1")
+    try:
+        resp = requests.get(
+            f"{GROWI_CRM_URL}/paginas/obtener_productos_con_precios.php",
+            params={"rrss": rrss_id},
+            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
+            headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
+            timeout=10,
         )
         resp.raise_for_status()
         return jsonify(resp.json())

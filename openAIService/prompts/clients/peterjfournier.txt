@@ -28,4 +28,6 @@ Importante:
 - No repitas estructuras, vocabulario ni ideas
 - Evita frases robóticas, genéricas o que suenen como IA
 
+IMPORTANTE: Todos los comentarios deben estar escritos en inglés, sin excepción.
+
 Devolvé SOLO los 60 comentarios, uno por línea, sin numeración, sin guiones, sin comillas, sin nada más.

@@ -257,6 +257,9 @@ def procesar_post_web():
             "progreso": [],
             "meta": {},
             "scrape_ready": False,
+            "transcription_ready": False,
+            "current_chunk": "",
+            "step": "",
             "done": False,
             "error": None,
         }
@@ -270,17 +273,52 @@ def procesar_post_web():
         try:
             t0 = time.time()
             job["progreso"].append("Accediendo al post de Instagram...")
-            post_data = scrape_post(post_url, max_comments=5)
+
+            # Fast fetch para preview inmediato en UI
+            from modules.post_processor import _fetch_fast, extract_shortcode, is_video_url
+            shortcode = extract_shortcode(post_url)
+            if shortcode:
+                try:
+                    fast_preview = _fetch_fast(shortcode)
+                    if fast_preview.get("caption") or fast_preview.get("owner_username"):
+                        url_is_video = is_video_url(post_url)
+                        preview_meta = {
+                            "caption": fast_preview.get("caption", ""),
+                            "owner_username": fast_preview.get("owner_username", ""),
+                            "client_id": detectar_cliente(fast_preview.get("owner_username", "")) if fast_preview.get("owner_username") else None,
+                            "photo_description": "",
+                            "transcription": "",
+                            "is_video": url_is_video or fast_preview.get("is_video", False),
+                        }
+                        job["meta"] = preview_meta
+                        job["scrape_ready"] = True
+                        if preview_meta["is_video"]:
+                            job["step"] = "transcription"
+                            job["progreso"].append("Video detectado. Generando transcripción (Menos de 60 segundos)...")
+                        else:
+                            job["step"] = "transcription"
+                            job["progreso"].append("Generando transcripción (Menos de 60 segundos)...")
+
+                except Exception:
+                    pass
+
+            # Garantizar que el step esté seteado antes del scrape lento
+            # (puede ser video aunque el fast preview no lo haya detectado)
+            if job["step"] != "transcription":
+                job["step"] = "transcription"
+
+            post_data = scrape_post(post_url)
             t_scrape = time.time() - t0
             print(f"[TIMING] scrape: {t_scrape:.2f}s", flush=True)
-            job["progreso"].append(f"[debug] scrape: {t_scrape:.2f}s")
 
+            job["step"] = ""
             if post_data.transcription and not post_data.transcription.startswith("("):
-                job["progreso"].append("Video transcripto correctamente.")
+                job["progreso"].append("Transcripción lista.")
             elif post_data.photo_description:
                 job["progreso"].append("Imagen analizada.")
 
             client_id = detectar_cliente(post_data.owner_username) if post_data.owner_username else None
+            print(f"[client] owner_username={post_data.owner_username!r} → client_id={client_id!r}", flush=True)
             if client_id:
                 job["progreso"].append(f"Cliente detectado: {client_id}")
 
@@ -290,16 +328,23 @@ def procesar_post_web():
                 "transcription": post_data.transcription,
                 "photo_description": post_data.photo_description,
                 "caption": post_data.caption,
+                "is_video": post_data.is_video,
             }
             job["scrape_ready"] = True
+            job["transcription_ready"] = True
 
             t1 = time.time()
             job["progreso"].append("Generando comentarios con IA...")
-            for comentario in generar_comentarios_stream(
+            for tipo, data in generar_comentarios_stream(
                 post_data.caption, post_data.comments, client_id,
                 post_data.transcription, post_data.photo_description,
+                post_data.is_video,
             ):
-                job["comentarios"].append(comentario)
+                if tipo == "chunk":
+                    job["current_chunk"] += data
+                elif tipo == "comentario":
+                    job["comentarios"].append(data)
+                    job["current_chunk"] = ""
             t_ai = time.time() - t1
             print(f"[TIMING] ai generation: {t_ai:.2f}s | total: {time.time()-t0:.2f}s", flush=True)
             job["progreso"].append(f"[debug] IA: {t_ai:.2f}s | total: {time.time()-t0:.2f}s")
@@ -330,7 +375,10 @@ def procesar_post_stream(job_id):
         job = _jobs[job_id]
         oc = offset_c
         op = offset_p
-        scrape_sent = offset_c > 0  # si reconecta con offset > 0, ya se envió
+        scrape_sent = offset_c > 0
+        transcription_sent = offset_c > 0
+        last_chunk = ""
+        last_step = ""
 
         while True:
             while op < len(job["progreso"]):
@@ -341,9 +389,25 @@ def procesar_post_stream(job_id):
                 yield evento("scrape", **job["meta"])
                 scrape_sent = True
 
+            current_step = job["step"]
+            if current_step != last_step:
+                yield evento("step", nombre=current_step)
+                last_step = current_step
+
+            if not transcription_sent and job.get("transcription_ready"):
+                yield evento("transcripcion", texto=job["meta"].get("transcription", ""))
+                transcription_sent = True
+
             while oc < len(job["comentarios"]):
                 yield evento("comentario", texto=job["comentarios"][oc], index=oc)
                 oc += 1
+                last_chunk = ""
+
+            # Emitir chunk en curso si cambió
+            current = job["current_chunk"]
+            if current and current != last_chunk:
+                yield evento("chunk", texto=current)
+                last_chunk = current
 
             if job["done"]:
                 if job["error"]:
@@ -352,7 +416,7 @@ def procesar_post_stream(job_id):
                     yield evento("listo", **job["meta"], total=len(job["comentarios"]))
                 break
 
-            time.sleep(0.1)
+            time.sleep(0.05)
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 

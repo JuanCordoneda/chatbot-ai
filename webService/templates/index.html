@@ -6,18 +6,18 @@
   <title>GROWI — Engagement</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 
-  <!-- Loading overlay (modal centrado) -->
+  <!-- Loading overlay -->
   <div id="loading-overlay" class="overlay hidden">
     <div class="overlay-card">
       <div class="overlay-spinner">
         <svg viewBox="0 0 50 50" class="spinner-svg">
-          <circle cx="25" cy="25" r="20" fill="none" stroke="#242424" stroke-width="4"/>
-          <circle cx="25" cy="25" r="20" fill="none" stroke="#F5A800" stroke-width="4"
+          <circle cx="25" cy="25" r="20" fill="none" stroke="#1a1a1a" stroke-width="3.5"/>
+          <circle cx="25" cy="25" r="20" fill="none" stroke="#F5A800" stroke-width="3.5"
             stroke-linecap="round" stroke-dasharray="31.4 94.2"
             class="spinner-arc"/>
         </svg>
@@ -32,11 +32,15 @@
 
     <!-- Header -->
     <header class="header">
-      <img src="/static/growi.png" alt="GROWI" class="logo" />
-      <span class="header-tag">Engagement Tool</span>
+      <div class="header-left">
+        <img src="/static/growi.png" alt="GROWI" class="logo" />
+        <span class="header-sep"></span>
+        <span class="header-tag">Engagement Tool</span>
+      </div>
       <div class="header-actions">
-        <button class="btn-icon" onclick="location.reload()" title="Reiniciar">↺</button>
         <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
+        <button class="btn-ghost btn-sm" onclick="simularOrdenes()">Sim. Órdenes</button>
+        <button class="btn-icon" onclick="location.reload()" title="Reiniciar">↺</button>
       </div>
     </header>
 
@@ -45,9 +49,14 @@
       <!-- STEP 1: input -->
       <section id="step-input">
         <div class="hero">
+          <div class="hero-eyebrow">
+            <span class="eyebrow-dot"></span>
+            IA generativa para Instagram
+          </div>
           <h1 class="hero-title">Generá comentarios<br/><span class="accent">con IA en segundos</span></h1>
           <p class="hero-sub">Pegá el link del post de Instagram y GROWI genera los comentarios listos para publicar.</p>
         </div>
+
         <div class="card input-card">
           <div class="input-row">
             <input
@@ -62,12 +71,18 @@
           </div>
           <div id="error-msg" class="error hidden"></div>
         </div>
+
+        <div class="hero-features">
+          <span class="feature-pill"><span class="feature-dot"></span>Transcripción de video</span>
+          <span class="feature-pill"><span class="feature-dot"></span>Análisis de imagen</span>
+          <span class="feature-pill"><span class="feature-dot"></span>Tono por cliente</span>
+        </div>
       </section>
 
-      <!-- STEP 3: resultados -->
+      <!-- STEP 2: resultados -->
       <section id="step-comentarios" class="hidden">
 
-        <!-- Info scrapeada -->
+        <!-- Info del post -->
         <div class="card scrape-card">
           <div class="scrape-grid">
             <div class="scrape-item">
@@ -76,7 +91,7 @@
             </div>
             <div class="scrape-item">
               <span class="scrape-label">Cliente</span>
-              <span id="client-badge" class="scrape-value">—</span>
+              <span id="client-badge" class="scrape-value scrape-value--accent">—</span>
             </div>
           </div>
           <div class="scrape-details-row">
@@ -95,11 +110,15 @@
           </div>
         </div>
 
+        <!-- Step card -->
+        <div id="step-card" class="step-card hidden"></div>
+
         <!-- Comentarios -->
         <div class="card comments-card">
           <div class="comments-header">
             <div class="comments-title-row">
               <h2 class="card-title">Comentarios</h2>
+              <span id="comments-counter" class="comments-counter hidden">0 / 60</span>
               <span id="status-listo" class="badge-listo hidden">✓ Listo</span>
             </div>
             <p id="stream-status" class="stream-status"></p>
@@ -113,28 +132,169 @@
             <div class="skeleton-item"></div>
           </div>
 
+          <div id="typing-preview" class="typing-preview hidden"></div>
           <div id="lista-comentarios"></div>
 
-          <!-- Acciones — ocultas hasta que hay resultados -->
           <div id="comments-actions-bar" class="comments-actions-bar hidden">
             <div class="select-row">
               <button class="btn-ghost btn-sm" onclick="seleccionarTodos()">Seleccionar todos</button>
               <button class="btn-ghost btn-sm" onclick="deseleccionarTodos()">Limpiar</button>
               <span class="count-label" id="count-label">0 seleccionados</span>
             </div>
-            <div class="publish-bar">
-              <button id="btn-publicar" class="btn-primary" onclick="publicar()" disabled>
-                Publicar seleccionados
-              </button>
+            <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
+              Publicar seleccionados
+            </button>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="nuevo-post-bar">
+          <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
+          <button id="btn-cargar-mas" class="btn-cargar-mas hidden" onclick="cargarMas()">+ Cargar más</button>
+          <button class="btn-reiniciar" onclick="location.reload()">↺ Nuevo post</button>
+        </div>
+
+      </section>
+
+      <!-- STEP 3: armar órdenes -->
+      <section id="step-ordenes" class="hidden">
+
+        <!-- Header -->
+        <div class="ordenes-hero">
+          <div class="ordenes-hero-left">
+            <div class="ordenes-hero-avatar" id="ordenes-hero-avatar">P</div>
+            <div>
+              <p class="ordenes-hero-eyebrow">Cliente</p>
+              <p id="ordenes-client" class="ordenes-hero-client">—</p>
+            </div>
+          </div>
+          <div class="ordenes-hero-right">
+            <p id="ordenes-post-url" class="ordenes-hero-url">—</p>
+            <div class="ordenes-hero-counter">
+              <span id="ordenes-count-badge" class="ordenes-hero-num">0</span>
+              <span class="ordenes-hero-num-label">orden(es)</span>
             </div>
           </div>
         </div>
 
-        <!-- Nuevo post bar -->
-        <div class="nuevo-post-bar">
-          <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
-          <button class="btn-reiniciar" onclick="reiniciar()">↺ Nuevo post</button>
+        <!-- Formulario -->
+        <div class="orden-form-card">
+
+          <div class="orden-form">
+
+          <div class="orden-form-section-title">
+            <span class="ofsec-dot"></span> Producto
+          </div>
+
+          <!-- Red Social + Producto -->
+          <div class="orden-row">
+            <div class="orden-field orden-field--rs">
+              <label class="orden-label">Red Social</label>
+              <input type="hidden" id="orden-redsocial" value="1" />
+              <div class="rs-select" id="rs-select-custom" onclick="toggleRsDropdown(event)">
+                <div class="rs-select-trigger">
+                  <img class="rs-select-icon" id="rs-selected-icon" src="https://cdn.simpleicons.org/instagram/E1306C" alt="" />
+                  <span class="rs-select-label" id="rs-selected-label">Instagram</span>
+                  <span class="rs-select-arrow">▾</span>
+                </div>
+                <div class="rs-dropdown hidden" id="rs-dropdown">
+                  <div class="rs-option" data-value="1"  data-slug="instagram"  data-color="E1306C" data-label="Instagram" onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/instagram/E1306C"  /><span>Instagram</span></div>
+                  <div class="rs-option" data-value="2"  data-slug="tiktok"     data-color="69C9D0" data-label="TikTok"    onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/tiktok/69C9D0"     /><span>TikTok</span></div>
+                  <div class="rs-option" data-value="4"  data-slug="spotify"    data-color="1DB954" data-label="Spotify"   onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/spotify/1DB954"    /><span>Spotify</span></div>
+                  <div class="rs-option" data-value="5"  data-slug="facebook"   data-color="1877F2" data-label="Facebook"  onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/facebook/1877F2"   /><span>Facebook</span></div>
+                  <div class="rs-option" data-value="6"  data-slug=""           data-color="a0a0a0" data-label="Panel"     onclick="selectRs(this)"><span class="rs-option-emoji">🎛️</span><span>Panel</span></div>
+                  <div class="rs-option" data-value="11" data-slug="youtube"    data-color="FF0000" data-label="YouTube"   onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/youtube/FF0000"    /><span>YouTube</span></div>
+                  <div class="rs-option" data-value="12" data-slug="x"          data-color="ffffff" data-label="Twitter/X" onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/x/ffffff"          /><span>Twitter/X</span></div>
+                  <div class="rs-option" data-value="13" data-slug="google"     data-color="4285F4" data-label="Google"    onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/google/4285F4"     /><span>Google</span></div>
+                  <div class="rs-option" data-value="14" data-slug="snapchat"   data-color="FFFC00" data-label="Snapchat"  onclick="selectRs(this)"><img src="https://cdn.simpleicons.org/snapchat/FFFC00"   /><span>Snapchat</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="orden-field orden-field--grow">
+              <div class="orden-label-row">
+                <label class="orden-label">Producto</label>
+                <span id="orden-demora-badge" class="orden-inline-badge orden-inline-badge--green hidden"></span>
+              </div>
+              <select id="orden-producto" class="orden-select" onchange="onProductoChange()">
+                <option value="" disabled selected>Seleccione</option>
+              </select>
+              <span id="orden-producto-error" class="orden-field-error hidden">Seleccioná un producto</span>
+            </div>
+          </div>
+
+          <div class="orden-form-divider"></div>
+          <div class="orden-form-section-title">
+            <span class="ofsec-dot"></span> Detalles
+          </div>
+
+          <!-- Cantidad + Link -->
+          <div class="orden-row">
+            <div class="orden-field orden-field--qty">
+              <div class="orden-label-row">
+                <label class="orden-label">Cantidad</label>
+                <span id="orden-costo-badge" class="orden-inline-badge hidden"></span>
+              </div>
+              <input type="number" id="orden-cantidad" class="orden-input" placeholder="1000" min="1" oninput="onCantidadInput()" />
+              <span id="orden-cantidad-hint" class="orden-field-hint hidden"></span>
+              <span id="orden-cantidad-error" class="orden-field-error hidden">Cantidad inválida</span>
+            </div>
+            <div class="orden-field orden-field--grow">
+              <label class="orden-label">Link</label>
+              <div class="orden-input-icon-wrap">
+                <span class="orden-input-icon">🔗</span>
+                <input type="text" id="orden-link" class="orden-input orden-input--has-icon" placeholder="https://..." oninput="clearFieldError('orden-link')" />
+              </div>
+              <span id="orden-link-error" class="orden-field-error hidden">Ingresá el link</span>
+            </div>
+          </div>
+
+          <!-- Cuándo -->
+          <div class="orden-field">
+            <label class="orden-label">Cuándo enviar</label>
+            <div class="cuando-pills">
+              <button type="button" class="cuando-pill cuando-pill--active" data-value="ahora"    onclick="selectCuando(this)">⚡ Ahora</button>
+              <button type="button" class="cuando-pill"                     data-value="programar" onclick="selectCuando(this)">🗓 Programar</button>
+              <button type="button" class="cuando-pill" id="opt-split3" style="display:none;" data-value="split3" onclick="selectCuando(this)">◑ Dividir en 3</button>
+              <button type="button" class="cuando-pill" id="opt-split5" style="display:none;" data-value="split5" onclick="selectCuando(this)">◔ Dividir en 5</button>
+            </div>
+            <input type="hidden" id="orden-cuando-val" value="ahora" />
+            <div id="orden-fecha-wrap" class="hidden">
+              <input type="datetime-local" id="orden-fecha" class="orden-input" />
+            </div>
+          </div>
+
+          <!-- Observaciones -->
+          <div class="orden-field">
+            <label class="orden-label">Observaciones <span class="orden-label-opt">— opcional</span></label>
+            <textarea id="orden-obs" class="orden-textarea" placeholder="Notas para el trafficker..."></textarea>
+          </div>
+
+          <!-- Botón -->
+          <button class="orden-btn-agregar" onclick="agregarOrden()">
+            + Agregar Orden
+          </button>
+
+          </div><!-- /.orden-form -->
         </div>
+
+        <!-- Órdenes acumuladas -->
+        <div class="card" id="ordenes-acumuladas-card" style="display:none;">
+          <div class="comments-header">
+            <div class="comments-title-row">
+              <h2 class="card-title">Órdenes</h2>
+              <span id="ordenes-total-badge" class="comments-counter">0</span>
+            </div>
+            <p id="ordenes-total-costo" class="orden-total-costo hidden"></p>
+          </div>
+          <div id="ordenes-lista"></div>
+        </div>
+
+        <!-- Footer -->
+        <div class="nuevo-post-bar">
+          <button class="btn-ghost btn-sm" onclick="volverAComentarios()">← Atrás</button>
+          <button id="btn-solicitar" class="btn-publish" onclick="solicitarOrdenes()" disabled>
+            Solicitar
+          </button>
         </div>
 
       </section>
@@ -142,16 +302,31 @@
       <!-- STEP 4: resultado publicación -->
       <section id="step-resultado" class="hidden">
         <div class="card">
-          <h2 class="card-title">Resultado</h2>
+          <h2 class="card-title">Resultado de publicación</h2>
           <div class="resultado-box" id="resultado-content"></div>
-          <div class="btn-row" style="margin-top:20px">
-            <button class="btn-primary" onclick="reiniciar()">Procesar otro post</button>
-          </div>
+        </div>
+        <div class="card" id="resultado-comments-card" style="margin-top:12px">
+          <h2 class="card-title" style="padding:22px 24px 12px">Comentarios publicados</h2>
+          <div id="resultado-comments" class="resultado-comments"></div>
+        </div>
+        <div class="nuevo-post-bar" style="margin-top:12px">
+          <button class="btn-reiniciar" onclick="location.reload()">↺ Nuevo post</button>
         </div>
       </section>
 
     </main>
   </div>
+
+  <!-- Panel lateral de seleccionados -->
+  <div id="panel-seleccionados" class="panel-seleccionados hidden">
+    <div class="panel-header">
+      <span class="panel-title">Seleccionados</span>
+      <span class="panel-count" id="panel-count">0 / 20</span>
+    </div>
+    <div id="panel-lista" class="panel-lista"></div>
+  </div>
+
+  <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
   <script src="/static/app.js"></script>
 </body>

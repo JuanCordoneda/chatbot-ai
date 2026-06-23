@@ -51,22 +51,13 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
     if client_id is None and post_data.owner_username:
         client_id = detectar_cliente(post_data.owner_username)
 
-    try:
-        comentarios = generar_comentarios(post_data.caption, post_data.comments, client_id)
-    except Exception as e:
-        return f"Error generando los comentarios con IA: {e}"
-
-    resultado = None
-    error_growi = None
-
-    if GROWI_AVAILABLE:
-        try:
-            resultado = ejecutar_campana(post_url, comentarios)
-        except NotImplementedError as e:
-            error_growi = str(e)
-        except Exception as e:
-            error_growi = f"Error en Growi: {e}"
-    else:
-        error_growi = "Growi pendiente de configuración"
-
-    return generar_informe(post_url, comentarios, resultado, error=error_growi if not resultado else None)
+    # TEMPORAL: generación de comentarios deshabilitada para debugging del flujo
+    return (
+        f"[DEBUG] Scraping OK.\n"
+        f"owner: {post_data.owner_username}\n"
+        f"client_id: {client_id}\n"
+        f"is_video: {post_data.is_video}\n"
+        f"caption ({len(post_data.caption)} chars): {post_data.caption[:200]}\n"
+        f"transcription ({len(post_data.transcription)} chars): {post_data.transcription[:200] if post_data.transcription else '(vacía)'}\n"
+        f"photo_description: {post_data.photo_description[:200] if post_data.photo_description else '(vacía)'}"
+    )
