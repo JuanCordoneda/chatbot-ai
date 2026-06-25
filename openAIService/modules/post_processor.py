@@ -89,7 +89,14 @@ def _fetch_instaloader(shortcode: str) -> dict:
             quiet=True,
             max_connection_attempts=1,
         )
-        if os.path.exists(SESSION_FILE):
+        session_b64 = os.environ.get("INSTAGRAM_SESSION_B64")
+        if session_b64:
+            import base64, tempfile as _tf
+            tmp = _tf.NamedTemporaryFile(delete=False, suffix=".ofc")
+            tmp.write(base64.b64decode(session_b64))
+            tmp.close()
+            L.load_session_from_file("crowagency.ofc", tmp.name)
+        elif os.path.exists(SESSION_FILE):
             L.load_session_from_file("crowagency.ofc", SESSION_FILE)
 
         post = instaloader.Post.from_shortcode(L.context, shortcode)
