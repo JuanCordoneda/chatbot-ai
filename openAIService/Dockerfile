@@ -15,4 +15,4 @@ EXPOSE 8000
 
 ENV FLASK_APP=langchainService.py
 ENV FLASK_ENV=development
-CMD ["flask", "run", "--host=0.0.0.0", "--port=8000", "--reload"]
+CMD ["python", "langchainService.py"]
