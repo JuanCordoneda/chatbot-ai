@@ -254,10 +254,9 @@ function agregarComentario(texto, index) {
     <span class="comentario-num">${i + 1}</span>
     <input type="checkbox" id="chk-${i}" onchange="actualizarConteo()" />
     <label class="comentario-texto">${escapeHtml(texto)}</label>
-    <button class="btn-copy" onclick="copiarComentario(event, ${i})">Copiar</button>
   `;
   item.addEventListener("click", (e) => {
-    if (e.target.tagName === "INPUT" || e.target.classList.contains("btn-copy")) return;
+    if (e.target.tagName === "INPUT") return;
     const chk = item.querySelector("input");
     if (!chk.checked && contarSeleccionados() >= 20) return;
     chk.checked = !chk.checked;

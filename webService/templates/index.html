@@ -71,19 +71,31 @@
           <p class="hero-sub">Pegá el link del post de Instagram y GROWI genera los comentarios listos para publicar.</p>
         </div>
 
-        <div class="card input-card">
-          <div class="input-row">
+        <div class="ig-form">
+          <label class="ig-form-label">Link del post</label>
+          <div class="ig-field">
+            <svg class="ig-field-icon" width="17" height="17" viewBox="0 0 24 24" fill="none">
+              <rect x="2" y="2" width="20" height="20" rx="6" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor"/>
+            </svg>
             <input
-              type="text"
+              type="url"
               id="ig-link"
               class="ig-input"
               placeholder="https://www.instagram.com/p/..."
               autocomplete="off"
               spellcheck="false"
+              inputmode="url"
             />
-            <button class="btn-primary" onclick="generarComentarios()">Generar →</button>
           </div>
           <div id="error-msg" class="error hidden"></div>
+          <button class="ig-btn" onclick="generarComentarios()">
+            Generar comentarios
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
         </div>
 
         <div class="hero-features">

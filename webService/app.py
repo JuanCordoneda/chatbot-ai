@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for, make_response
 import requests
 import os
 
@@ -33,7 +33,10 @@ def login():
             session["is_admin"] = user["admin"]
             return redirect(url_for("index"))
         error = "Usuario o contraseña incorrectos"
-    return render_template("login.html", error=error)
+    resp = make_response(render_template("login.html", error=error))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/logout")
@@ -46,7 +49,10 @@ def logout():
 def index():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    return render_template("index.html", is_admin=session.get("is_admin", False))
+    resp = make_response(render_template("index.html", is_admin=session.get("is_admin", False)))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/api/procesar", methods=["POST"])

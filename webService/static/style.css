@@ -48,6 +48,9 @@ body {
   min-height: 100vh;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+.app {
   zoom: 1.2;
 }
 
@@ -172,6 +175,8 @@ body.light::after {
   border-bottom: 1px solid rgba(255,255,255,0.15);
   position: sticky;
   top: 0;
+  width: 100%;
+  box-sizing: border-box;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -265,6 +270,12 @@ body.light::after {
   width: 100%;
   margin: 0 auto;
   padding: 72px 28px 120px;
+}
+
+#step-comentarios,
+#step-ordenes,
+#step-resultado {
+  padding-top: 32px;
 }
 
 /* ── Hero ── */
@@ -414,6 +425,104 @@ body.light .orden-btn-agregar {
   font-weight: 400;
 }
 
+/* ── IG Form ── */
+.ig-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.ig-form-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  padding-left: 2px;
+}
+
+.ig-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1.5px solid var(--border2);
+  border-radius: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+
+.ig-field:focus-within {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(250,185,0,0.12), 0 2px 12px rgba(0,0,0,0.25);
+}
+
+.ig-field-icon {
+  position: absolute;
+  left: 16px;
+  color: var(--faint);
+  pointer-events: none;
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.ig-field:focus-within .ig-field-icon {
+  color: var(--yellow);
+}
+
+.ig-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.97rem;
+  padding: 17px 16px 17px 46px;
+  outline: none;
+  width: 100%;
+}
+
+.ig-input::placeholder {
+  color: var(--faint);
+  font-size: 0.9rem;
+}
+
+.ig-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  background: linear-gradient(135deg, #FAB900 0%, #FFD740 100%);
+  color: #1a1a1a;
+  font-family: var(--font);
+  font-size: 0.97rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 14px;
+  padding: 17px 24px;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  box-shadow: 0 4px 24px rgba(250,185,0,0.3), 0 1px 0 rgba(255,255,255,0.25) inset;
+  transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+
+.ig-btn:hover {
+  filter: brightness(1.07);
+  box-shadow: 0 6px 32px rgba(250,185,0,0.44), 0 1px 0 rgba(255,255,255,0.25) inset;
+}
+
+.ig-btn:active { transform: scale(0.98); }
+
+.ig-btn:disabled {
+  background: var(--surface3);
+  color: var(--muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  filter: none;
+}
+
 /* ── Cards ── */
 .card {
   background: var(--surface);
@@ -450,19 +559,6 @@ body.light .orden-btn-agregar {
   gap: 8px;
   align-items: stretch;
 }
-
-.ig-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: var(--text);
-  font-family: var(--font);
-  font-size: 1rem;
-  padding: 16px 20px;
-  outline: none;
-}
-
-.ig-input::placeholder { color: var(--muted2); font-size: 0.95rem; }
 
 /* ── Hero features ── */
 .hero-features {
@@ -2180,4 +2276,339 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   font-size: 0.73rem;
   color: var(--faint);
   opacity: 0.6;
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  body { zoom: 1; }
+
+  /* ── Header ── */
+  .header {
+    padding: 0 16px;
+    height: 56px;
+  }
+
+  .header-tag, .header-sep { display: none; }
+
+  .logo { height: 30px; }
+
+  .header-actions { gap: 6px; }
+
+  .header-btn-group {
+    border-radius: 9px;
+    gap: 0;
+  }
+
+  /* En mobile: solo icono, texto oculto */
+  .header-action-btn {
+    padding: 8px 10px;
+    gap: 0;
+  }
+
+  .header-action-btn span { display: none; }
+  .header-action-btn svg { width: 15px; height: 15px; }
+
+  .header-action-btn--icon { padding: 8px 10px; }
+
+  .btn-theme {
+    font-size: 0.7rem;
+    padding: 6px 10px;
+    border-radius: 9px;
+    gap: 4px;
+  }
+
+  /* ── Main layout ── */
+  .main {
+    padding: 0 18px 100px;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100dvh - 58px);
+  }
+
+  /* ── Step input: centrado vertical ── */
+  #step-input {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 32px;
+    padding-bottom: 40px;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    margin-bottom: 32px;
+    text-align: left;
+  }
+
+  .hero-eyebrow {
+    font-size: 0.6rem;
+    padding: 5px 13px;
+    margin-bottom: 20px;
+    letter-spacing: 0.12em;
+  }
+
+  .hero-title {
+    font-size: 2.6rem;
+    letter-spacing: -0.045em;
+    line-height: 1.05;
+    margin-bottom: 16px;
+  }
+
+  .hero-sub {
+    font-size: 0.92rem;
+    line-height: 1.68;
+    color: var(--faint);
+    max-width: 100%;
+    margin: 0;
+    text-align: left;
+  }
+
+  .hero-features {
+    gap: 6px;
+    margin-top: 20px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .feature-pill {
+    font-size: 0.65rem;
+    padding: 5px 12px;
+  }
+
+  /* ── IG Form mobile ── */
+  .ig-form { gap: 9px; margin-bottom: 0; }
+
+  .ig-field { border-radius: 13px; }
+
+  .ig-input {
+    font-size: 0.95rem;
+    padding: 16px 14px 16px 44px;
+  }
+
+  .ig-input::placeholder { font-size: 0.85rem; }
+
+  .ig-btn {
+    padding: 16px;
+    font-size: 1rem;
+    border-radius: 13px;
+  }
+
+  /* ── Error ── */
+  .error { margin: 0; font-size: 0.8rem; }
+
+  /* ── Cards generales ── */
+  .card {
+    padding: 20px 18px;
+    border-radius: 18px;
+    margin-bottom: 12px;
+  }
+
+  .card-title { font-size: 1rem; }
+
+  /* ── Scrape card ── */
+  .scrape-card { padding: 16px 18px; }
+
+  .scrape-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+  }
+
+  .scrape-item {
+    padding: 12px 14px;
+    border-radius: 12px;
+    gap: 8px;
+  }
+
+  .scrape-label { font-size: 0.55rem; }
+  .scrape-value { font-size: 1rem; }
+
+  /* ── Comments card ── */
+  .comments-card { border-radius: 16px; }
+
+  .comments-header {
+    padding: 14px 14px 0;
+  }
+
+  .comments-title-row { gap: 8px; margin-bottom: 2px; }
+
+  .card-title { font-size: 0.92rem; }
+
+  .comments-counter { font-size: 0.7rem; padding: 2px 8px; }
+
+  .stream-status {
+    font-size: 0.75rem;
+    padding: 4px 0 10px;
+    min-height: 1.4em;
+  }
+
+  .skeleton-list { padding: 6px 14px 10px; }
+  .skeleton-item { height: 12px; margin: 14px 0; }
+
+  .typing-preview {
+    margin: 0 14px 6px;
+    padding: 10px 13px;
+    font-size: 0.85rem;
+  }
+
+  #lista-comentarios { padding: 0 6px; }
+
+  .comentario-item {
+    padding: 11px 8px;
+    gap: 10px;
+    border-radius: 10px;
+  }
+
+  .comentario-num {
+    font-size: 0.58rem;
+    min-width: 14px;
+  }
+
+  .comentario-item input[type="checkbox"] {
+    width: 17px;
+    height: 17px;
+    min-width: 17px;
+    border-radius: 5px;
+  }
+
+  .comentario-texto {
+    font-size: 0.87rem;
+    line-height: 1.55;
+  }
+
+  /* ── Actions bar ── */
+  .comments-actions-bar {
+    padding: 10px 14px 14px;
+    gap: 9px;
+    border-top-color: rgba(255,255,255,0.1);
+  }
+
+  .select-row { gap: 6px; flex-wrap: nowrap; }
+
+  .btn-ghost.btn-sm {
+    font-size: 0.7rem;
+    padding: 6px 11px;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+
+  .count-label {
+    font-size: 0.75rem;
+    font-weight: 800;
+    padding: 4px 12px;
+  }
+
+  .count-label--lleno {
+    box-shadow: 0 3px 12px rgba(250,185,0,0.28);
+  }
+
+  .btn-publish {
+    font-size: 0.97rem;
+    font-weight: 800;
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  /* ── Nuevo post bar ── */
+  .nuevo-post-bar {
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .btn-cargar-mas,
+  .btn-reiniciar {
+    width: 100%;
+    border-radius: 14px;
+    padding: 16px;
+    font-size: 1rem;
+  }
+
+  /* ── Step card ── */
+  .step-card {
+    padding: 16px 18px;
+    border-radius: 14px;
+    gap: 14px;
+  }
+
+  /* ── Ordenes ── */
+  .ordenes-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    border-radius: 16px;
+    padding: 18px;
+  }
+
+  .ordenes-hero-url { max-width: 100%; }
+  .ordenes-hero-right { align-items: flex-start; }
+  .ordenes-hero-client { font-size: 0.95rem; }
+
+  .orden-form-card { border-radius: 16px; }
+  .orden-form { padding: 18px 18px 20px; gap: 16px; }
+
+  .cuando-pills { flex-wrap: wrap; gap: 6px; }
+  .cuando-pill  { font-size: 0.8rem; padding: 8px 14px; }
+
+  .orden-input, .orden-select, .orden-textarea {
+    font-size: 0.95rem;
+    padding: 12px 14px;
+  }
+
+  .orden-btn-agregar {
+    padding: 15px;
+    font-size: 0.95rem;
+    border-radius: 11px;
+  }
+
+  /* ── Panel seleccionados → oculto en mobile ── */
+  .panel-seleccionados {
+    display: none !important;
+  }
+
+  /* Count label más prominente en mobile */
+  .count-label {
+    font-size: 0.85rem;
+    font-weight: 800;
+    padding: 6px 16px;
+    border-radius: 20px;
+  }
+
+  .count-label--lleno {
+    box-shadow: 0 4px 16px rgba(250,185,0,0.3);
+  }
+
+  /* ── Overlay ── */
+  .overlay-card {
+    padding: 36px 28px;
+    min-width: 280px;
+    border-radius: 24px;
+  }
+
+  /* ── Login ── */
+  .login-page {
+    padding: 1rem;
+    align-items: flex-start;
+    padding-top: 5vh;
+  }
+
+  .login-card {
+    padding: 2rem 1.5rem 1.75rem;
+    border-radius: 24px;
+    gap: 1.2rem;
+    width: 100%;
+  }
+
+  .login-logo-ring img { height: 72px; border-radius: 18px; }
+  .login-title { font-size: 1.4rem; }
+  .login-sub { font-size: 0.8rem; }
+
+  .login-input-wrap input {
+    font-size: 1rem !important;
+    padding: 0.9rem 3rem 0.9rem 2.75rem !important;
+  }
+
+  .login-btn { padding: 1rem; font-size: 1rem; }
 }
