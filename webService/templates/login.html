@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GROWI — Iniciar sesión</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=5" />
+  <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
+</head>
+<body class="login-body">
+
+  <div class="login-bg">
+    <div class="login-blob login-blob-1"></div>
+    <div class="login-blob login-blob-2"></div>
+    <div class="login-blob login-blob-3"></div>
+  </div>
+
+  <div class="login-page">
+    <div class="login-card">
+
+      <!-- Acento superior -->
+      <div class="login-card-accent"></div>
+
+      <!-- Logo -->
+      <div class="login-logo">
+        <div class="login-logo-ring">
+          <img src="/static/growi.png" />
+        </div>
+      </div>
+
+      <!-- Título -->
+      <div class="login-header">
+        <h1 class="login-title">Bienvenido</h1>
+        <p class="login-sub">Ingresá tus credenciales para continuar</p>
+      </div>
+
+      {% if error %}
+        <div class="login-error">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#ff6b6b" stroke-width="1.5"/><path d="M8 4.5v4M8 11h.01" stroke="#ff6b6b" stroke-width="1.5" stroke-linecap="round"/></svg>
+          {{ error }}
+        </div>
+      {% endif %}
+
+      <!-- Form -->
+      <form method="POST" action="/login" class="login-form" id="loginForm">
+
+        <div class="login-field" style="--delay:0.08s">
+          <label for="username">Usuario</label>
+          <div class="login-input-wrap">
+            <svg class="login-input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input type="text" id="username" name="username" placeholder="Tu usuario" autocomplete="username" autofocus required />
+          </div>
+        </div>
+
+        <div class="login-field" style="--delay:0.16s">
+          <label for="password">Contraseña</label>
+          <div class="login-input-wrap">
+            <svg class="login-input-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="3" y="7" width="10" height="7" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input type="password" id="password" name="password" placeholder="Tu contraseña" autocomplete="current-password" required />
+            <button type="button" class="login-eye" id="togglePwd" tabindex="-1" aria-label="Mostrar contraseña">
+              <svg id="eyeIcon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <ellipse cx="8" cy="8" rx="6" ry="4" stroke="currentColor" stroke-width="1.5"/>
+                <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="login-btn" id="loginBtn" style="--delay:0.24s">
+          <span class="login-btn-text">Ingresar</span>
+          <span class="login-btn-spinner" aria-hidden="true"></span>
+          <svg class="login-btn-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </form>
+
+      <p class="login-footer">GROWI Agency &copy; 2026</p>
+    </div>
+  </div>
+
+  <script>
+    /* Toggle password visibility */
+    const togglePwd = document.getElementById('togglePwd');
+    const pwdInput  = document.getElementById('password');
+    const eyeIcon   = document.getElementById('eyeIcon');
+
+    const eyeOpen   = `<ellipse cx="8" cy="8" rx="6" ry="4" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>`;
+    const eyeSlash  = `<path d="M1 1l14 14M6.5 6.6A2 2 0 0 0 9.4 9.5M3.1 3.6A6.1 6.1 0 0 0 2 8c1 3 4 4.5 6 4.5a6 6 0 0 0 2.9-.8M5 5.1A5.9 5.9 0 0 0 2 8c1 3 4 4.5 6 4.5 1 0 2-.3 2.9-.8M10.5 10.8A5.7 5.7 0 0 0 14 8c-1-3-4-4.5-6-4.5-.7 0-1.4.1-2 .4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>`;
+
+    togglePwd.addEventListener('click', () => {
+      const showing = pwdInput.type === 'text';
+      pwdInput.type = showing ? 'password' : 'text';
+      eyeIcon.innerHTML = showing ? eyeOpen : eyeSlash;
+      togglePwd.classList.toggle('active', !showing);
+    });
+
+    /* Loading state on submit */
+    document.getElementById('loginForm').addEventListener('submit', () => {
+      const btn = document.getElementById('loginBtn');
+      btn.classList.add('loading');
+      btn.disabled = true;
+    });
+  </script>
+
+</body>
+</html>

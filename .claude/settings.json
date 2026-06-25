@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/abc/Desktop/CROW/chatbot-ai && /usr/local/bin/docker compose restart web-service openai-service &>> /tmp/flask-growi.log",
+            "async": true,
+            "statusMessage": "Reiniciando servicios..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/abc/Desktop/CROW/chatbot-ai && /usr/local/bin/docker compose restart web-service openai-service &>> /tmp/flask-growi.log &",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

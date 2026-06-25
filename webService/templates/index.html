@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
 
@@ -23,7 +24,7 @@
         </svg>
         <img src="/static/growi.png" alt="GROWI" class="overlay-logo-sm" />
       </div>
-      <p class="overlay-title">Procesando post</p>
+      <p class="overlay-title">Procesando post...</p>
       <p class="overlay-status" id="loading-text">Iniciando...</p>
     </div>
   </div>
@@ -38,9 +39,22 @@
         <span class="header-tag">Engagement Tool</span>
       </div>
       <div class="header-actions">
-        <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
-        <button class="btn-ghost btn-sm" onclick="simularOrdenes()">Sim. Órdenes</button>
-        <button class="btn-icon" onclick="location.reload()" title="Reiniciar">↺</button>
+        <button class="btn-theme" id="btn-theme" onclick="toggleTheme()">☀ Light</button>
+        <div class="header-btn-group">
+          {% if is_admin %}
+          <button class="header-action-btn" onclick="hacerPrueba()" title="Prueba">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 5-10 5V3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            Prueba
+          </button>
+          <button class="header-action-btn" onclick="simularOrdenes()" title="Simular órdenes">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="2" rx="1" fill="currentColor"/><rect x="2" y="7.5" width="9" height="2" rx="1" fill="currentColor"/><rect x="2" y="11" width="6" height="2" rx="1" fill="currentColor"/></svg>
+            Sim. Órdenes
+          </button>
+          {% endif %}
+          <button class="header-action-btn header-action-btn--icon" onclick="location.reload()" title="Reiniciar">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -86,12 +100,12 @@
         <div class="card scrape-card">
           <div class="scrape-grid">
             <div class="scrape-item">
-              <span class="scrape-label">Cuenta</span>
-              <span id="scrape-owner" class="scrape-value">—</span>
-            </div>
-            <div class="scrape-item">
               <span class="scrape-label">Cliente</span>
               <span id="client-badge" class="scrape-value scrape-value--accent">—</span>
+            </div>
+            <div class="scrape-item">
+              <span class="scrape-label">Cuenta</span>
+              <span id="scrape-owner" class="scrape-value">—</span>
             </div>
           </div>
           <div class="scrape-details-row">
@@ -149,7 +163,6 @@
 
         <!-- Footer -->
         <div class="nuevo-post-bar">
-          <button class="btn-ghost btn-sm" onclick="hacerPrueba()">Prueba</button>
           <button id="btn-cargar-mas" class="btn-cargar-mas hidden" onclick="cargarMas()">+ Cargar más</button>
           <button class="btn-reiniciar" onclick="location.reload()">↺ Nuevo post</button>
         </div>
@@ -230,13 +243,18 @@
           <!-- Cantidad + Link -->
           <div class="orden-row">
             <div class="orden-field orden-field--qty">
-              <div class="orden-label-row">
-                <label class="orden-label">Cantidad</label>
-                <span id="orden-costo-badge" class="orden-inline-badge hidden"></span>
-              </div>
+              <label class="orden-label">Cant. Inicial</label>
+              <input type="number" id="orden-cantidad-inicial" class="orden-input" placeholder="0" min="0" oninput="onCantidadInput()" />
+            </div>
+            <div class="orden-field orden-field--qty">
+              <label class="orden-label">Cant. Final</label>
               <input type="number" id="orden-cantidad" class="orden-input" placeholder="1000" min="1" oninput="onCantidadInput()" />
               <span id="orden-cantidad-hint" class="orden-field-hint hidden"></span>
               <span id="orden-cantidad-error" class="orden-field-error hidden">Cantidad inválida</span>
+            </div>
+            <div class="orden-field orden-field--costo">
+              <label class="orden-label">Costo total</label>
+              <input type="text" id="orden-costo-display" class="orden-input orden-input--readonly" placeholder="—" readonly />
             </div>
             <div class="orden-field orden-field--grow">
               <label class="orden-label">Link</label>

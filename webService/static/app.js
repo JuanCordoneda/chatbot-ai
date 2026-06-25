@@ -279,7 +279,6 @@ function agregarComentario(texto, index) {
   const count = lista.querySelectorAll(".comentario-item").length;
   if (counter) {
     counter.textContent = `${count} / 60`;
-    counter.classList.remove("hidden");
   }
 
   actualizarConteo();
@@ -497,6 +496,11 @@ async function irAOrdenes() {
   await actualizarProductos();
   renderOrdenes();
 
+  // Ocultar panel de seleccionados y counter al pasar al form
+  document.getElementById("panel-seleccionados").classList.add("hidden");
+  document.getElementById("comments-counter").classList.add("hidden");
+  document.getElementById("status-listo").classList.add("hidden");
+
   hide("step-comentarios");
   show("step-ordenes");
 }
@@ -510,8 +514,8 @@ async function actualizarProductos() {
   clearFieldError("orden-producto");
   document.getElementById("opt-split3").style.display = "none";
   document.getElementById("opt-split5").style.display = "none";
-  document.getElementById("orden-demora-badge").classList.add("hidden");
-  document.getElementById("orden-costo-badge").classList.add("hidden");
+  document.getElementById("orden-demora-badge")?.classList.add("hidden");
+  document.getElementById("orden-costo-badge")?.classList.add("hidden");
 
   // Obtener nombre de la red social en paralelo con los productos
   const [, ] = await Promise.all([
@@ -583,12 +587,12 @@ async function obtenerCosto() {
 }
 
 async function _fetchCosto() {
-  const rsId   = document.getElementById("orden-redsocial").value;
-  const prodId = document.getElementById("orden-producto").value;
-  const badge  = document.getElementById("orden-costo-badge");
-  const hint   = document.getElementById("orden-cantidad-hint");
-  const cantEl = document.getElementById("orden-cantidad");
-  badge.classList.add("hidden");
+  const rsId       = document.getElementById("orden-redsocial").value;
+  const prodId     = document.getElementById("orden-producto").value;
+  const hint       = document.getElementById("orden-cantidad-hint");
+  const cantEl     = document.getElementById("orden-cantidad");
+  const costoField = document.getElementById("orden-costo-display");
+  if (costoField) costoField.value = "";
   if (!prodId) return;
 
   try {
@@ -623,20 +627,10 @@ async function _fetchCosto() {
 
     _lastCosto = data.costoTrafico != null ? parseFloat(data.costoTrafico) : null;
 
-    // Costo total (usar el valor ya ajustado del input)
-    if (data.costoTrafico != null) {
+    // Mostrar costo en el campo readonly
+    if (costoField && data.costoTrafico != null) {
       const costo = parseFloat(data.costoTrafico);
-      const cantFinal = cantEl.value;
-      if (costo === 0) {
-        badge.textContent = "💲 $0";
-        badge.className = "orden-inline-badge hidden";
-      } else {
-        badge.textContent = cantFinal
-          ? `💲 $${costo.toFixed(4)}`
-          : `💲 $${costo.toFixed(4)} / 1000`;
-        badge.className = "orden-inline-badge orden-inline-badge--yellow";
-      }
-      badge.classList.remove("hidden");
+      costoField.value = costo === 0 ? "$0.00" : `$${costo.toFixed(4)}`;
     }
   } catch { /* silencioso */ }
 }
@@ -645,7 +639,8 @@ function onProductoChange() {
   clearFieldError("orden-producto");
   const prodSelect = document.getElementById("orden-producto");
   const prodId = parseInt(prodSelect.value);
-  const isComment = prodId === 95 || prodId === 94 || prodId === 36;
+  const prodNombre = (prodSelect.options[prodSelect.selectedIndex]?.text || "").toLowerCase();
+  const isComment = (prodNombre.includes("comentario") || prodNombre.includes("comment")) && !prodNombre.includes("custom");
   document.getElementById("opt-split3").style.display = isComment ? "none" : "";
   document.getElementById("opt-split5").style.display = isComment ? "none" : "";
   const cuandoVal = document.getElementById("orden-cuando-val")?.value;
@@ -786,6 +781,12 @@ function agregarOrden() {
     obs: obsEl.value.trim(),
     costo: _lastCosto,
     tipo: "normal",
+    fechaProgramada: cuando === "programar" && fechaEl.value
+      ? (() => {
+          const d = new Date(fechaEl.value);
+          return isNaN(d) ? "" : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+        })()
+      : "",
   });
 
   // Reset form
@@ -800,9 +801,11 @@ function agregarOrden() {
   document.getElementById("orden-fecha-wrap").classList.add("hidden");
   document.getElementById("opt-split3").style.display = "none";
   document.getElementById("opt-split5").style.display = "none";
-  document.getElementById("orden-demora-badge").classList.add("hidden");
-  document.getElementById("orden-costo-badge").classList.add("hidden");
+  document.getElementById("orden-demora-badge")?.classList.add("hidden");
+  document.getElementById("orden-costo-badge")?.classList.add("hidden");
   document.getElementById("orden-cantidad-hint").classList.add("hidden");
+  const costoField = document.getElementById("orden-costo-display");
+  if (costoField) costoField.value = "";
   _lastCosto = null;
 
   renderOrdenes();
@@ -816,6 +819,65 @@ function agregarOrden() {
 function eliminarOrden(id) {
   ordenes = ordenes.filter(o => o.id !== id);
   renderOrdenes();
+}
+
+function editarOrden(id) {
+  const o = ordenes.find(ord => ord.id === id);
+  if (!o) return;
+
+  // Para órdenes de comentarios: volver al step de comentarios para reseleccionar
+  if (o.tipo === "comentarios") {
+    ordenes = ordenes.filter(ord => ord.id !== id);
+    renderOrdenes();
+    hide("step-ordenes");
+    show("step-comentarios");
+    document.getElementById("panel-seleccionados").classList.remove("hidden");
+    document.getElementById("comments-counter").classList.remove("hidden");
+    return;
+  }
+
+  // Cargar red social en el custom dropdown
+  const rsOption = document.querySelector(`.rs-option[data-value="${o.redsocialId}"]`);
+  if (rsOption) selectRs(rsOption);
+
+  // Cargar producto (esperar a que actualizarProductos cargue y luego setear)
+  const prodSelect = document.getElementById("orden-producto");
+  const afterLoad = () => {
+    prodSelect.value = o.productoId;
+    onProductoChange();
+  };
+  // Si ya está cargado ese producto en el select, setear directo
+  if ([...prodSelect.options].some(opt => opt.value == o.productoId)) {
+    afterLoad();
+  } else {
+    // esperar a que actualizarProductos termine
+    const orig = window._onProductosLoaded;
+    window._onProductosLoaded = () => { afterLoad(); window._onProductosLoaded = orig; };
+  }
+
+  // Cantidad, link, obs
+  document.getElementById("orden-cantidad").value = o.cantidad;
+  document.getElementById("orden-link").value = o.link;
+  document.getElementById("orden-obs").value = o.obs || "";
+
+  // Cuándo
+  document.getElementById("orden-cuando-val").value = o.cuando;
+  document.querySelectorAll(".cuando-pill").forEach(b => b.classList.remove("cuando-pill--active"));
+  const pill = document.querySelector(`.cuando-pill[data-value="${o.cuando}"]`);
+  if (pill) pill.classList.add("cuando-pill--active");
+  const fechaWrap = document.getElementById("orden-fecha-wrap");
+  if (o.cuando === "programar") {
+    fechaWrap.classList.remove("hidden");
+  } else {
+    fechaWrap.classList.add("hidden");
+  }
+
+  // Eliminar la orden (se re-agrega al guardar)
+  ordenes = ordenes.filter(ord => ord.id !== id);
+  renderOrdenes();
+
+  // Scroll al form
+  document.querySelector(".orden-form-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderOrdenes() {
@@ -870,7 +932,8 @@ function renderOrdenes() {
         ${o.obs ? `<div class="orden-card-obs">"${escapeHtml(o.obs)}"</div>` : ""}
       </div>
       <div class="orden-card-remove">
-        <button onclick="eliminarOrden(${o.id})" title="Eliminar">×</button>
+        <button class="orden-card-btn-edit" onclick="editarOrden(${o.id})" title="Editar">✎</button>
+        <button class="orden-card-btn-del" onclick="eliminarOrden(${o.id})" title="Eliminar">×</button>
       </div>
     </div>`;
   }).join("");
@@ -879,6 +942,8 @@ function renderOrdenes() {
 function volverAComentarios() {
   hide("step-ordenes");
   show("step-comentarios");
+  document.getElementById("panel-seleccionados").classList.remove("hidden");
+  document.getElementById("comments-counter").classList.remove("hidden");
 }
 
 async function solicitarOrdenes() {
@@ -889,9 +954,12 @@ async function solicitarOrdenes() {
   btn.textContent = "Solicitando...";
 
   const ordenComentarios = ordenes.find(o => o.tipo === "comentarios");
+  const ordenesNormales  = ordenes.filter(o => o.tipo !== "comentarios");
 
   try {
     let data = {};
+
+    // Comentarios: publicar en Instagram vía IA
     if (ordenComentarios && comentariosParaPublicar.length > 0) {
       const resp = await fetch("/api/publicar", {
         method: "POST",
@@ -899,6 +967,51 @@ async function solicitarOrdenes() {
         body: JSON.stringify({ url: currentUrl, comentarios: comentariosParaPublicar }),
       });
       data = await resp.json();
+    }
+
+    // Followers / likes / etc: enviar al CRM
+    if (ordenesNormales.length > 0) {
+      const costoTotal = ordenesNormales.reduce((s, o) => s + (o.costo || 0), 0);
+
+      // Hora AR del servidor para programadas
+      let serverDateAR = "";
+      try {
+        const tsResp = await fetch("/api/server_time_ar");
+        const tsData = await tsResp.json();
+        serverDateAR = tsData.ymdhmAR || "";  // "2026-06-25 06:54"
+      } catch { /* silencioso */ }
+
+      const crmOrdenes = ordenesNormales.map(o => {
+        const programado = o.cuando !== "ahora" ? 1 : 0;
+        const fechaProg  = o.cuando === "programar" && o.fechaProgramada
+          ? o.fechaProgramada
+          : (programado ? serverDateAR : "");
+        return {
+          redsocial_id: o.redsocialId,
+          redsocial:    o.redsocial,
+          prod:         o.productoNombre,
+          demora:       " - ",
+          url:          o.link,
+          costo:        o.costo || 0,
+          disponible:   0,
+          obs:          o.obs || "",
+          cant_inicial: String(o.cantidad),
+          cantidad:     String(o.cantidad),
+          programado,
+          fecha_programada: fechaProg,
+          comentarios: [],
+        };
+      });
+
+      const traficoResp = await fetch("/api/enviar_trafico", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ordenes: crmOrdenes, disponible: 0, costo_total: costoTotal }),
+      });
+      const traficoData = await traficoResp.json().catch(() => ({}));
+      if (traficoData.error) {
+        data.error = (data.error ? data.error + " | " : "") + traficoData.error;
+      }
     }
 
     hide("step-ordenes");
@@ -1025,8 +1138,29 @@ async function simularOrdenes() {
   hide("step-input");
   hide("step-comentarios");
   hide("step-resultado");
+  document.getElementById("panel-seleccionados").classList.add("hidden");
+  document.getElementById("comments-counter").classList.add("hidden");
   show("step-ordenes");
 }
+
+// ── Theme switcher ──
+function toggleTheme() {
+  const isLight = document.body.classList.toggle("light");
+  localStorage.setItem("theme", isLight ? "light" : "dark");
+  document.getElementById("btn-theme").textContent = isLight ? "☾ Dark" : "☀ Light";
+}
+
+// Aplicar tema guardado al cargar
+(function() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "light") {
+    document.body.classList.add("light");
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("btn-theme");
+      if (btn) btn.textContent = "☾ Dark";
+    });
+  }
+})();
 
 // Enter key en el input
 document.addEventListener("DOMContentLoaded", () => {
