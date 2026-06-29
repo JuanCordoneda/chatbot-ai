@@ -1,6 +1,6 @@
-import instaloader
 import re
 import os
+import json
 import html as html_lib
 import tempfile
 import concurrent.futures
@@ -52,8 +52,58 @@ def _transcribe_video(video_path: str) -> str:
         return f"(transcripción no disponible: {e})"
 
 
+def _load_ig_cookies() -> dict:
+    """
+    Carga las cookies de Instagram desde env vars o archivo de sesión.
+    Prioridad: INSTAGRAM_COOKIES_JSON > INSTAGRAM_SESSION_B64 (formato instaloader pickle)
+    """
+    # Formato nuevo: JSON con las cookies directamente
+    cookies_json = os.environ.get("INSTAGRAM_COOKIES_JSON")
+    if cookies_json:
+        try:
+            return json.loads(cookies_json)
+        except Exception as e:
+            print(f"[ig_cookies] error parseando INSTAGRAM_COOKIES_JSON: {e}", flush=True)
+
+    # Formato viejo: pickle de instaloader
+    import pickle, base64
+    session_b64 = os.environ.get("INSTAGRAM_SESSION_B64")
+    if session_b64:
+        try:
+            data = pickle.loads(base64.b64decode(session_b64))
+            return {
+                "sessionid": data.get("sessionid", ""),
+                "csrftoken": data.get("csrftoken", ""),
+                "ds_user_id": data.get("ds_user_id", ""),
+                "mid": data.get("mid", ""),
+                "ig_did": data.get("ig_did", ""),
+                "datr": data.get("datr", ""),
+            }
+        except Exception as e:
+            print(f"[ig_cookies] error cargando INSTAGRAM_SESSION_B64: {e}", flush=True)
+
+    # Archivo de sesión local (docker-compose / dev)
+    session_file = os.path.join(os.path.dirname(__file__), "..", "session-crowagency.ofc")
+    if os.path.exists(session_file):
+        try:
+            with open(session_file, "rb") as f:
+                data = pickle.load(f)
+            return {
+                "sessionid": data.get("sessionid", ""),
+                "csrftoken": data.get("csrftoken", ""),
+                "ds_user_id": data.get("ds_user_id", ""),
+                "mid": data.get("mid", ""),
+                "ig_did": data.get("ig_did", ""),
+                "datr": data.get("datr", ""),
+            }
+        except Exception as e:
+            print(f"[ig_cookies] error cargando session file: {e}", flush=True)
+
+    return {}
+
+
 def _fetch_fast(shortcode: str) -> dict:
-    """Fetch post data quickly via public HTML (facebookexternalhit UA gets og tags)."""
+    """Fetch rápido via HTML público con UA de Facebook."""
     result = {}
     try:
         r = req.get(
@@ -68,7 +118,6 @@ def _fetch_fast(shortcode: str) -> dict:
             m = re.search(r'<meta property="og:description" content="([^"]*)"', r.text)
             if m:
                 raw = html_lib.unescape(m.group(1))
-                # Formato: "4,550 likes, 26 comments - peterjfournier on June 19, 2026: "caption""
                 user_m = re.search(r'- ([A-Za-z0-9._]+) on [A-Za-z]+ \d+', raw)
                 if user_m:
                     result["owner_username"] = user_m.group(1)
@@ -76,12 +125,10 @@ def _fetch_fast(shortcode: str) -> dict:
                 if caption_m:
                     result["caption"] = caption_m.group(1)
                 elif user_m:
-                    # caption vacío pero sabemos el username → no usamos el raw sucio
                     result["caption"] = ""
                 else:
                     result["caption"] = raw
                 print(f"[fast_fetch] username={result.get('owner_username')} caption={result.get('caption','')[:60]}", flush=True)
-            # Detectar si es video por og:type y extraer video URL
             m3 = re.search(r'<meta property="og:type" content="([^"]*)"', r.text)
             if m3:
                 result["is_video"] = "video" in m3.group(1).lower()
@@ -96,49 +143,60 @@ def _fetch_fast(shortcode: str) -> dict:
     return result
 
 
-def _fetch_instaloader(shortcode: str) -> dict:
-    """Full fetch via instaloader (slower, more data)."""
-    SESSION_FILE = os.path.join(os.path.dirname(__file__), "..", "session-crowagency.ofc")
-    result = {}
-    with tempfile.TemporaryDirectory() as tmpdir:
-        L = instaloader.Instaloader(
-            download_pictures=False,
-            download_videos=False,
-            download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            compress_json=False,
-            quiet=True,
-            max_connection_attempts=1,
+def _fetch_instagram_api(shortcode: str) -> dict:
+    """
+    Fetch via GraphQL doc_id de Instagram (la misma API que usa el navegador).
+    Reemplaza instaloader que usa query_hash ya bloqueado por Instagram.
+    """
+    cookies = _load_ig_cookies()
+    if not cookies.get("sessionid"):
+        print("[ig_api] sin sesión disponible", flush=True)
+        return {}
+
+    try:
+        r = req.post(
+            "https://www.instagram.com/graphql/query",
+            cookies=cookies,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+                "x-ig-app-id": "936619743392459",
+                "x-csrftoken": cookies.get("csrftoken", ""),
+                "content-type": "application/x-www-form-urlencoded",
+                "Referer": f"https://www.instagram.com/p/{shortcode}/",
+                "Origin": "https://www.instagram.com",
+            },
+            data={
+                "doc_id": "10015901848480474",
+                "variables": json.dumps({
+                    "shortcode": shortcode,
+                    "__relay_internal__pv__PolarisFeedShareMenurelayprovider": False,
+                }),
+            },
+            timeout=15,
         )
-        session_b64 = os.environ.get("INSTAGRAM_SESSION_B64")
-        if session_b64:
-            import base64, tempfile as _tf
-            tmp = _tf.NamedTemporaryFile(delete=False, suffix=".ofc")
-            tmp.write(base64.b64decode(session_b64))
-            tmp.close()
-            L.load_session_from_file("crowagency.ofc", tmp.name)
-        elif os.path.exists(SESSION_FILE):
-            L.load_session_from_file("crowagency.ofc", SESSION_FILE)
 
-        post = instaloader.Post.from_shortcode(L.context, shortcode)
-        result["caption"] = post.caption or ""
-        result["owner_username"] = post.owner_username or ""
-        result["photo_description"] = post.accessibility_caption or ""
-        result["is_video"] = post.is_video
+        if r.status_code != 200:
+            print(f"[ig_api] status {r.status_code}", flush=True)
+            return {}
 
-        if post.is_video:
-            try:
-                video_path = os.path.join(tmpdir, f"{shortcode}.mp4")
-                r = req.get(post.video_url, timeout=60)
-                with open(video_path, "wb") as f:
-                    f.write(r.content)
-                result["transcription"] = _transcribe_video(video_path)
-            except Exception as e:
-                result["transcription"] = f"(error descargando video: {e})"
+        media = r.json().get("data", {}).get("xdt_shortcode_media")
+        if not media:
+            print(f"[ig_api] media null para {shortcode}", flush=True)
+            return {}
 
-    return result
+        result = {
+            "caption": (media.get("edge_media_to_caption", {}).get("edges") or [{}])[0].get("node", {}).get("text", "") or "",
+            "owner_username": media.get("owner", {}).get("username", "") or "",
+            "photo_description": media.get("accessibility_caption", "") or "",
+            "is_video": media.get("is_video", False),
+            "video_url": media.get("video_url", "") or "",
+        }
+        print(f"[ig_api] ok — owner={result['owner_username']} is_video={result['is_video']}", flush=True)
+        return result
+
+    except Exception as e:
+        print(f"[ig_api] error: {e}", flush=True)
+        return {}
 
 
 def scrape_post(url: str, max_comments: int = 0) -> PostData:
@@ -151,9 +209,8 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
     fast_future = executor.submit(_fetch_fast, shortcode)
-    slow_future = executor.submit(_fetch_instaloader, shortcode)
+    slow_future = executor.submit(_fetch_instagram_api, shortcode)
 
-    # Esperar fast fetch (máx 9s)
     fast = {}
     try:
         fast = fast_future.result(timeout=9)
@@ -161,17 +218,12 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     except Exception as e:
         print(f"[fast_fetch] timeout/error: {e}", flush=True)
 
-    # Si fast no trajo caption, esperar instaloader (requerimiento)
-    # Si fast sí trajo caption, instaloader sigue en background para extras (photo_description, etc.)
-    # pero no bloqueamos la generación — devolvemos ya con lo que tenemos
-    # Instaloader siempre espera — la IA no arranca sin sus datos
-    # (transcripción para videos, photo_description para fotos, caption limpio)
     slow = {}
     try:
         slow = slow_future.result()
-        print(f"[instaloader] ok en {time.time()-t0:.2f}s", flush=True)
+        print(f"[ig_api] ok en {time.time()-t0:.2f}s", flush=True)
     except Exception as e:
-        print(f"[instaloader] error: {e}", flush=True)
+        print(f"[ig_api] error: {e}", flush=True)
         if not fast.get("caption") and not fast.get("owner_username"):
             raise ValueError("No se pudo acceder al post. Verificá que el link sea público.")
 
@@ -180,22 +232,21 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     caption = slow.get("caption") or fast.get("caption") or ""
     owner_username = slow.get("owner_username") or fast.get("owner_username") or ""
     photo_description = slow.get("photo_description") or ""
-    transcription = slow.get("transcription") or ""
-    # URL is the most reliable signal: /reel/ and /tv/ are always video
     is_video = is_video_url(url) or slow.get("is_video") or fast.get("is_video", False)
+    video_url = slow.get("video_url") or fast.get("video_url") or ""
+    transcription = ""
 
-    # Fallback: si instaloader falló pero tenemos video_url del fast fetch, transcribir igual
-    if is_video and not transcription and fast.get("video_url"):
-        print(f"[fallback] usando og:video para transcripción", flush=True)
+    if is_video and video_url:
+        print(f"[ig_api] descargando video para transcripción...", flush=True)
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
-                video_path = os.path.join(tmpdir, f"{extract_shortcode(url) or 'video'}.mp4")
-                r_vid = req.get(fast["video_url"], timeout=60)
+                video_path = os.path.join(tmpdir, f"{shortcode}.mp4")
+                r_vid = req.get(video_url, timeout=60)
                 with open(video_path, "wb") as f:
                     f.write(r_vid.content)
                 transcription = _transcribe_video(video_path)
         except Exception as e:
-            print(f"[fallback] error descargando og:video: {e}", flush=True)
+            print(f"[ig_api] error descargando video: {e}", flush=True)
 
     if not caption:
         raise ValueError("No se pudo obtener el pie de página del post. Verificá que el link sea público.")

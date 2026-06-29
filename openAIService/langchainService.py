@@ -230,6 +230,21 @@ def get_response_gpt():
     return "Hubo un problema, intentá de nuevo."
 
 
+@app.route("/health/instagram", methods=["GET"])
+def health_instagram():
+    from modules.post_processor import _fetch_instagram_api
+    test_shortcode = request.args.get("shortcode", "")
+    if not test_shortcode:
+        return jsonify({"error": "Pasá ?shortcode=<un_shortcode_publico_valido> para probar"}), 400
+    try:
+        result = _fetch_instagram_api(test_shortcode)
+        if not result.get("owner_username"):
+            return jsonify({"ok": False, "error": "sin sesión o post no accesible"}), 503
+        return jsonify({"ok": True, "owner_username": result.get("owner_username", "")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 503
+
+
 @app.route("/clear_session", methods=["GET"])
 def clear_session():
     phone = request.args.get("phone_number", "default")
