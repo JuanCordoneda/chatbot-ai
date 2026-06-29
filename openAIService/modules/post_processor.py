@@ -30,13 +30,25 @@ def is_video_url(url: str) -> bool:
     return bool(re.search(r"instagram\.com/(?:reel|tv)/", url))
 
 
+_whisper_model = None
+
+def _get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    return _whisper_model
+
+
 def _transcribe_video(video_path: str) -> str:
     try:
-        from faster_whisper import WhisperModel
-        model = WhisperModel("base", device="cpu", compute_type="int8")
+        model = _get_whisper_model()
         segments, _ = model.transcribe(video_path)
-        return " ".join(s.text for s in segments).strip()
+        text = " ".join(s.text for s in segments).strip()
+        print(f"[whisper] transcripción: {len(text)} chars", flush=True)
+        return text
     except Exception as e:
+        print(f"[whisper] error: {e}", flush=True)
         return f"(transcripción no disponible: {e})"
 
 
@@ -61,13 +73,24 @@ def _fetch_fast(shortcode: str) -> dict:
                 if user_m:
                     result["owner_username"] = user_m.group(1)
                 caption_m = re.search(r':\s*"(.+)"$', raw, re.DOTALL)
-                result["caption"] = caption_m.group(1) if caption_m else raw
-                print(f"[fast_fetch] username={result.get('owner_username')} caption={result['caption'][:60]}", flush=True)
-            # Detectar si es video por og:type
+                if caption_m:
+                    result["caption"] = caption_m.group(1)
+                elif user_m:
+                    # caption vacío pero sabemos el username → no usamos el raw sucio
+                    result["caption"] = ""
+                else:
+                    result["caption"] = raw
+                print(f"[fast_fetch] username={result.get('owner_username')} caption={result.get('caption','')[:60]}", flush=True)
+            # Detectar si es video por og:type y extraer video URL
             m3 = re.search(r'<meta property="og:type" content="([^"]*)"', r.text)
             if m3:
                 result["is_video"] = "video" in m3.group(1).lower()
                 print(f"[fast_fetch] og:type={m3.group(1)} is_video={result['is_video']}", flush=True)
+            m_vid = re.search(r'<meta property="og:video(?::secure_url|:url)?" content="([^"]+)"', r.text)
+            if m_vid:
+                result["video_url"] = html_lib.unescape(m_vid.group(1))
+                result["is_video"] = True
+                print(f"[fast_fetch] og:video encontrado", flush=True)
     except Exception as e:
         print(f"[fast_fetch] failed: {e}", flush=True)
     return result
@@ -149,7 +172,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         print(f"[instaloader] ok en {time.time()-t0:.2f}s", flush=True)
     except Exception as e:
         print(f"[instaloader] error: {e}", flush=True)
-        if not fast.get("caption"):
+        if not fast.get("caption") and not fast.get("owner_username"):
             raise ValueError("No se pudo acceder al post. Verificá que el link sea público.")
 
     executor.shutdown(wait=False)
@@ -160,6 +183,19 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     transcription = slow.get("transcription") or ""
     # URL is the most reliable signal: /reel/ and /tv/ are always video
     is_video = is_video_url(url) or slow.get("is_video") or fast.get("is_video", False)
+
+    # Fallback: si instaloader falló pero tenemos video_url del fast fetch, transcribir igual
+    if is_video and not transcription and fast.get("video_url"):
+        print(f"[fallback] usando og:video para transcripción", flush=True)
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                video_path = os.path.join(tmpdir, f"{extract_shortcode(url) or 'video'}.mp4")
+                r_vid = req.get(fast["video_url"], timeout=60)
+                with open(video_path, "wb") as f:
+                    f.write(r_vid.content)
+                transcription = _transcribe_video(video_path)
+        except Exception as e:
+            print(f"[fallback] error descargando og:video: {e}", flush=True)
 
     if not caption:
         raise ValueError("No se pudo obtener el pie de página del post. Verificá que el link sea público.")

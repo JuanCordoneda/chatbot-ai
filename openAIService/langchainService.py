@@ -424,8 +424,10 @@ def procesar_post_stream(job_id):
 @app.route("/publicar", methods=["POST"])
 def publicar_web():
     data = request.get_json(silent=True) or {}
-    post_url = data.get("url", "").strip()
+    post_url    = data.get("url", "").strip()
     comentarios = data.get("comentarios", [])
+    ordenes     = data.get("ordenes", [])
+    disponible  = float(data.get("disponible", 150))
 
     if not post_url or not comentarios:
         return jsonify({"error": "Faltan datos (url o comentarios)"}), 400
@@ -434,7 +436,7 @@ def publicar_web():
         from modules.reporter import generar_informe
         try:
             from modules.growi_client import ejecutar_campana
-            resultado = ejecutar_campana(post_url, comentarios)
+            resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
             informe = generar_informe(post_url, comentarios, resultado)
         except NotImplementedError as e:
             informe = generar_informe(post_url, comentarios, None, error=str(e))

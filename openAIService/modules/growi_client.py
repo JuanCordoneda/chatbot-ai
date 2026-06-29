@@ -1,50 +1,75 @@
 """
-Growi API client — PENDIENTE de implementación.
-Se activa una vez recibidas las credenciales y documentación de Growi.
+Growi CRM client — envía las órdenes ya armadas por el frontend a enviar_trafico.php.
 """
 import os
-from dataclasses import dataclass
+import requests
+from dataclasses import dataclass, field
+from datetime import date
 
-
-GROWI_API_KEY = os.environ.get("GROWI_API_KEY", "")
-GROWI_API_URL = os.environ.get("GROWI_API_URL", "https://api.growi.com")
-
-LIKES_TOTAL = 5000
-VIEWS_TOTAL = 5000
-REPOSTS_TOTAL = 1000
-SHARES_TOTAL = 1000
-LOTES = 5
-COMENTARIOS_TOTAL = 60
+CRM_URL    = os.environ.get("GROWI_CRM_URL", "https://crm.growiagency.com")
+PHPSESSID  = os.environ.get("GROWI_CRM_PHPSESSID", "")
+REMEMBERME = os.environ.get("GROWI_CRM_REMEMBERME", "")
+IDVENDEDOR = os.environ.get("GROWI_IDVENDEDOR", "")
+IDVENTA    = os.environ.get("GROWI_IDVENTA", "1")
 
 
 @dataclass
 class GrowiResult:
     success: bool
-    comentarios_enviados: int
-    likes: int
-    views: int
-    reposts: int
-    shares: int
-    errores: list[str]
+    insertadas: int
+    messages: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    raw: dict = field(default_factory=dict)
 
 
-def ejecutar_campana(post_url: str, comentarios: list[str]) -> GrowiResult:
+def ejecutar_campana(post_url: str, comentarios: list[str],
+                     ordenes: list[dict], disponible: float) -> GrowiResult:
     """
-    Ejecuta la campaña completa en Growi.
-    PENDIENTE: reemplazar el stub por la implementación real cuando
-    se tengan las credenciales y documentación de la API.
+    Envía las órdenes al CRM tal como vienen del frontend.
+    post_url y comentarios se usan solo para el informe; las ordenes
+    ya traen url, producto, cantidad, programado, etc.
     """
-    if not GROWI_API_KEY:
+    if not PHPSESSID or not IDVENDEDOR:
         raise NotImplementedError(
-            "Growi no configurado. Agregar GROWI_API_KEY y GROWI_API_URL al .env"
+            "Growi no configurado. Agregar GROWI_CRM_PHPSESSID y GROWI_IDVENDEDOR al .env"
         )
 
-    # TODO: implementar cuando llegue la documentación de Growi
-    # Estructura esperada:
-    # 1. POST /auth → token
-    # 2. POST /orders → crear orden con post_url
-    # 3. POST /orders/{id}/comments → enviar los 20 comentarios
-    # 4. POST /orders/{id}/actions → likes/views/reposts/shares en 5 lotes de 1000/hora
-    # 5. GET /orders/{id} → estado final
+    costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
 
-    raise NotImplementedError("Growi client pendiente de implementación")
+    payload = {
+        "idvendedor":   IDVENDEDOR,
+        "idventa":      IDVENTA,
+        "fecha":        date.today().isoformat(),
+        "vendedor":     " ",
+        "cant_enviada": 0,
+        "aprobada":     "Aprobado",
+        "ordenes":      ordenes,
+        "creador":      IDVENDEDOR,
+        "disponible":   disponible,
+        "resto":        round(disponible - costo_total, 6),
+        "costo_orden":  round(costo_total, 6),
+    }
+
+    resp = requests.post(
+        f"{CRM_URL}/paginas/enviar_trafico.php",
+        json=payload,
+        cookies={"PHPSESSID": PHPSESSID, "rememberme": REMEMBERME},
+        headers={
+            "referer":          f"{CRM_URL}/paginas/trafico.php",
+            "content-type":     "application/json; charset=UTF-8",
+            "x-requested-with": "XMLHttpRequest",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    return GrowiResult(
+        success=data.get("success", False),
+        insertadas=data.get("insertadas", 0),
+        messages=data.get("messages", []),
+        warnings=data.get("warnings", []),
+        errors=data.get("errors", []),
+        raw=data,
+    )

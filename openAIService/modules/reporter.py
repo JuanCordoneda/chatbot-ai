@@ -15,21 +15,22 @@ def generar_informe(post_url: str, comentarios: list[str], resultado: GrowiResul
 
     lineas_comentarios = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(comentarios))
 
+    msgs_str = ""
+    if resultado and resultado.messages:
+        msgs_str = "\nMensajes del CRM:\n" + "\n".join(f"  {m}" for m in resultado.messages)
+
     errores_str = ""
-    if resultado and resultado.errores:
-        errores_str = "\nErrores:\n" + "\n".join(f"  - {e}" for e in resultado.errores)
+    if resultado and resultado.errors:
+        errores_str = "\nErrores:\n" + "\n".join(f"  - {e}" for e in resultado.errors)
 
     estado = "OK" if (resultado and resultado.success) else "PARCIAL"
 
     return (
         f"Informe de campaña — {now}\n"
         f"Post: {post_url}\n"
-        f"Estado: {estado}\n\n"
-        f"Comentarios enviados: {resultado.comentarios_enviados if resultado else 0}/{len(comentarios)}\n"
-        f"Likes: {resultado.likes if resultado else 0}\n"
-        f"Views: {resultado.views if resultado else 0}\n"
-        f"Reposts: {resultado.reposts if resultado else 0}\n"
-        f"Shares: {resultado.shares if resultado else 0}\n"
+        f"Estado: {estado}\n"
+        f"Órdenes insertadas: {resultado.insertadas if resultado else 0}\n"
+        f"{msgs_str}"
         f"{errores_str}\n\n"
-        f"Comentarios generados:\n{lineas_comentarios}"
+        f"Comentarios generados ({len(comentarios)}):\n{lineas_comentarios}"
     )

@@ -23,6 +23,7 @@ services:
       - ./openAIService/modules:/app/modules
       - ./openAIService/prompts:/app/prompts
       - ./openAIService/clients_map.json:/app/clients_map.json
+      - whisper-cache:/root/.cache/huggingface
 
   web-service:
     build: ./webService
@@ -36,3 +37,6 @@ services:
       - ./webService/app.py:/app/app.py
       - ./webService/templates:/app/templates
       - ./webService/static:/app/static
+
+volumes:
+  whisper-cache:

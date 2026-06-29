@@ -10,3 +10,4 @@ instance/
 venv/
 *.db
 admin-key.json
+*.ofc

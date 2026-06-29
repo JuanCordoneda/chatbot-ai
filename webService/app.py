@@ -17,6 +17,7 @@ GROWI_PHPSESSID  = os.environ.get("GROWI_CRM_PHPSESSID", "")
 GROWI_REMEMBERME = os.environ.get("GROWI_CRM_REMEMBERME", "")
 GROWI_IDVENDEDOR = os.environ.get("GROWI_IDVENDEDOR", "")
 GROWI_IDVENTA    = os.environ.get("GROWI_IDVENTA", "1")
+DISPONIBLE       = float(os.environ.get("GROWI_DISPONIBLE", "150"))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -100,8 +101,10 @@ def stream(job_id):
 @app.route("/api/publicar", methods=["POST"])
 def publicar():
     data = request.get_json()
-    post_url = data.get("url", "").strip()
+    post_url    = data.get("url", "").strip()
     comentarios = data.get("comentarios", [])
+    ordenes     = data.get("ordenes", [])
+    disponible  = data.get("disponible", DISPONIBLE)
 
     if not post_url or not comentarios:
         return jsonify({"error": "Faltan datos"}), 400
@@ -109,7 +112,7 @@ def publicar():
     try:
         resp = requests.post(
             f"{OPENAI_SERVICE_URL}/publicar",
-            json={"url": post_url, "comentarios": comentarios},
+            json={"url": post_url, "comentarios": comentarios, "ordenes": ordenes, "disponible": disponible},
             timeout=60,
         )
         resp.raise_for_status()
