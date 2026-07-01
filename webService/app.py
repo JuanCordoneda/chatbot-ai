@@ -262,6 +262,8 @@ def enviar_trafico():
             },
             timeout=30,
         )
+        print(f"[enviar_trafico] enviando {len(ordenes)} ordenes: {ordenes}", flush=True)
+        print(f"[enviar_trafico] respuesta CRM: {resp.text[:2000]}", flush=True)
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
     except Exception as e:

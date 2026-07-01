@@ -2,6 +2,7 @@
 Growi CRM client — envía las órdenes ya armadas por el frontend a enviar_trafico.php.
 """
 import os
+import json
 import requests
 from dataclasses import dataclass, field
 from datetime import date
@@ -37,6 +38,8 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
 
     costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
 
+    print(f"[growi] enviando {len(ordenes)} ordenes: {json.dumps(ordenes, ensure_ascii=False)}", flush=True)
+
     payload = {
         "idvendedor":   IDVENDEDOR,
         "idventa":      IDVENTA,
@@ -64,6 +67,8 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
     )
     resp.raise_for_status()
     data = resp.json()
+
+    print(f"[growi] respuesta CRM: {json.dumps(data, ensure_ascii=False)}", flush=True)
 
     return GrowiResult(
         success=data.get("success", False),

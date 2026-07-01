@@ -121,7 +121,7 @@ def _fetch_fast(shortcode: str) -> dict:
                 user_m = re.search(r'- ([A-Za-z0-9._]+) on [A-Za-z]+ \d+', raw)
                 if user_m:
                     result["owner_username"] = user_m.group(1)
-                caption_m = re.search(r':\s*"(.+)"$', raw, re.DOTALL)
+                caption_m = re.search(r':\s*"(.+)"', raw, re.DOTALL)
                 if caption_m:
                     result["caption"] = caption_m.group(1)
                 elif user_m:

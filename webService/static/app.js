@@ -963,7 +963,12 @@ async function solicitarOrdenes() {
       const resp = await fetch("/api/publicar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: currentUrl, comentarios: comentariosParaPublicar }),
+        body: JSON.stringify({
+          url: currentUrl,
+          comentarios: comentariosParaPublicar,
+          ordenes: [{ ...ordenComentarios, cantidad: comentariosParaPublicar.length }],
+          disponible: 0,
+        }),
       });
       data = await resp.json();
     }
@@ -1008,8 +1013,16 @@ async function solicitarOrdenes() {
         body: JSON.stringify({ ordenes: crmOrdenes, disponible: 0, costo_total: costoTotal }),
       });
       const traficoData = await traficoResp.json().catch(() => ({}));
-      if (traficoData.error) {
-        data.error = (data.error ? data.error + " | " : "") + traficoData.error;
+      if (traficoData.error || traficoData.errors?.length) {
+        const err = traficoData.error || traficoData.errors.join(" | ");
+        data.error = (data.error ? data.error + " | " : "") + err;
+      } else {
+        const lineas = [
+          `Órdenes de tráfico insertadas: ${traficoData.insertadas ?? 0}`,
+          ...(traficoData.messages || []),
+          ...(traficoData.warnings || []),
+        ];
+        data.informe = (data.informe ? data.informe + "\n\n" : "") + lineas.join("\n");
       }
     }
 
@@ -1020,7 +1033,7 @@ async function solicitarOrdenes() {
       box.innerHTML = `<span style="color:#e55;">Error: ${escapeHtml(data.error)}</span>`;
     } else {
       box.innerHTML = `
-        <div style="margin-bottom:10px;">${escapeHtml(data.informe || "Órdenes enviadas correctamente.")}</div>
+        <div style="margin-bottom:10px;white-space:pre-line;">${escapeHtml(data.informe || "Órdenes enviadas correctamente.")}</div>
         <div style="color:var(--muted2);font-size:0.82rem;">
           ${ordenes.length} orden${ordenes.length > 1 ? "es" : ""} procesada${ordenes.length > 1 ? "s" : ""}
         </div>
