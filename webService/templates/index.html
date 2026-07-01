@@ -288,8 +288,32 @@
               <button type="button" class="cuando-pill" id="opt-split5" style="display:none;" data-value="split5" onclick="selectCuando(this)">◔ Dividir en 5</button>
             </div>
             <input type="hidden" id="orden-cuando-val" value="ahora" />
+            <input type="hidden" id="orden-intervalo-unidad" value="minutos" />
+            <input type="hidden" id="orden-intervalo-valor" value="60" />
             <div id="orden-fecha-wrap" class="hidden">
               <input type="datetime-local" id="orden-fecha" class="orden-input" />
+            </div>
+          </div>
+
+          <!-- Modal: Intervalo entre órdenes -->
+          <div id="intervalo-overlay" class="overlay hidden">
+            <div class="overlay-card intervalo-card">
+              <p class="overlay-title">Intervalo entre órdenes</p>
+              <p class="intervalo-subtitle">Elegí cómo querés espaciar las órdenes</p>
+
+              <div class="cuando-pills intervalo-pills">
+                <button type="button" class="cuando-pill cuando-pill--active" id="intervalo-unidad-minutos" onclick="selectIntervaloUnidad('minutos')">Minutos</button>
+                <button type="button" class="cuando-pill" id="intervalo-unidad-dias" onclick="selectIntervaloUnidad('dias')">Días</button>
+              </div>
+
+              <input type="number" id="intervalo-input" class="orden-input intervalo-input" value="60" min="1" oninput="clearFieldError('intervalo-input')" />
+              <p id="intervalo-hint" class="intervalo-hint">Ingresá el intervalo en minutos (mínimo 45).</p>
+              <span id="intervalo-input-error" class="orden-field-error hidden"></span>
+
+              <div class="intervalo-actions">
+                <button type="button" class="header-action-btn" onclick="cerrarIntervaloModal(true)">Cancelar</button>
+                <button type="button" class="orden-btn-agregar intervalo-btn-confirmar" onclick="confirmarIntervalo()">Confirmar</button>
+              </div>
             </div>
           </div>
 

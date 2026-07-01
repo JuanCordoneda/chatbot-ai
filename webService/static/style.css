@@ -1208,6 +1208,16 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 /* ── Utility ── */
 .hidden { display: none !important; }
 
+/* ── Modal: Intervalo entre órdenes ── */
+.intervalo-card { min-width: 320px; max-width: 380px; padding: 40px 36px; text-align: left; }
+.intervalo-subtitle { font-size: 0.82rem; color: var(--faint); margin: -4px 0 18px; }
+.intervalo-pills { margin-bottom: 16px; }
+.intervalo-input { text-align: center; font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+.intervalo-hint { font-size: 0.72rem; color: var(--faint); margin: 0 0 4px; }
+.intervalo-actions { display: flex; gap: 10px; margin-top: 20px; }
+.intervalo-actions .header-action-btn { flex: 1; justify-content: center; }
+.intervalo-btn-confirmar { flex: 1; margin-top: 0; }
+
 /* ── Panel lateral de seleccionados ── */
 .panel-seleccionados {
   position: fixed;
@@ -1782,6 +1792,13 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   background: rgba(76,175,125,0.20);
   border: 1px solid rgba(76,175,125,0.45);
   color: #7fe8b8;
+}
+
+.orden-card-pill--split {
+  background: var(--yellow-lo);
+  border: 1px solid var(--yellow-md);
+  color: var(--yellow);
+  font-weight: 800;
 }
 
 .orden-card-link {

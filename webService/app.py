@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for, make_response
 import requests
 import os
+import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "growi-secret-2026")
@@ -16,7 +17,7 @@ GROWI_CRM_URL    = os.environ.get("GROWI_CRM_URL", "https://crm.growiagency.com"
 GROWI_PHPSESSID  = os.environ.get("GROWI_CRM_PHPSESSID", "")
 GROWI_REMEMBERME = os.environ.get("GROWI_CRM_REMEMBERME", "")
 GROWI_IDVENDEDOR = os.environ.get("GROWI_IDVENDEDOR", "")
-GROWI_IDVENTA    = os.environ.get("GROWI_IDVENTA", "1")
+GROWI_IDVENTA    = os.environ.get("GROWI_IDVENTA", "32600")  # id del cliente en el CRM
 DISPONIBLE       = float(os.environ.get("GROWI_DISPONIBLE", "150"))
 
 
@@ -234,7 +235,10 @@ def enviar_trafico():
         fecha_ar = _date.today().isoformat()
 
     costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
-    disponible  = float(data.get("disponible", 0))
+    disponible  = float(data.get("disponible", DISPONIBLE))
+
+    for o in ordenes:
+        o["disponible"] = disponible
 
     payload = {
         "idvendedor": GROWI_IDVENDEDOR,
@@ -250,20 +254,30 @@ def enviar_trafico():
         "costo_orden": round(costo_total, 6),
     }
 
+    req_headers = {
+        "referer":      f"{GROWI_CRM_URL}/paginas/trafico.php",
+        "content-type": "application/json; charset=UTF-8",
+        "x-requested-with": "XMLHttpRequest",
+    }
+    req_cookies = {"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME}
+
+    curl_cmd = " \\\n  ".join([
+        f"curl '{GROWI_CRM_URL}/paginas/enviar_trafico.php'",
+        *[f"-H '{k}: {v}'" for k, v in req_headers.items()],
+        f"-b '{'; '.join(f'{k}={v}' for k, v in req_cookies.items())}'",
+        f"--data-raw '{json.dumps(payload, ensure_ascii=False)}'",
+    ])
+    print(f"[enviar_trafico] curl equivalente:\n{curl_cmd}", flush=True)
+
     try:
         resp = requests.post(
             f"{GROWI_CRM_URL}/paginas/enviar_trafico.php",
             json=payload,
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
-            headers={
-                "referer":      f"{GROWI_CRM_URL}/paginas/trafico.php",
-                "content-type": "application/json; charset=UTF-8",
-                "x-requested-with": "XMLHttpRequest",
-            },
+            cookies=req_cookies,
+            headers=req_headers,
             timeout=30,
         )
-        print(f"[enviar_trafico] enviando {len(ordenes)} ordenes: {ordenes}", flush=True)
-        print(f"[enviar_trafico] respuesta CRM: {resp.text[:2000]}", flush=True)
+        print(f"[enviar_trafico] respuesta CRM ({resp.status_code}): {resp.text[:2000]}", flush=True)
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
     except Exception as e:

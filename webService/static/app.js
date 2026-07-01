@@ -579,6 +579,7 @@ async function obtenerDemora(productoNombre) {
 }
 
 let _lastCosto = null; // último costo fetched, para guardarlo en la orden
+let _lastCantMin = null; // último cantmin fetched, para validar el split de intervalo
 let _costoTimer = null;
 async function obtenerCosto() {
   clearTimeout(_costoTimer);
@@ -610,6 +611,7 @@ async function _fetchCosto() {
     if (data.cantmin || data.cantmax) {
       const min = parseInt(data.cantmin) || 0;
       const max = parseInt(data.cantmax) || 0;
+      _lastCantMin = min;
       hint.textContent = `Min: ${min.toLocaleString()} — Max: ${max.toLocaleString()}`;
       hint.classList.remove("hidden");
 
@@ -698,11 +700,95 @@ document.addEventListener("click", () => {
 });
 
 function selectCuando(btn) {
+  const val = btn.dataset.value;
+
+  if (val === "split3" || val === "split5") {
+    abrirIntervaloModal(val, btn);
+    return;
+  }
+
   document.querySelectorAll(".cuando-pill").forEach(b => b.classList.remove("cuando-pill--active"));
   btn.classList.add("cuando-pill--active");
-  const val = btn.dataset.value;
   document.getElementById("orden-cuando-val").value = val;
   document.getElementById("orden-fecha-wrap").classList.toggle("hidden", val !== "programar");
+}
+
+let _intervaloPendingBtn = null;
+
+function calcularSplitPartes(cantidad, n) {
+  const base = Math.floor(cantidad / n);
+  const resto = cantidad - base * n;
+  const partes = [];
+  for (let i = 0; i < n; i++) partes.push(base + (i < resto ? 1 : 0));
+  return partes;
+}
+
+function abrirIntervaloModal(val, btn) {
+  _intervaloPendingBtn = { val, btn };
+  document.getElementById("intervalo-input-error").classList.add("hidden");
+  document.getElementById("intervalo-input").classList.remove("orden-input--error");
+  selectIntervaloUnidad(document.getElementById("orden-intervalo-unidad").value || "minutos");
+  document.getElementById("intervalo-input").value = document.getElementById("orden-intervalo-valor").value || "60";
+  show("intervalo-overlay");
+}
+
+function cerrarIntervaloModal() {
+  _intervaloPendingBtn = null;
+  hide("intervalo-overlay");
+}
+
+function selectIntervaloUnidad(unidad) {
+  document.getElementById("intervalo-unidad-minutos").classList.toggle("cuando-pill--active", unidad === "minutos");
+  document.getElementById("intervalo-unidad-dias").classList.toggle("cuando-pill--active", unidad === "dias");
+  document.getElementById("intervalo-hint").textContent = unidad === "dias"
+    ? "Ingresá el intervalo en días (mínimo 1)."
+    : "Ingresá el intervalo en minutos (mínimo 45).";
+  document.getElementById("intervalo-input").dataset.unidad = unidad;
+  document.getElementById("intervalo-input-error").classList.add("hidden");
+  document.getElementById("intervalo-input").classList.remove("orden-input--error");
+}
+
+function confirmarIntervalo() {
+  if (!_intervaloPendingBtn) return;
+  const { val, btn } = _intervaloPendingBtn;
+
+  const unidad = document.getElementById("intervalo-input").dataset.unidad || "minutos";
+  const inputEl = document.getElementById("intervalo-input");
+  const valor = parseInt(inputEl.value);
+  const errorEl = document.getElementById("intervalo-input-error");
+  const min = unidad === "dias" ? 1 : 45;
+
+  if (!valor || valor < min) {
+    inputEl.classList.add("orden-input--error");
+    errorEl.textContent = unidad === "dias"
+      ? "Ingresá el intervalo en días (mínimo 1)."
+      : "Ingresá el intervalo en minutos (mínimo 45).";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const n = val === "split3" ? 3 : 5;
+  const cantidad = parseInt(document.getElementById("orden-cantidad").value) || 0;
+  const cantMin = _lastCantMin || 0;
+  if (cantidad > 0 && cantMin > 0) {
+    const partes = calcularSplitPartes(cantidad, n);
+    if (Math.min(...partes) < cantMin) {
+      inputEl.classList.remove("orden-input--error");
+      errorEl.textContent = `Cantidad inválida. Pediste ${cantidad} en ${n} órdenes (${partes.join(" + ")}), pero el mínimo por orden es ${cantMin}.`;
+      errorEl.classList.remove("hidden");
+      return;
+    }
+  }
+
+  document.getElementById("orden-intervalo-unidad").value = unidad;
+  document.getElementById("orden-intervalo-valor").value = valor;
+
+  document.querySelectorAll(".cuando-pill").forEach(b => b.classList.remove("cuando-pill--active"));
+  btn.classList.add("cuando-pill--active");
+  document.getElementById("orden-cuando-val").value = val;
+  document.getElementById("orden-fecha-wrap").classList.add("hidden");
+
+  cerrarIntervaloModal();
 }
 
 function onCuandoChange() {
@@ -760,33 +846,62 @@ function agregarOrden() {
 
   if (!valid) return;
 
-  const cuandoLabel = {
-    ahora: "Ahora",
-    programar: fechaEl.value ? new Date(fechaEl.value).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) : "Programado",
-    split3: "Dividir en 3",
-    split5: "Dividir en 5",
-  }[cuando] || "Ahora";
-
-  ordenes.push({
-    id: Date.now(),
+  const isSplit = cuando === "split3" || cuando === "split5";
+  const base = {
     redsocial: document.getElementById("rs-selected-label")?.textContent || "Instagram",
     redsocialId: rsSelect.value,
     productoId: parseInt(prodSelect.value),
     productoNombre: prodSelect.selectedIndex >= 0 ? prodSelect.options[prodSelect.selectedIndex].text : "",
-    cantidad,
     link,
-    cuando,
-    cuandoLabel,
     obs: obsEl.value.trim(),
-    costo: _lastCosto,
     tipo: "normal",
-    fechaProgramada: cuando === "programar" && fechaEl.value
-      ? (() => {
-          const d = new Date(fechaEl.value);
-          return isNaN(d) ? "" : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-        })()
-      : "",
-  });
+  };
+
+  if (isSplit) {
+    const n = cuando === "split3" ? 3 : 5;
+    const unidad = document.getElementById("orden-intervalo-unidad").value || "minutos";
+    const valor = parseInt(document.getElementById("orden-intervalo-valor").value) || 0;
+    const stepMs = (unidad === "dias" ? valor * 24 * 60 * 60 : valor * 60) * 1000;
+    const pad = x => String(x).padStart(2, "0");
+    const now = Date.now();
+    const partes = calcularSplitPartes(cantidad, n);
+
+    for (let i = 0; i < n; i++) {
+      const d = new Date(now + i * stepMs);
+      const fechaProgramada = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      ordenes.push({
+        ...base,
+        id: Date.now() + i,
+        cantidad: partes[i],
+        costo: _lastCosto ? _lastCosto * (partes[i] / cantidad) : _lastCosto,
+        cuando: "programar",
+        cuandoLabel: d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }),
+        fechaProgramada,
+        splitIndex: i + 1,
+        splitTotal: n,
+      });
+    }
+  } else {
+    const cuandoLabel = {
+      ahora: "Ahora",
+      programar: fechaEl.value ? new Date(fechaEl.value).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) : "Programado",
+    }[cuando] || "Ahora";
+
+    ordenes.push({
+      ...base,
+      id: Date.now(),
+      cantidad,
+      costo: _lastCosto,
+      cuando,
+      cuandoLabel,
+      fechaProgramada: cuando === "programar" && fechaEl.value
+        ? (() => {
+            const d = new Date(fechaEl.value);
+            return isNaN(d) ? "" : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+          })()
+        : "",
+    });
+  }
 
   // Reset form
   prodSelect.value = "";
@@ -920,10 +1035,11 @@ function renderOrdenes() {
             ${rsIconHtml} ${escapeHtml(rs.label)}
           </span>
           <span class="orden-card-nombre">${escapeHtml(o.productoNombre)}</span>
+          ${o.splitTotal ? `<span class="orden-card-pill orden-card-pill--split">${o.splitIndex}/${o.splitTotal}</span>` : ""}
         </div>
         <div class="orden-card-meta">
           <span class="orden-card-pill orden-card-pill--qty">${o.tipo === "comentarios" ? `${o.cantidad} comentarios` : `${o.cantidad.toLocaleString()} uds`}</span>
-          <span class="orden-card-pill orden-card-pill--when">${CUANDO_ICONS[o.cuando] || "⚡"} ${escapeHtml(o.cuandoLabel)}</span>
+          <span class="orden-card-pill orden-card-pill--when">${o.splitTotal ? "⏰" : (CUANDO_ICONS[o.cuando] || "⚡")} ${escapeHtml(o.cuandoLabel)}</span>
           ${o.costo != null && o.costo > 0 ? `<span class="orden-card-pill orden-card-pill--cost">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
           ${o.tipo === "comentarios" ? `<span class="orden-card-pill orden-card-pill--green">✓ Comentarios IA</span>` : ""}
         </div>
@@ -967,7 +1083,6 @@ async function solicitarOrdenes() {
           url: currentUrl,
           comentarios: comentariosParaPublicar,
           ordenes: [{ ...ordenComentarios, cantidad: comentariosParaPublicar.length }],
-          disponible: 0,
         }),
       });
       data = await resp.json();
@@ -989,7 +1104,7 @@ async function solicitarOrdenes() {
         const programado = o.cuando !== "ahora" ? 1 : 0;
         const fechaProg  = o.cuando === "programar" && o.fechaProgramada
           ? o.fechaProgramada
-          : (programado ? serverDateAR : "");
+          : (programado ? serverDateAR : null);
         return {
           redsocial_id: o.redsocialId,
           redsocial:    o.redsocial,
@@ -997,12 +1112,11 @@ async function solicitarOrdenes() {
           demora:       " - ",
           url:          o.link,
           costo:        o.costo || 0,
-          disponible:   0,
           obs:          o.obs || "",
           cant_inicial: String(o.cantidad),
           cantidad:     String(o.cantidad),
           programado,
-          fecha_programada: fechaProg,
+          fecha_programada: fechaProg || null,
           comentarios: [],
         };
       });
@@ -1010,7 +1124,7 @@ async function solicitarOrdenes() {
       const traficoResp = await fetch("/api/enviar_trafico", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ordenes: crmOrdenes, disponible: 0, costo_total: costoTotal }),
+        body: JSON.stringify({ ordenes: crmOrdenes, costo_total: costoTotal }),
       });
       const traficoData = await traficoResp.json().catch(() => ({}));
       if (traficoData.error || traficoData.errors?.length) {
