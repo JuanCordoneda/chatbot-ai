@@ -8,10 +8,57 @@ from dataclasses import dataclass, field
 from datetime import date
 
 CRM_URL    = os.environ.get("GROWI_CRM_URL", "https://crm.growiagency.com")
-PHPSESSID  = os.environ.get("GROWI_CRM_PHPSESSID", "")
-REMEMBERME = os.environ.get("GROWI_CRM_REMEMBERME", "")
+EMAIL      = os.environ.get("GROWI_CRM_EMAIL", "")
+PASSWORD   = os.environ.get("GROWI_CRM_PASSWORD", "")
 IDVENDEDOR = os.environ.get("GROWI_IDVENDEDOR", "")
 IDVENTA    = os.environ.get("GROWI_IDVENTA", "32600")  # id del cliente en el CRM
+
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+)
+
+_session: requests.Session | None = None
+
+
+def _login() -> requests.Session:
+    """
+    Inicia sesión contra el CRM con usuario/contraseña. La sesión queda atada
+    a la IP/user-agent desde la que se loguea, por eso no sirve copiar cookies
+    del navegador: hay que loguearse desde el propio servidor.
+    """
+    session = requests.Session()
+    session.headers.update({"user-agent": _USER_AGENT})
+
+    resp = session.post(
+        f"{CRM_URL}/cuenta/login.php",
+        data={"correo": EMAIL, "password": PASSWORD},
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "referer": f"{CRM_URL}/cuenta/login.php",
+            "origin": CRM_URL,
+        },
+        timeout=15,
+    )
+
+    check = session.get(f"{CRM_URL}/paginas/trafico.php", allow_redirects=False, timeout=15)
+    if check.status_code != 200:
+        raise NotImplementedError(
+            "Login a Growi falló. Revisar GROWI_CRM_EMAIL / GROWI_CRM_PASSWORD."
+        )
+
+    return session
+
+
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        if not EMAIL or not PASSWORD:
+            raise NotImplementedError(
+                "Growi no configurado. Agregar GROWI_CRM_EMAIL y GROWI_CRM_PASSWORD al .env"
+            )
+        _session = _login()
+    return _session
 
 
 @dataclass
@@ -24,14 +71,17 @@ class GrowiResult:
     raw: dict = field(default_factory=dict)
 
 
-def _normalizar_orden(o: dict, disponible: float) -> dict:
+def _normalizar_orden(o: dict, disponible: float, comentarios: list[str]) -> dict:
     """
     El frontend manda las órdenes con su forma "cruda" (redsocialId, productoNombre,
     link, cuando, fechaProgramada, etc.). El CRM espera otra forma de campos
     (redsocial_id, prod, url, cant_inicial, programado, fecha_programada, ...).
-    Si la orden ya viene en forma de CRM (tiene "url"), se respeta tal cual.
+    Si la orden ya viene en forma de CRM (tiene "url"), se respeta tal cual salvo
+    que le falten los textos de los comentarios generados por IA.
     """
     if "url" in o:
+        if o.get("tipo") == "comentarios" and not o.get("comentarios"):
+            o = {**o, "comentarios": comentarios}
         return o
 
     cantidad = o.get("cantidad", 0)
@@ -50,7 +100,7 @@ def _normalizar_orden(o: dict, disponible: float) -> dict:
         "cantidad":     str(cantidad),
         "programado":   programado,
         "fecha_programada": o.get("fechaProgramada") or None,
-        "comentarios":  [],
+        "comentarios":  comentarios if o.get("tipo") == "comentarios" else [],
         "disponible":   disponible,
     }
 
@@ -61,12 +111,14 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
     Envía las órdenes al CRM. post_url y comentarios se usan solo para el
     informe; las ordenes se normalizan a la forma que espera enviar_trafico.php.
     """
-    if not PHPSESSID or not IDVENDEDOR:
+    if not IDVENDEDOR:
         raise NotImplementedError(
-            "Growi no configurado. Agregar GROWI_CRM_PHPSESSID y GROWI_IDVENDEDOR al .env"
+            "Growi no configurado. Agregar GROWI_IDVENDEDOR al .env"
         )
 
-    ordenes = [_normalizar_orden(o, disponible) for o in ordenes]
+    session = _get_session()
+
+    ordenes = [_normalizar_orden(o, disponible, comentarios) for o in ordenes]
 
     costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
 
@@ -86,17 +138,28 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
         "costo_orden":  round(costo_total, 6),
     }
 
-    resp = requests.post(
+    request_headers = {
+        "referer":          f"{CRM_URL}/paginas/trafico.php",
+        "content-type":     "application/json; charset=UTF-8",
+        "x-requested-with": "XMLHttpRequest",
+    }
+
+    resp = session.post(
         f"{CRM_URL}/paginas/enviar_trafico.php",
         json=payload,
-        cookies={"PHPSESSID": PHPSESSID, "rememberme": REMEMBERME},
-        headers={
-            "referer":          f"{CRM_URL}/paginas/trafico.php",
-            "content-type":     "application/json; charset=UTF-8",
-            "x-requested-with": "XMLHttpRequest",
-        },
+        headers=request_headers,
         timeout=30,
     )
+    if resp.status_code == 401:
+        global _session
+        _session = None
+        session = _get_session()
+        resp = session.post(
+            f"{CRM_URL}/paginas/enviar_trafico.php",
+            json=payload,
+            headers=request_headers,
+            timeout=30,
+        )
     resp.raise_for_status()
     data = resp.json()
 
