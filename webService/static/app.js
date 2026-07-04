@@ -155,10 +155,7 @@ function manejarEvento(evento) {
     esperandoTranscripcion = false;
     const skeleton = document.getElementById("skeleton-list");
     if (skeleton) skeleton.style.visibility = "";
-    if (evento.texto && !evento.texto.startsWith("(")) {
-      document.getElementById("transcription-text").textContent = evento.texto;
-      document.getElementById("transcription-block").classList.remove("hidden");
-    }
+    mostrarEstadoTranscripcion(evento.texto);
     pendingComentarios.forEach((e) => {
       ocultarChunk();
       agregarComentario(e.texto, e.index);
@@ -224,7 +221,7 @@ function ocultarChunk() {
 
 function mostrarScrape(data) {
   document.getElementById("scrape-owner").textContent = data.owner_username || "—";
-  document.getElementById("client-badge").textContent = data.client_id || "Peter Fournier";
+  document.getElementById("client-badge").textContent = data.client_id || data.owner_username || "Sin cliente asignado";
 
   hide("loading-overlay");
 
@@ -236,10 +233,14 @@ function mostrarScrape(data) {
     document.getElementById("photo-description-text").textContent = data.photo_description;
     document.getElementById("photo-description-block").classList.remove("hidden");
   }
-  if (data.transcription && !data.transcription.startsWith("(")) {
-    document.getElementById("transcription-text").textContent = data.transcription;
-    document.getElementById("transcription-block").classList.remove("hidden");
-  }
+}
+
+function mostrarEstadoTranscripcion(texto) {
+  const tieneTranscripcion = texto && !texto.startsWith("(");
+  document.getElementById("transcription-text").textContent = tieneTranscripcion
+    ? texto
+    : "Sin transcripción disponible para este post.";
+  document.getElementById("transcription-block").classList.remove("hidden");
 }
 
 function agregarComentario(texto, index) {
@@ -299,6 +300,7 @@ function copiarComentario(e, index) {
 
 function finalizarStream(meta) {
   mostrarScrape(meta);
+  mostrarEstadoTranscripcion(meta.transcription);
   esperandoTranscripcion = false;
   if (pendingComentarios.length > 0) {
     pendingComentarios.forEach((e) => { ocultarChunk(); agregarComentario(e.texto, e.index); });
@@ -468,7 +470,10 @@ async function irAOrdenes() {
   if (seleccionados.length === 0) return;
 
   comentariosParaPublicar = seleccionados;
-  ordenes = [];
+
+  // Conservar cualquier orden extra ya cargada (likes, views, etc.);
+  // solo se reemplaza/actualiza la orden de comentarios.
+  ordenes = ordenes.filter(o => o.tipo !== "comentarios");
 
   // Info del post
   const clientName = document.getElementById("client-badge").textContent || "—";

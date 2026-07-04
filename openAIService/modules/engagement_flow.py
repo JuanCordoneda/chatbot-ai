@@ -12,7 +12,7 @@ except Exception:
 
 
 INSTAGRAM_URL_RE = re.compile(
-    r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/[A-Za-z0-9_-]+"
+    r"https?://(?:www\.)?instagram\.com/(?:p|reels?|tv)/[A-Za-z0-9_-]+"
 )
 
 _CLIENTS_MAP_PATH = os.path.join(os.path.dirname(__file__), "..", "clients_map.json")

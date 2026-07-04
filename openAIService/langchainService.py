@@ -297,10 +297,12 @@ def procesar_post_web():
                     fast_preview = _fetch_fast(shortcode)
                     if fast_preview.get("caption") or fast_preview.get("owner_username"):
                         url_is_video = is_video_url(post_url)
+                        preview_owner = fast_preview.get("owner_username", "")
+                        preview_client_id = detectar_cliente(preview_owner) if preview_owner else None
                         preview_meta = {
                             "caption": fast_preview.get("caption", ""),
-                            "owner_username": fast_preview.get("owner_username", ""),
-                            "client_id": detectar_cliente(fast_preview.get("owner_username", "")) if fast_preview.get("owner_username") else None,
+                            "owner_username": preview_owner,
+                            "client_id": preview_client_id or preview_owner,
                             "photo_description": "",
                             "transcription": "",
                             "is_video": url_is_video or fast_preview.get("is_video", False),
@@ -337,8 +339,12 @@ def procesar_post_web():
             if client_id:
                 job["progreso"].append(f"Cliente detectado: {client_id}")
 
+            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_username);
+            # si no hay cliente asignado, usamos igual el prompt de Peter Fournier.
+            prompt_client_id = post_data.owner_username.lower() if client_id else "peterjfournier"
+
             job["meta"] = {
-                "client_id": client_id,
+                "client_id": client_id or post_data.owner_full_name or post_data.owner_username,
                 "owner_username": post_data.owner_username,
                 "transcription": post_data.transcription,
                 "photo_description": post_data.photo_description,
@@ -351,7 +357,7 @@ def procesar_post_web():
             t1 = time.time()
             job["progreso"].append("Generando comentarios con IA...")
             for tipo, data in generar_comentarios_stream(
-                post_data.caption, post_data.comments, client_id,
+                post_data.caption, post_data.comments, prompt_client_id,
                 post_data.transcription, post_data.photo_description,
                 post_data.is_video,
             ):
@@ -410,6 +416,7 @@ def procesar_post_stream(job_id):
                 last_step = current_step
 
             if not transcription_sent and job.get("transcription_ready"):
+                yield evento("scrape", **job["meta"])
                 yield evento("transcripcion", texto=job["meta"].get("transcription", ""))
                 transcription_sent = True
 

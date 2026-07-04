@@ -681,6 +681,30 @@ body.light .orden-btn-agregar {
 /* ── Scrape card ── */
 .scrape-card { padding: 20px 22px; }
 
+.scrape-card-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.btn-nuevo-post {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-nuevo-post:hover {
+  background: var(--accent, #7c5cff);
+  border-color: var(--accent, #7c5cff);
+  color: #fff;
+}
+
 .scrape-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

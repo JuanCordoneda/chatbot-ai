@@ -16,18 +16,19 @@ class PostData:
     caption: str
     comments: list[str]
     owner_username: str = ""
+    owner_full_name: str = ""
     transcription: str = ""
     photo_description: str = ""
     is_video: bool = False
 
 
 def extract_shortcode(url: str) -> Optional[str]:
-    match = re.search(r"instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)", url)
+    match = re.search(r"instagram\.com/(?:p|reels?|tv)/([A-Za-z0-9_-]+)", url)
     return match.group(1) if match else None
 
 
 def is_video_url(url: str) -> bool:
-    return bool(re.search(r"instagram\.com/(?:reel|tv)/", url))
+    return bool(re.search(r"instagram\.com/(?:reels?|tv)/", url))
 
 
 _whisper_model = None
@@ -100,6 +101,29 @@ def _load_ig_cookies() -> dict:
             print(f"[ig_cookies] error cargando session file: {e}", flush=True)
 
     return {}
+
+
+def _fetch_full_name(username: str) -> str:
+    """Fetch del nombre público del perfil via HTML público (og:title)."""
+    try:
+        r = req.get(
+            f"https://www.instagram.com/{username}/",
+            headers={
+                "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=8,
+        )
+        if r.status_code == 200:
+            m = re.search(r'<meta property="og:title" content="([^"]*)"', r.text)
+            if m:
+                raw = html_lib.unescape(m.group(1))
+                name_m = re.match(r"(.+?)\s*\(@", raw)
+                if name_m:
+                    return name_m.group(1).strip()
+    except Exception as e:
+        print(f"[full_name] error: {e}", flush=True)
+    return ""
 
 
 def _fetch_fast(shortcode: str) -> dict:
@@ -187,6 +211,7 @@ def _fetch_instagram_api(shortcode: str) -> dict:
         result = {
             "caption": (media.get("edge_media_to_caption", {}).get("edges") or [{}])[0].get("node", {}).get("text", "") or "",
             "owner_username": media.get("owner", {}).get("username", "") or "",
+            "owner_full_name": media.get("owner", {}).get("full_name", "") or "",
             "photo_description": media.get("accessibility_caption", "") or "",
             "is_video": media.get("is_video", False),
             "video_url": media.get("video_url", "") or "",
@@ -231,6 +256,9 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
 
     caption = slow.get("caption") or fast.get("caption") or ""
     owner_username = slow.get("owner_username") or fast.get("owner_username") or ""
+    owner_full_name = slow.get("owner_full_name") or ""
+    if not owner_full_name and owner_username:
+        owner_full_name = _fetch_full_name(owner_username)
     photo_description = slow.get("photo_description") or ""
     is_video = is_video_url(url) or slow.get("is_video") or fast.get("is_video", False)
     video_url = slow.get("video_url") or fast.get("video_url") or ""
@@ -248,8 +276,8 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         except Exception as e:
             print(f"[ig_api] error descargando video: {e}", flush=True)
 
-    if not caption:
-        raise ValueError("No se pudo obtener el pie de página del post. Verificá que el link sea público.")
+    if not caption and not transcription:
+        raise ValueError("No se pudo obtener el pie de página ni la transcripción del post. Verificá que el link sea público.")
 
     return PostData(
         url=url,
@@ -257,6 +285,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         caption=caption,
         comments=[],
         owner_username=owner_username,
+        owner_full_name=owner_full_name,
         transcription=transcription,
         photo_description=photo_description,
         is_video=bool(is_video),
