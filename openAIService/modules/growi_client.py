@@ -13,6 +13,12 @@ PASSWORD   = os.environ.get("GROWI_CRM_PASSWORD", "")
 IDVENDEDOR = os.environ.get("GROWI_IDVENDEDOR", "")
 IDVENTA    = os.environ.get("GROWI_IDVENTA", "32600")  # id del cliente en el CRM
 
+# El CRM ata la sesión a la IP que se loguea. Railway no da IP de salida fija,
+# por eso todo el tráfico hacia el CRM se rutea por un proxy de IP fija si
+# se configura GROWI_HTTP_PROXY (ej: http://user:pass@host:port).
+_PROXY_URL = os.environ.get("GROWI_HTTP_PROXY", "")
+_PROXIES = {"http": _PROXY_URL, "https": _PROXY_URL} if _PROXY_URL else None
+
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
@@ -29,6 +35,8 @@ def _login() -> requests.Session:
     """
     session = requests.Session()
     session.headers.update({"user-agent": _USER_AGENT})
+    if _PROXIES:
+        session.proxies.update(_PROXIES)
 
     resp = session.post(
         f"{CRM_URL}/cuenta/login.php",
@@ -144,22 +152,26 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
         "x-requested-with": "XMLHttpRequest",
     }
 
-    resp = session.post(
-        f"{CRM_URL}/paginas/enviar_trafico.php",
-        json=payload,
-        headers=request_headers,
-        timeout=30,
-    )
-    if resp.status_code == 401:
-        global _session
-        _session = None
-        session = _get_session()
+    # El CRM ata la sesión a la IP que se loguea y Railway rota la IP de salida
+    # entre requests, asi que un 401 puede ser solo mala suerte de que el login
+    # y el POST salieron por IPs distintas. Reintentamos con login fresco unas
+    # cuantas veces para aumentar la chance de que coincidan (mitigación
+    # temporal hasta tener un proxy de IP fija -> GROWI_HTTP_PROXY).
+    global _session
+    max_intentos = 4
+    for intento in range(1, max_intentos + 1):
         resp = session.post(
             f"{CRM_URL}/paginas/enviar_trafico.php",
             json=payload,
             headers=request_headers,
             timeout=30,
         )
+        if resp.status_code != 401:
+            break
+        print(f"[growi] 401 en intento {intento}/{max_intentos}, reintentando con login fresco", flush=True)
+        _session = None
+        if intento < max_intentos:
+            session = _get_session()
     resp.raise_for_status()
     data = resp.json()
 
