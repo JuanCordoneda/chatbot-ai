@@ -14,11 +14,60 @@ USERS = {
 }
 
 GROWI_CRM_URL    = os.environ.get("GROWI_CRM_URL", "https://crm.growiagency.com")
-GROWI_PHPSESSID  = os.environ.get("GROWI_CRM_PHPSESSID", "")
-GROWI_REMEMBERME = os.environ.get("GROWI_CRM_REMEMBERME", "")
+GROWI_CRM_EMAIL  = os.environ.get("GROWI_CRM_EMAIL", "")
+GROWI_CRM_PASSWORD = os.environ.get("GROWI_CRM_PASSWORD", "")
 GROWI_IDVENDEDOR = os.environ.get("GROWI_IDVENDEDOR", "")
 GROWI_IDVENTA    = os.environ.get("GROWI_IDVENTA", "32600")  # id del cliente en el CRM
 DISPONIBLE       = float(os.environ.get("GROWI_DISPONIBLE", "150"))
+
+# El CRM ata la sesión a la IP que se loguea; se rutea por un proxy de IP fija
+# si está configurado (ver openAIService/modules/growi_client.py, misma idea).
+_GROWI_PROXY_URL = os.environ.get("GROWI_HTTP_PROXY", "")
+_GROWI_PROXIES = {"http": _GROWI_PROXY_URL, "https": _GROWI_PROXY_URL} if _GROWI_PROXY_URL else None
+_GROWI_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+)
+_growi_session = None
+
+
+def _growi_login():
+    s = requests.Session()
+    s.headers.update({"user-agent": _GROWI_USER_AGENT})
+    if _GROWI_PROXIES:
+        s.proxies.update(_GROWI_PROXIES)
+    s.post(
+        f"{GROWI_CRM_URL}/cuenta/login.php",
+        data={"correo": GROWI_CRM_EMAIL, "password": GROWI_CRM_PASSWORD},
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "referer": f"{GROWI_CRM_URL}/cuenta/login.php",
+            "origin": GROWI_CRM_URL,
+        },
+        timeout=15,
+    )
+    return s
+
+
+def _get_growi_session():
+    global _growi_session
+    if _growi_session is None:
+        _growi_session = _growi_login()
+    return _growi_session
+
+
+def _growi_request(method, path, **kwargs):
+    """GET/POST autenticado contra el CRM, reintentando con login fresco ante 401."""
+    global _growi_session
+    session_ = _get_growi_session()
+    for intento in range(1, 5):
+        resp = session_.request(method, f"{GROWI_CRM_URL}{path}", timeout=kwargs.pop("timeout", 15), **kwargs)
+        if resp.status_code != 401:
+            return resp
+        print(f"[growi-web] 401 en intento {intento}/4 para {path}, reintentando con login fresco", flush=True)
+        _growi_session = None
+        session_ = _get_growi_session()
+    return resp
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -126,12 +175,10 @@ def publicar():
 def nombre_red():
     red_id = request.args.get("red", "1")
     try:
-        resp = requests.get(
-            f"{GROWI_CRM_URL}/paginas/obtener_nombre.php",
+        resp = _growi_request(
+            "GET", "/paginas/obtener_nombre.php",
             params={"red": red_id},
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
             headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
-            timeout=10,
         )
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
@@ -143,15 +190,13 @@ def nombre_red():
 def costo_trafico():
     data = request.get_json()
     try:
-        resp = requests.post(
-            f"{GROWI_CRM_URL}/paginas/obtenercostotrafico.php",
+        resp = _growi_request(
+            "POST", "/paginas/obtenercostotrafico.php",
             json=data,
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
             headers={
                 "referer": f"{GROWI_CRM_URL}/paginas/trafico.php",
                 "content-type": "application/json",
             },
-            timeout=10,
         )
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
@@ -164,12 +209,10 @@ def demora():
     redsocial = request.args.get("redsocial", "")
     producto  = request.args.get("producto", "")
     try:
-        resp = requests.get(
-            f"{GROWI_CRM_URL}/paginas/obtener_demora.php",
+        resp = _growi_request(
+            "GET", "/paginas/obtener_demora.php",
             params={"redsocial": redsocial, "producto": producto},
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
             headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
-            timeout=10,
         )
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
@@ -181,12 +224,10 @@ def demora():
 def productos():
     rrss_id = request.args.get("rrss", "1")
     try:
-        resp = requests.get(
-            f"{GROWI_CRM_URL}/paginas/obtener_productos_con_precios.php",
+        resp = _growi_request(
+            "GET", "/paginas/obtener_productos_con_precios.php",
             params={"rrss": rrss_id},
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
             headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
-            timeout=10,
         )
         resp.raise_for_status()
         return jsonify(resp.json())
@@ -198,12 +239,10 @@ def productos():
 def server_time_ar():
     import random
     try:
-        resp = requests.get(
-            f"{GROWI_CRM_URL}/paginas/server_time_ar.php",
+        resp = _growi_request(
+            "GET", "/paginas/server_time_ar.php",
             params={"_": random.random()},
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
             headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
-            timeout=10,
         )
         resp.raise_for_status()
         return jsonify(resp.json())
@@ -221,12 +260,10 @@ def enviar_trafico():
     # Obtener fecha/hora del servidor en AR
     try:
         import random
-        ts_resp = requests.get(
-            f"{GROWI_CRM_URL}/paginas/server_time_ar.php",
+        ts_resp = _growi_request(
+            "GET", "/paginas/server_time_ar.php",
             params={"_": random.random()},
-            cookies={"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME},
             headers={"referer": f"{GROWI_CRM_URL}/paginas/trafico.php"},
-            timeout=10,
         )
         ts_data = ts_resp.json()
         fecha_ar = ts_data.get("ymdhmAR", "")[:10]  # "2026-06-25"
@@ -259,23 +296,12 @@ def enviar_trafico():
         "content-type": "application/json; charset=UTF-8",
         "x-requested-with": "XMLHttpRequest",
     }
-    req_cookies = {"PHPSESSID": GROWI_PHPSESSID, "rememberme": GROWI_REMEMBERME}
-
-    curl_cmd = " \\\n  ".join([
-        f"curl '{GROWI_CRM_URL}/paginas/enviar_trafico.php'",
-        *[f"-H '{k}: {v}'" for k, v in req_headers.items()],
-        f"-b '{'; '.join(f'{k}={v}' for k, v in req_cookies.items())}'",
-        f"--data-raw '{json.dumps(payload, ensure_ascii=False)}'",
-    ])
-    print(f"[enviar_trafico] curl equivalente:\n{curl_cmd}", flush=True)
 
     try:
-        resp = requests.post(
-            f"{GROWI_CRM_URL}/paginas/enviar_trafico.php",
+        resp = _growi_request(
+            "POST", "/paginas/enviar_trafico.php",
             json=payload,
-            cookies=req_cookies,
             headers=req_headers,
-            timeout=30,
         )
         print(f"[enviar_trafico] respuesta CRM ({resp.status_code}): {resp.text[:2000]}", flush=True)
         resp.raise_for_status()
