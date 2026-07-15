@@ -26,4 +26,14 @@ Importante:
 
 IMPORTANTE: Todos los comentarios deben estar escritos en inglés, sin excepción.
 
-Devolvé SOLO los 60 comentarios, uno por línea, sin numeración, sin guiones, sin comillas, sin nada más.
+Género: mezcla de hombres y mujeres, mitad y mitad (30 y 30).
+
+Formato de salida (obligatorio):
+- Primero la línea exactamente:
+mujeres:
+seguida de los 30 comentarios escritos por mujeres, uno por línea.
+- Después la línea exactamente:
+hombres:
+seguida de los 30 comentarios escritos por hombres, uno por línea.
+- Los encabezados "mujeres:" y "hombres:" van tal cual, en su propia línea.
+- Sin numeración, sin guiones, sin comillas, sin nada más.

@@ -1,0 +1,48 @@
+Actuá como un grupo completamente real de seguidores de Instagram generando comentarios para un Reel de Dwayne Rancifer (@mrflipdahood). Cada comentario debe parecer escrito por una persona distinta, nunca por la misma. Todos los comentarios van en inglés.
+
+El reel dice lo siguiente (caption):
+---
+{caption}
+---
+
+Comentarios reales del post para tomar el tono y estilo:
+---
+{comentarios_existentes}
+---
+
+OBJETIVO: los comentarios deben aumentar autoridad, credibilidad, prueba social, engagement y conversación natural.
+
+QUIÉN ES DWAYNE (reforzar esta imagen de forma natural, sin forzar): empresario inmobiliario, líder comunitario, candidato a alcalde, mentor, hombre de fe, enfocado en East Chicago, desarrollo comunitario, inversión inmobiliaria, disciplina, familia y oportunidades para los jóvenes.
+
+EVITAR genéricos tipo "Great post", "Nice", "Amazing", "Awesome", "Love it", salvo que aparezcan mezclados muy ocasionalmente. Los comentarios deben parecer sacados de un post viral real.
+
+MEZCLAR distintos tipos de comentario (sin agruparlos ni etiquetarlos):
+- Reacciones cortas: Facts 💯 / Real talk / Amen 🙏🏾 / Respect 👏🏾 / Needed this / Let's go 🔥 / This hit different / Big facts
+- Opiniones: more leaders need to think like this / this is why people respect you / East Chicago needs more of this / leadership starts with action
+- Emocionales: this gave me chills / love seeing the community come together / proud to see this / moments like these matter
+- Conversación: who's been following Dwayne since the beginning? / anybody else remember when he first started talking about this? / who else needed to hear this today?
+- Preguntas reales: how long did this take? / what's next? / how many people showed up? / where was this?
+- Comunidad: East Chicago deserves this / proud to call EC home / this city has so much potential / community first ❤️
+- Trabajo: the work always shows / they don't see the work / respect the grind / keep building / one day at a time
+- Sobre Dios (SOLO cuando el contenido lo amerite): God is good 🙏🏾 / all glory to God / favor isn't fair / keep trusting Him
+
+LONGITUD (mezclar mucho): ~30% muy cortos (1 a 3 palabras), ~35% medianos (4 a 8 palabras), ~25% largos (9 a 18 palabras), ~10% de conversación que inicien discusión.
+
+MAYÚSCULAS/MINÚSCULAS (muy importante, no todos igual): ~35% empiezan con minúscula, ~30% con mayúscula, ~20% con emoji, ~15% directamente con una pregunta.
+
+EMOJIS: solo entre 25% y 35% de los comentarios llevan emoji, nunca todos. Usar principalmente: ❤️ 💙 🙏🏾 👏🏾 💯 🔥 🙌🏾 🏠 👀 😊 😂
+
+LO QUE NO QUIERO: no repetir frases ni estructuras, no que todos empiecen o terminen igual, sin punto final, que no suene a IA ni a bots, no exageradamente positivos, no todos con emoji, no todos largos ni todos cortos, no abusar de "Love...", "This..." ni "Great...".
+
+Género: audiencia MIXTA (mujeres y hombres). Repartí aproximadamente la mitad y la mitad.
+
+FORMATO DE SALIDA (obligatorio):
+- Generá ~60 comentarios en total, completamente mezclados dentro de cada género (sin agrupar por categoría, sin numerar).
+- Primero la línea exactamente:
+mujeres:
+seguida de ~30 comentarios escritos por mujeres, uno por línea.
+- Después la línea exactamente:
+hombres:
+seguida de ~30 comentarios escritos por hombres, uno por línea.
+- Los encabezados "mujeres:" y "hombres:" van tal cual, en su propia línea.
+- Sin numeración, sin guiones, sin comillas, sin títulos de grupo, sin @usuarios. Solo los encabezados y los comentarios.

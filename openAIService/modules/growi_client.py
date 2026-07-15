@@ -3,6 +3,7 @@ Growi CRM client — envía las órdenes ya armadas por el frontend a enviar_tra
 """
 import os
 import json
+import random
 import requests
 from dataclasses import dataclass, field
 from datetime import date
@@ -69,6 +70,49 @@ def _get_session() -> requests.Session:
     return _session
 
 
+# Encabezados que el CRM usa para saber el género de cada bloque de comentarios.
+# La IA los emite como líneas sueltas dentro de la lista (ej: "mujeres:", "hombres:").
+_HEADERS_GENERO = {"mujeres:", "hombres:"}
+
+
+def _es_header_genero(linea: str) -> bool:
+    return linea.strip().lower() in _HEADERS_GENERO
+
+
+def _mezclar_comentarios(comentarios: list[str]) -> list[str]:
+    """
+    Mezcla los comentarios seleccionados antes de enviarlos para que no se
+    publiquen siempre en el orden en que la IA los generó.
+
+    Si vienen segmentados por género (líneas "mujeres:" / "hombres:"), respeta
+    esos encabezados en su lugar y solo baraja los comentarios dentro de cada
+    sección; así el CRM sigue percibiendo qué comentarios son de cada género.
+    Si no hay encabezados, baraja toda la lista como antes.
+    """
+    if not any(_es_header_genero(c) for c in comentarios):
+        mezclados = list(comentarios)
+        random.shuffle(mezclados)
+        return mezclados
+
+    resultado: list[str] = []
+    grupo: list[str] = []
+
+    def _volcar_grupo():
+        random.shuffle(grupo)
+        resultado.extend(grupo)
+        grupo.clear()
+
+    for c in comentarios:
+        if _es_header_genero(c):
+            _volcar_grupo()       # cerramos la sección anterior ya barajada
+            resultado.append(c)   # el encabezado queda fijo
+        else:
+            grupo.append(c)
+    _volcar_grupo()               # última sección
+
+    return resultado
+
+
 @dataclass
 class GrowiResult:
     success: bool
@@ -125,6 +169,25 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
         )
 
     session = _get_session()
+
+    # Mezclamos los comentarios seleccionados antes de mandarlos para que no
+    # se publiquen siempre en el mismo orden en el que la IA los generó.
+    # Respeta los encabezados de género (mujeres:/hombres:) si existen.
+    comentarios = _mezclar_comentarios(comentarios)
+
+    # --- DEBUG: cómo queda la lista final segun el caso ---
+    headers = [c for c in comentarios if _es_header_genero(c)]
+    if not headers:
+        caso = "sin genero (lista plana)"
+    elif len(headers) == 1:
+        caso = f"solo {headers[0].strip().lower().rstrip(':')}"
+    else:
+        caso = "mixto (" + " + ".join(h.strip().lower().rstrip(':') for h in headers) + ")"
+    print(f"[growi][debug] caso: {caso} | {len(comentarios)} lineas", flush=True)
+    for i, c in enumerate(comentarios):
+        marca = "  >>" if _es_header_genero(c) else f"  {i:>3}"
+        print(f"[growi][debug]{marca} {c}", flush=True)
+    # --- fin DEBUG ---
 
     ordenes = [_normalizar_orden(o, disponible, comentarios) for o in ordenes]
 
