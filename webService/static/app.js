@@ -1,11 +1,22 @@
 let currentUrl = "";
 let comentariosGenerados = [];
+let generosGenerados = [];        // género por índice: "hombres" | "mujeres" | null | "__header__"
+let generoActual = null;          // género de la sección que se está streameando
+let tiposGenerados = [];          // "verificado" (default) | "noverif" por índice
 let currentJobId = null;
 let streamOffset = 0;
 let streamProgresoOffset = 0;
 let streamMeta = {};
 let esperandoTranscripcion = false;
 let pendingComentarios = [];
+
+// Los encabezados de género (hombres:/mujeres:) que emite la IA no son comentarios:
+// le dicen a Growi de qué género es cada bloque. El backend los usa; acá los
+// detectamos para no mostrarlos como comentarios y reinyectarlos al enviar.
+const _HEADERS_GENERO = { "hombres:": "hombres", "mujeres:": "mujeres" };
+function generoDeHeader(t) {
+  return _HEADERS_GENERO[(t || "").trim().toLowerCase()] || null;
+}
 
 function show(id) {
   document.getElementById(id).classList.remove("hidden");
@@ -44,6 +55,9 @@ async function generarComentarios() {
   streamProgresoOffset = 0;
   streamMeta = {};
   comentariosGenerados = [];
+  generosGenerados = [];
+  generoActual = null;
+  tiposGenerados = [];
   esperandoTranscripcion = false;
   pendingComentarios = [];
 
@@ -171,6 +185,17 @@ function manejarEvento(evento) {
       ocultarChunk();
       agregarComentario(evento.texto, evento.index);
     }
+  } else if (evento.tipo === "reset") {
+    // La generación salió cortada y el backend reintenta desde cero:
+    // descartamos todo lo mostrado hasta acá.
+    document.getElementById("lista-comentarios").innerHTML = "";
+    comentariosGenerados = [];
+    generosGenerados = [];
+    generoActual = null;
+    tiposGenerados = [];
+    pendingComentarios = [];
+    streamOffset = 0;
+    actualizarConteo();
   } else if (evento.tipo === "listo") {
     streamMeta = evento;
     finalizarStream(evento);
@@ -244,29 +269,42 @@ function mostrarEstadoTranscripcion(texto) {
 }
 
 function agregarComentario(texto, index) {
+  // Los encabezados de género (hombres:/mujeres:) marcan la sección: no se
+  // muestran como comentarios, pero se guardan para reinyectarlos al enviar.
+  const gen = generoDeHeader(texto);
+  if (gen) {
+    generoActual = gen;
+    comentariosGenerados[index] = texto;
+    generosGenerados[index] = "__header__";
+    return;
+  }
+
   const lista = document.getElementById("lista-comentarios");
   const i = index;
   comentariosGenerados[i] = texto;
+  generosGenerados[i] = generoActual;
+  if (tiposGenerados[i] === undefined) tiposGenerados[i] = "verificado";
+  const tipo = tiposGenerados[i];
 
   const item = document.createElement("div");
   item.className = "comentario-item";
   item.dataset.index = i;
+  const badge = generoActual
+    ? `<span class="comentario-genero comentario-genero--${generoActual}">${generoActual === "hombres" ? "H" : "M"}</span>`
+    : "";
   item.innerHTML = `
     <span class="comentario-num">${i + 1}</span>
-    <input type="checkbox" id="chk-${i}" onchange="actualizarConteo()" />
-    <label class="comentario-texto">${escapeHtml(texto)}</label>
+    <input type="checkbox" id="chk-${i}" onchange="onCheckChange(${i})" />
+    <span class="comentario-texto" id="txt-${i}">${escapeHtml(texto)}</span>
+    ${badge}
+    <button type="button" class="comentario-tipo comentario-tipo--${tipo}" id="tipo-${i}" title="Verificado / No verificado — click para cambiar" onclick="toggleTipo(event, ${i})">${tipo === "verificado" ? "V" : "NV"}</button>
+    <button type="button" class="comentario-edit" title="Editar" onclick="editarComentario(event, ${i})">✎</button>
   `;
   item.addEventListener("click", (e) => {
-    if (e.target.tagName === "INPUT") return;
+    if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+    if (e.target.classList.contains("comentario-texto") && e.target.isContentEditable) return;
     const chk = item.querySelector("input");
-    if (!chk.checked && contarSeleccionados() >= 20) return;
     chk.checked = !chk.checked;
-    item.classList.toggle("selected", chk.checked);
-    actualizarConteo();
-  });
-  item.querySelector("input").addEventListener("change", () => {
-    const chk = item.querySelector("input");
-    if (chk.checked && contarSeleccionados() > 20) { chk.checked = false; return; }
     item.classList.toggle("selected", chk.checked);
     actualizarConteo();
   });
@@ -278,11 +316,107 @@ function agregarComentario(texto, index) {
   const counter = document.getElementById("comments-counter");
   const count = lista.querySelectorAll(".comentario-item").length;
   if (counter) {
-    counter.textContent = `${count} / 60`;
+    counter.textContent = `${count} generados`;
   }
 
   actualizarConteo();
   document.getElementById("comments-actions-bar").classList.remove("hidden");
+}
+
+function onCheckChange(index) {
+  const chk = document.getElementById(`chk-${index}`);
+  if (!chk) return;
+  const item = chk.closest(".comentario-item");
+  if (item) item.classList.toggle("selected", chk.checked);
+  actualizarConteo();
+}
+
+// Alterna un comentario entre verificado (94) y no verificado (95).
+function toggleTipo(e, index) {
+  e.stopPropagation();
+  const nuevo = tiposGenerados[index] === "noverif" ? "verificado" : "noverif";
+  tiposGenerados[index] = nuevo;
+  const btn = document.getElementById(`tipo-${index}`);
+  if (btn) {
+    btn.textContent = nuevo === "verificado" ? "V" : "NV";
+    btn.classList.toggle("comentario-tipo--verificado", nuevo === "verificado");
+    btn.classList.toggle("comentario-tipo--noverif", nuevo === "noverif");
+  }
+}
+
+// Edición inline: el ✎ vuelve editable el texto; se guarda al salir o con Enter.
+function editarComentario(e, index) {
+  e.stopPropagation();
+  const span = document.getElementById(`txt-${index}`);
+  if (!span) return;
+  if (span.isContentEditable) { span.blur(); return; }
+
+  span.contentEditable = "true";
+  span.classList.add("editando");
+  span.focus();
+  const range = document.createRange();
+  range.selectNodeContents(span);
+  const selc = window.getSelection();
+  selc.removeAllRanges();
+  selc.addRange(range);
+
+  const guardar = () => {
+    span.contentEditable = "false";
+    span.classList.remove("editando");
+    const nuevo = span.textContent.trim();
+    if (nuevo) comentariosGenerados[index] = nuevo;
+    else span.textContent = comentariosGenerados[index];
+    span.removeEventListener("blur", guardar);
+    span.removeEventListener("keydown", onKey);
+  };
+  const onKey = (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); span.blur(); }
+    else if (ev.key === "Escape") { span.textContent = comentariosGenerados[index]; span.blur(); }
+  };
+  span.addEventListener("blur", guardar);
+  span.addEventListener("keydown", onKey);
+}
+
+// Agregar un comentario a mano. Si el cliente es mixto, pregunta el género.
+function agregarComentarioManual() {
+  const presentes = new Set(generosGenerados.filter(g => g === "hombres" || g === "mujeres"));
+  let genero = null;
+  if (presentes.size === 1) {
+    genero = [...presentes][0];
+  } else if (presentes.size >= 2) {
+    const r = (prompt("¿Comentario de cuenta de Hombre o Mujer? (h/m)", "h") || "").trim().toLowerCase();
+    genero = r.startsWith("m") ? "mujeres" : "hombres";
+  }
+  const texto = (prompt("Nuevo comentario:") || "").trim();
+  if (!texto) return;
+
+  const i = comentariosGenerados.length;
+  const prev = generoActual;
+  generoActual = genero;
+  agregarComentario(texto, i);
+  generoActual = prev;
+
+  const chk = document.getElementById(`chk-${i}`);
+  if (chk) { chk.checked = true; onCheckChange(i); }
+  const item = chk && chk.closest(".comentario-item");
+  if (item) item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// Mezcla visual: reordena las tarjetas en pantalla (el envío igual se mezcla por
+// detrás). Renumera para que se vea prolijo.
+function mezclarVisual() {
+  const lista = document.getElementById("lista-comentarios");
+  if (!lista) return;
+  const items = [...lista.querySelectorAll(".comentario-item")];
+  for (let k = items.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1));
+    [items[k], items[j]] = [items[j], items[k]];
+  }
+  items.forEach((it, k) => {
+    lista.appendChild(it);
+    const num = it.querySelector(".comentario-num");
+    if (num) num.textContent = k + 1;
+  });
 }
 
 function copiarComentario(e, index) {
@@ -306,10 +440,11 @@ function finalizarStream(meta) {
     pendingComentarios.forEach((e) => { ocultarChunk(); agregarComentario(e.texto, e.index); });
     pendingComentarios = [];
   }
+  mezclarVisual();
+  actualizarConteo();
   hide("loading-overlay");
   document.getElementById("stream-status").textContent = "";
   document.getElementById("status-listo").classList.remove("hidden");
-  document.getElementById("btn-publicar").disabled = false;
   const btnCargar = document.getElementById("btn-cargar-mas");
   if (btnCargar) btnCargar.classList.remove("hidden");
 }
@@ -364,6 +499,8 @@ async function cargarMas() {
     console.error("cargarMas error:", e);
   }
 
+  mezclarVisual();
+  actualizarConteo();
   btn.disabled = false;
   btn.textContent = "+ Cargar más";
 }
@@ -378,8 +515,8 @@ function actualizarConteo() {
   const sel = contarSeleccionados();
   const label = document.getElementById("count-label");
   if (label) {
-    label.textContent = `${sel} / 20`;
-    label.classList.toggle("count-label--lleno", sel >= 20);
+    label.textContent = `${sel} seleccionados`;
+    label.classList.remove("count-label--lleno");
   }
   const btnPublicar = document.getElementById("btn-publicar");
   if (btnPublicar) btnPublicar.disabled = sel === 0;
@@ -401,7 +538,7 @@ function actualizarPanel() {
   }
 
   panel.classList.remove("hidden");
-  count.textContent = `${seleccionados.length} / 20`;
+  count.textContent = `${seleccionados.length}`;
 
   lista.innerHTML = seleccionados.map((item, i) => {
     const texto = item.querySelector(".comentario-texto").textContent;
@@ -423,9 +560,9 @@ function quitarSeleccion(index) {
 }
 
 function seleccionarTodos() {
-  let count = 0;
   document.querySelectorAll("#lista-comentarios input[type=checkbox]").forEach((c) => {
-    if (count < 20) { c.checked = true; c.closest(".comentario-item").classList.add("selected"); count++; }
+    c.checked = true;
+    c.closest(".comentario-item").classList.add("selected");
   });
   actualizarConteo();
 }
@@ -465,15 +602,59 @@ let ordenes = [];
 let comentariosParaPublicar = [];
 
 async function irAOrdenes() {
-  const checks = document.querySelectorAll("#lista-comentarios input[type=checkbox]");
-  const seleccionados = comentariosGenerados.filter((_, i) => checks[i]?.checked);
-  if (seleccionados.length === 0) return;
+  // Seleccionamos por data-index (no por posición del DOM), porque la lista se
+  // muestra mezclada visualmente.
+  const idxSeleccionados = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
+    .map(c => parseInt(c.closest(".comentario-item").dataset.index, 10))
+    .filter(i => !Number.isNaN(i));
+  if (idxSeleccionados.length === 0) return;
 
-  comentariosParaPublicar = seleccionados;
+  // Reconstruye la lista con los encabezados de género (hombres:/mujeres:) para
+  // un conjunto de índices. Los encabezados NO cuentan como comentarios; el
+  // backend re-mezcla dentro de cada sección.
+  function reconstruir(indices) {
+    const sel = indices.map(i => ({ texto: comentariosGenerados[i], genero: generosGenerados[i] }));
+    const mujeres   = sel.filter(s => s.genero === "mujeres").map(s => s.texto);
+    const hombres   = sel.filter(s => s.genero === "hombres").map(s => s.texto);
+    const sinGenero = sel.filter(s => s.genero !== "mujeres" && s.genero !== "hombres").map(s => s.texto);
+    const payload = [];
+    if (mujeres.length) payload.push("mujeres:", ...mujeres);
+    if (hombres.length) payload.push("hombres:", ...hombres);
+    payload.push(...sinGenero);
+    return { payload, cantidad: sel.length };  // cantidad = comentarios reales, sin headers
+  }
+
+  const idxVerif   = idxSeleccionados.filter(i => tiposGenerados[i] !== "noverif");
+  const idxNoVerif = idxSeleccionados.filter(i => tiposGenerados[i] === "noverif");
 
   // Conservar cualquier orden extra ya cargada (likes, views, etc.);
-  // solo se reemplaza/actualiza la orden de comentarios.
+  // reemplazamos las de comentarios (pueden ser 2: verificados y no verificados).
   ordenes = ordenes.filter(o => o.tipo !== "comentarios");
+  comentariosParaPublicar = [];
+
+  const bloques = [
+    { indices: idxVerif,   productoId: 94, productoNombre: "Comentarios Reales Verificados" },
+    { indices: idxNoVerif, productoId: 95, productoNombre: "Comentarios Reales" },
+  ];
+  bloques.forEach((b, k) => {
+    if (b.indices.length === 0) return;
+    const { payload, cantidad } = reconstruir(b.indices);
+    comentariosParaPublicar.push(...payload);
+    ordenes.push({
+      id: Date.now() + k,
+      redsocial: "Instagram",
+      redsocialId: "1",
+      productoId: b.productoId,
+      productoNombre: b.productoNombre,
+      cantidad,
+      link: currentUrl,
+      cuando: "ahora",
+      cuandoLabel: "Ahora",
+      obs: "",
+      tipo: "comentarios",
+      comentarios: payload,   // cada orden lleva SU propia lista
+    });
+  });
 
   // Info del post
   const clientName = document.getElementById("client-badge").textContent || "—";
@@ -481,21 +662,6 @@ async function irAOrdenes() {
   document.getElementById("ordenes-client").textContent = clientName;
   document.getElementById("ordenes-hero-avatar").textContent = clientName.charAt(0).toUpperCase();
   document.getElementById("orden-link").value = currentUrl;
-
-  // Orden pre-cargada de comentarios
-  ordenes.push({
-    id: Date.now(),
-    redsocial: "Instagram",
-    redsocialId: "1",
-    productoId: 94,
-    productoNombre: "Comentarios Reales Verificados",
-    cantidad: seleccionados.length,
-    link: currentUrl,
-    cuando: "ahora",
-    cuandoLabel: "Ahora",
-    obs: "",
-    tipo: "comentarios",
-  });
 
   await actualizarProductos();
   renderOrdenes();
@@ -1073,21 +1239,27 @@ async function solicitarOrdenes() {
   btn.disabled = true;
   btn.textContent = "Solicitando...";
 
-  const ordenComentarios = ordenes.find(o => o.tipo === "comentarios");
-  const ordenesNormales  = ordenes.filter(o => o.tipo !== "comentarios");
+  const ordenesComentarios = ordenes.filter(o => o.tipo === "comentarios");
+  const ordenesNormales    = ordenes.filter(o => o.tipo !== "comentarios");
 
   try {
     let data = {};
 
-    // Comentarios: publicar en Instagram vía IA
-    if (ordenComentarios && comentariosParaPublicar.length > 0) {
+    // Comentarios: publicar en Instagram vía IA. Puede haber 2 órdenes
+    // (verificados 94 + no verificados 95), cada una con su propia lista.
+    if (ordenesComentarios.length > 0 && comentariosParaPublicar.length > 0) {
       const resp = await fetch("/api/publicar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: currentUrl,
+          // top-level: unión de todas (para el informe / fallback)
           comentarios: comentariosParaPublicar,
-          ordenes: [{ ...ordenComentarios, cantidad: comentariosParaPublicar.length }],
+          ordenes: ordenesComentarios.map(o => ({
+            ...o,
+            // cantidad = comentarios reales (sin los encabezados hombres:/mujeres:)
+            cantidad: (o.comentarios || []).filter(c => !generoDeHeader(c)).length,
+          })),
         }),
       });
       data = await resp.json();

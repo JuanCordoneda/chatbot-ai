@@ -277,6 +277,7 @@ def procesar_post_web():
             "step": "",
             "done": False,
             "error": None,
+            "resets": 0,
         }
 
     def run():
@@ -366,6 +367,11 @@ def procesar_post_web():
                 elif tipo == "comentario":
                     job["comentarios"].append(data)
                     job["current_chunk"] = ""
+                elif tipo == "reset":
+                    # la generación salió cortada y se reintenta: descartamos lo emitido
+                    job["comentarios"] = []
+                    job["current_chunk"] = ""
+                    job["resets"] += 1
             t_ai = time.time() - t1
             print(f"[TIMING] ai generation: {t_ai:.2f}s | total: {time.time()-t0:.2f}s", flush=True)
             job["progreso"].append(f"[debug] IA: {t_ai:.2f}s | total: {time.time()-t0:.2f}s")
@@ -400,11 +406,20 @@ def procesar_post_stream(job_id):
         transcription_sent = offset_c > 0
         last_chunk = ""
         last_step = ""
+        seen_resets = 0
 
         while True:
             while op < len(job["progreso"]):
                 yield evento("progreso", mensaje=job["progreso"][op])
                 op += 1
+
+            # Si la generación se reinició (salió cortada), avisamos al front para
+            # que descarte los comentarios ya mostrados y arrancamos el offset de cero.
+            if job.get("resets", 0) > seen_resets:
+                yield evento("reset")
+                oc = 0
+                last_chunk = ""
+                seen_resets = job["resets"]
 
             if not scrape_sent and job["scrape_ready"]:
                 yield evento("scrape", **job["meta"])

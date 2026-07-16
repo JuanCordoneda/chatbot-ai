@@ -995,6 +995,70 @@ body.light .comentario-item.selected { background: rgba(250,185,0,0.08); }
 .comentario-item:hover .comentario-texto { color: #ffffff; }
 .comentario-item.selected .comentario-texto { color: #ffffff; }
 
+/* Texto en edición inline */
+.comentario-texto.editando {
+  outline: 1.5px solid var(--yellow);
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: rgba(245,168,0,0.08);
+  cursor: text;
+}
+
+/* Badge de género (H/M) */
+.comentario-genero {
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  margin-top: 2px;
+  color: #000;
+}
+.comentario-genero--hombres { background: #7cc4ff; }
+.comentario-genero--mujeres { background: #ff9ecb; }
+
+/* Botón editar (✎) */
+.comentario-edit {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.comentario-item:hover .comentario-edit { opacity: 0.7; }
+.comentario-edit:hover { opacity: 1; color: var(--yellow); background: rgba(245,168,0,0.12); }
+
+/* Toggle verificado (V) / no verificado (NV) */
+.comentario-tipo {
+  flex-shrink: 0;
+  min-width: 30px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  margin-top: 1px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.comentario-tipo--verificado {
+  background: rgba(52,199,89,0.16);
+  color: #34c759;
+  border-color: rgba(52,199,89,0.4);
+}
+.comentario-tipo--noverif {
+  background: rgba(160,160,160,0.16);
+  color: var(--muted);
+  border-color: rgba(160,160,160,0.4);
+}
+
 body.light .comentario-texto { color: #222; }
 body.light .comentario-num   { color: #888; }
 body.light .comentario-item:hover .comentario-texto { color: #000; }

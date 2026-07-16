@@ -147,7 +147,7 @@
           <div class="comments-header">
             <div class="comments-title-row">
               <h2 class="card-title">Comentarios</h2>
-              <span id="comments-counter" class="comments-counter hidden">0 / 60</span>
+              <span id="comments-counter" class="comments-counter hidden">0 generados</span>
               <span id="status-listo" class="badge-listo hidden">✓ Listo</span>
             </div>
             <p id="stream-status" class="stream-status"></p>
@@ -168,6 +168,8 @@
             <div class="select-row">
               <button class="btn-ghost btn-sm" onclick="seleccionarTodos()">Seleccionar todos</button>
               <button class="btn-ghost btn-sm" onclick="deseleccionarTodos()">Limpiar</button>
+              <button class="btn-ghost btn-sm" onclick="agregarComentarioManual()">+ Agregar</button>
+              <button class="btn-ghost btn-sm" onclick="mezclarVisual()">🔀 Mezclar</button>
               <span class="count-label" id="count-label">0 seleccionados</span>
             </div>
             <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>

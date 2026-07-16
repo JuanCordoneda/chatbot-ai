@@ -113,6 +113,21 @@ def _mezclar_comentarios(comentarios: list[str]) -> list[str]:
     return resultado
 
 
+def _log_comentarios_debug(nombre: str, coms: list[str]) -> None:
+    """Log de debug: muestra cómo quedó la lista de una orden de comentarios."""
+    headers = [c for c in coms if _es_header_genero(c)]
+    if not headers:
+        caso = "sin genero (lista plana)"
+    elif len(headers) == 1:
+        caso = f"solo {headers[0].strip().lower().rstrip(':')}"
+    else:
+        caso = "mixto (" + " + ".join(h.strip().lower().rstrip(':') for h in headers) + ")"
+    print(f"[growi][debug] orden '{nombre}': caso {caso} | {len(coms)} lineas", flush=True)
+    for i, c in enumerate(coms):
+        marca = "  >>" if _es_header_genero(c) else f"  {i:>3}"
+        print(f"[growi][debug]{marca} {c}", flush=True)
+
+
 @dataclass
 class GrowiResult:
     success: bool
@@ -130,10 +145,19 @@ def _normalizar_orden(o: dict, disponible: float, comentarios: list[str]) -> dic
     (redsocial_id, prod, url, cant_inicial, programado, fecha_programada, ...).
     Si la orden ya viene en forma de CRM (tiene "url"), se respeta tal cual salvo
     que le falten los textos de los comentarios generados por IA.
+
+    Cada orden de comentarios usa SU propia lista si la trae (caso verificados +
+    no verificados, que son dos órdenes con distintos textos); si no la trae, cae
+    a la lista global `comentarios`. En ambos casos se mezcla respetando los
+    encabezados de género.
     """
+    def _coms_de(orden):
+        base = orden.get("comentarios") or comentarios
+        return _mezclar_comentarios(base)
+
     if "url" in o:
-        if o.get("tipo") == "comentarios" and not o.get("comentarios"):
-            o = {**o, "comentarios": comentarios}
+        if o.get("tipo") == "comentarios":
+            o = {**o, "comentarios": _coms_de(o)}
         return o
 
     cantidad = o.get("cantidad", 0)
@@ -152,7 +176,7 @@ def _normalizar_orden(o: dict, disponible: float, comentarios: list[str]) -> dic
         "cantidad":     str(cantidad),
         "programado":   programado,
         "fecha_programada": o.get("fechaProgramada") or None,
-        "comentarios":  comentarios if o.get("tipo") == "comentarios" else [],
+        "comentarios":  _coms_de(o) if o.get("tipo") == "comentarios" else [],
         "disponible":   disponible,
     }
 
@@ -170,26 +194,15 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
 
     session = _get_session()
 
-    # Mezclamos los comentarios seleccionados antes de mandarlos para que no
-    # se publiquen siempre en el mismo orden en el que la IA los generó.
-    # Respeta los encabezados de género (mujeres:/hombres:) si existen.
-    comentarios = _mezclar_comentarios(comentarios)
-
-    # --- DEBUG: cómo queda la lista final segun el caso ---
-    headers = [c for c in comentarios if _es_header_genero(c)]
-    if not headers:
-        caso = "sin genero (lista plana)"
-    elif len(headers) == 1:
-        caso = f"solo {headers[0].strip().lower().rstrip(':')}"
-    else:
-        caso = "mixto (" + " + ".join(h.strip().lower().rstrip(':') for h in headers) + ")"
-    print(f"[growi][debug] caso: {caso} | {len(comentarios)} lineas", flush=True)
-    for i, c in enumerate(comentarios):
-        marca = "  >>" if _es_header_genero(c) else f"  {i:>3}"
-        print(f"[growi][debug]{marca} {c}", flush=True)
-    # --- fin DEBUG ---
-
+    # Cada orden de comentarios se mezcla por dentro (respetando headers de
+    # género) dentro de _normalizar_orden, usando su propia lista o la global.
     ordenes = [_normalizar_orden(o, disponible, comentarios) for o in ordenes]
+
+    # --- DEBUG: cómo quedó la lista de cada orden de comentarios ---
+    for o in ordenes:
+        if o.get("comentarios"):
+            _log_comentarios_debug(o.get("prod") or o.get("productoNombre") or "comentarios", o["comentarios"])
+    # --- fin DEBUG ---
 
     costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
 
