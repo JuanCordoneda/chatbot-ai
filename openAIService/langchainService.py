@@ -265,6 +265,10 @@ def procesar_post_web():
     if not es_link_instagram(post_url):
         return jsonify({"error": "El link no parece ser de Instagram"}), 400
 
+    # "Cargar más" manda los comentarios ya generados para que la nueva tanda no
+    # los repita ni parafrasee.
+    evitar = data.get("evitar", []) or []
+
     job_id = str(uuid.uuid4())
     with _jobs_lock:
         _jobs[job_id] = {
@@ -360,7 +364,7 @@ def procesar_post_web():
             for tipo, data in generar_comentarios_stream(
                 post_data.caption, post_data.comments, prompt_client_id,
                 post_data.transcription, post_data.photo_description,
-                post_data.is_video,
+                post_data.is_video, evitar,
             ):
                 if tipo == "chunk":
                     job["current_chunk"] += data

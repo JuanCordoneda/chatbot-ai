@@ -1000,6 +1000,11 @@ body.light .comentario-item.selected {
   line-height: 1.7;
   cursor: pointer;
   flex: 1;
+  /* Sin min-width:0 el texto no encoge por debajo de su contenido y empuja los
+     switches (género y V/NV) fuera del borde derecho de la tarjeta, quedando
+     cortados e inalcanzables en pantallas angostas. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   transition: color 0.15s;
 }
 
@@ -1398,6 +1403,14 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 @keyframes panelIn {
   from { opacity: 0; transform: translateX(12px); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* El panel flota fijo a la derecha. La columna central (.main, zoom 1.2 → ~936px
+   efectivos) necesita ~1500px de viewport para que el panel entre en el margen
+   derecho sin taparla. Por debajo de eso lo ocultamos: la selección igual se ve
+   resaltada en la lista y en el contador. Evita que tape "🎲 Al azar"/"Publicar". */
+@media (max-width: 1500px) {
+  .panel-seleccionados { display: none !important; }
 }
 
 .panel-header {
@@ -2456,7 +2469,13 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
 /* ── Mobile ── */
 @media (max-width: 768px) {
+  /* El zoom vive en .app (no en body): sin resetearlo acá el contenido queda
+     1.2x más ancho que el viewport y aparece scroll horizontal en mobile. */
   body { zoom: 1; }
+  .app { zoom: 1; }
+  /* clip (no hidden): evita el scroll horizontal sin crear un contenedor de
+     scroll que rompa el position:sticky de la barra de acciones. */
+  html, body { overflow-x: clip; }
 
   /* ── Header ── */
   .header {
@@ -2634,6 +2653,11 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   .comentario-item {
     padding: 11px 8px;
     gap: 10px;
+    row-gap: 8px;
+    /* En pantallas muy angostas (~256-320px) los elementos de ancho fijo no
+       entran en una línea: dejamos que los switches bajen a una segunda línea
+       (accesibles) en vez de cortarse fuera de la tarjeta. */
+    flex-wrap: wrap;
     border-radius: 10px;
   }
 

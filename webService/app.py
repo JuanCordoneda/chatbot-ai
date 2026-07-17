@@ -31,6 +31,32 @@ _GROWI_USER_AGENT = (
 _growi_session = None
 
 
+def _mensaje_amigable(e):
+    """Traduce errores del backend a un mensaje claro para el usuario, sin filtrar
+    infraestructura interna (nombres de servicio, puertos, URLs internas)."""
+    if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+        # Si el backend mandó un mensaje limpio en el body, lo usamos.
+        try:
+            body = e.response.json()
+            msg = body.get("error") or body.get("mensaje") or body.get("detail")
+            if msg and "http://" not in str(msg) and "https://" not in str(msg):
+                return str(msg)
+        except Exception:
+            pass
+        status = e.response.status_code
+        if status == 400:
+            return ("El link no es válido o el post no se pudo procesar. "
+                    "Verificá que sea un link de un post público de Instagram.")
+        if status == 404:
+            return "No encontramos el post. Revisá que el link sea correcto."
+        return "No pudimos procesar el post en este momento. Probá de nuevo en unos minutos."
+    if isinstance(e, requests.exceptions.Timeout):
+        return "El procesamiento tardó demasiado. Probá de nuevo."
+    if isinstance(e, requests.exceptions.ConnectionError):
+        return "No pudimos conectar con el servicio de generación. Probá de nuevo en unos minutos."
+    return "Ocurrió un error inesperado. Probá de nuevo."
+
+
 def _growi_login():
     s = requests.Session()
     s.headers.update({"user-agent": _GROWI_USER_AGENT})
@@ -113,16 +139,20 @@ def procesar():
     if not post_url:
         return jsonify({"error": "Falta el link de Instagram"}), 400
 
+    # "Cargar más" manda los comentarios ya generados para que no se repitan.
+    evitar = data.get("evitar", []) or []
+
     try:
         resp = requests.post(
             f"{OPENAI_SERVICE_URL}/procesar_post",
-            json={"url": post_url},
+            json={"url": post_url, "evitar": evitar},
             timeout=30,
         )
         resp.raise_for_status()
         return jsonify(resp.json())
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[procesar] error: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
 
 
 @app.route("/api/stream/<job_id>", methods=["GET"])
@@ -143,7 +173,8 @@ def stream(job_id):
                         yield chunk
         except Exception as e:
             import json
-            yield f"data: {json.dumps({'tipo': 'error', 'mensaje': str(e)})}\n\n".encode()
+            print(f"[stream] error: {e!r}", flush=True)
+            yield f"data: {json.dumps({'tipo': 'error', 'mensaje': _mensaje_amigable(e)})}\n\n".encode()
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
@@ -168,7 +199,8 @@ def publicar():
         resp.raise_for_status()
         return jsonify(resp.json())
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[publicar] error: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
 
 
 @app.route("/api/nombre_red", methods=["GET"])

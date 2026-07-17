@@ -8,7 +8,7 @@ _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"), max_r
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
-def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False) -> str:
+def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None) -> str:
     if client_id:
         client_key = client_id.lower().replace(" ", "")
         client_prompt = _PROMPTS_DIR / "clients" / f"{client_key}.txt"
@@ -32,6 +32,22 @@ def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str
     if transcription:
         prompt += f"\n\nTranscripción del audio del video:\n---\n{transcription}\n---"
 
+    # "Cargar más": el usuario ya tiene una tanda de comentarios. Le pasamos esa
+    # tanda para que el modelo NO la repita ni la parafrasee (era la causa de los
+    # casi-duplicados entre tandas: cada llamada es stateless y sin esto re-inventa
+    # variaciones de lo mismo).
+    if evitar:
+        evitar_str = "\n".join(f"- {c}" for c in evitar)
+        prompt += (
+            "\n\nATENCIÓN — ESTA ES UNA TANDA ADICIONAL. Los comentarios de abajo YA "
+            "se generaron en una tanda anterior. Generá comentarios COMPLETAMENTE "
+            "NUEVOS y DISTINTOS: prohibido repetirlos o parafrasearlos (no vale "
+            "cambiar una palabra, abreviar, traducir ni agregar/quitar un emoji). "
+            "Tienen que aportar ideas, vocabulario y estructuras diferentes.\n"
+            "Comentarios ya generados (NO repetir ni parafrasear):\n---\n"
+            f"{evitar_str}\n---"
+        )
+
     return prompt
 
 
@@ -41,9 +57,9 @@ _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False) -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None) -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -51,11 +67,14 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
-    (el consumidor debe descartar lo emitido hasta ese punto)."""
-    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video)
+    (el consumidor debe descartar lo emitido hasta ese punto).
+
+    evitar: comentarios de tandas anteriores que el modelo no debe repetir ni
+    parafrasear (usado por "Cargar más")."""
+    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar)
 
     prev_motivo = None
     for intento in range(1, _MAX_INTENTOS + 1):

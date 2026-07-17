@@ -18,8 +18,59 @@ function generoDeHeader(t) {
   return _HEADERS_GENERO[(t || "").trim().toLowerCase()] || null;
 }
 
+// Texto normalizado para detectar comentarios duplicados (minúsculas, sin
+// espacios de más). Se usa al "Cargar más" para no repetir lo ya mostrado.
+function normComentario(t) {
+  return (t || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Tokens de solo-letras/números (sin emojis ni puntuación), para comparar
+// comentarios "casi iguales" (paráfrasis, abreviaturas, emoji de más, etc.).
+function tokensComentario(t) {
+  return normComentario(t).replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+}
+
+function infoComentario(t) {
+  const tokens = tokensComentario(t);
+  return { norm: normComentario(t), tokens, base: tokens.join(" ") };
+}
+
+// ¿`cand` es un casi-duplicado de alguno de `existentes`? Atrapa: texto idéntico,
+// uno contenido en el otro ignorando emojis/puntuación ("God is good" vs
+// "God is good 🙏🏾", "keep building bro" vs "keep building brother"), y alto
+// solapamiento de palabras ("real leadership starts with action" vs "leadership
+// starts with action not promises").
+function esCasiDuplicado(cand, existentes) {
+  for (const ex of existentes) {
+    if (cand.norm === ex.norm) return true;
+    // Contención: uno incluido en el otro. Solo cuenta si el más corto tiene ≥3
+    // palabras, para no tragarnos comentarios cortos legítimos ("fire" dentro de
+    // "this is fire") de los que la tanda tiene muchos a propósito.
+    if (cand.base && ex.base && Math.min(cand.tokens.length, ex.tokens.length) >= 3 &&
+        (cand.base.includes(ex.base) || ex.base.includes(cand.base))) return true;
+    if (cand.tokens.length && ex.tokens.length) {
+      const setEx = new Set(ex.tokens);
+      let inter = 0;
+      for (const tk of cand.tokens) if (setEx.has(tk)) inter++;
+      const union = new Set([...cand.tokens, ...ex.tokens]).size;
+      // Muchas palabras en común (≥4) o solapamiento alto (Jaccard ≥ 0.6).
+      if (inter >= 4 || inter / union >= 0.6) return true;
+    }
+  }
+  return false;
+}
+
+// Al refrescar, el navegador restaura el scroll donde estaba (a veces a mitad
+// del body). Lo desactivamos y arrancamos siempre arriba.
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+window.scrollTo(0, 0);
+window.addEventListener("load", () => window.scrollTo(0, 0));
+window.addEventListener("pageshow", () => window.scrollTo(0, 0));
+
 function show(id) {
   document.getElementById(id).classList.remove("hidden");
+  // Al cambiar de step (no al abrir overlays/modales) subimos al top.
+  if (id.startsWith("step-")) window.scrollTo(0, 0);
 }
 
 function hide(id) {
@@ -313,10 +364,16 @@ function agregarComentario(texto, index) {
 
   lista.appendChild(item);
 
-  const counter = document.getElementById("comments-counter");
+  // Numeración visible = posición en la lista (los encabezados hombres:/mujeres:
+  // no son items, así que consumen índices internos pero no deben dejar huecos
+  // en la numeración que ve el trafficker).
   const count = lista.querySelectorAll(".comentario-item").length;
+  const numEl = item.querySelector(".comentario-num");
+  if (numEl) numEl.textContent = count;
+
+  const counter = document.getElementById("comments-counter");
   if (counter) {
-    counter.textContent = `${count} generados`;
+    counter.textContent = `${count} generado${count === 1 ? "" : "s"}`;
   }
 
   actualizarConteo();
@@ -392,15 +449,36 @@ function editarComentario(e, index) {
   span.addEventListener("keydown", onKey);
 }
 
-// Agregar un comentario a mano. El género default es el del cliente (o hombre
-// si es mixto); después se cambia con el switch azul/rosa del comentario.
+// Agregar un comentario a mano. Usa un modal propio en vez de prompt() nativo:
+// prompt()/alert() congelan la pestaña entera (y bloquean por completo a los
+// navegadores automatizados de QA). El género default es el del cliente (o
+// hombre si es mixto); después se cambia con el switch azul/rosa del comentario.
 function agregarComentarioManual() {
+  const input = document.getElementById("agregar-input");
+  input.value = "";
+  document.getElementById("agregar-input-error").classList.add("hidden");
+  show("agregar-overlay");
+  setTimeout(() => input.focus(), 30);
+}
+
+function cerrarAgregarModal() {
+  hide("agregar-overlay");
+}
+
+function confirmarAgregarComentario() {
+  const input = document.getElementById("agregar-input");
+  const texto = (input.value || "").trim();
+  if (!texto) {
+    document.getElementById("agregar-input-error").classList.remove("hidden");
+    input.focus();
+    return;
+  }
+  hide("agregar-overlay");
+
   const presentes = new Set(generosGenerados.filter(g => g === "hombres" || g === "mujeres"));
   let genero = null;
   if (presentes.size === 1) genero = [...presentes][0];
   else if (presentes.size >= 2) genero = "hombres";
-  const texto = (prompt("Nuevo comentario:") || "").trim();
-  if (!texto) return;
 
   const i = comentariosGenerados.length;
   const prev = generoActual;
@@ -449,10 +527,13 @@ async function cargarMas() {
   btn.textContent = "Cargando...";
 
   try {
+    // Le mandamos al backend los comentarios ya generados (sin encabezados) para
+    // que la nueva tanda no los repita ni parafrasee.
+    const evitar = comentariosGenerados.filter(c => c && !generoDeHeader(c));
     const resp = await fetch("/api/procesar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: currentUrl }),
+      body: JSON.stringify({ url: currentUrl, evitar }),
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
@@ -465,6 +546,11 @@ async function cargarMas() {
 
     // Offset global para no pisar indices existentes
     const baseIndex = comentariosGenerados.length;
+
+    // Red de seguridad del front: aunque el backend ya recibe la lista a evitar,
+    // filtramos acá los casi-duplicados que se le puedan escapar (paráfrasis,
+    // abreviaturas, emoji de más). Comparamos contra todo lo ya mostrado.
+    const vistos = comentariosGenerados.filter(c => c && !generoDeHeader(c)).map(infoComentario);
 
     const url = `/api/stream/${currentJobId}?offset=0&progreso_offset=0`;
     const resp2 = await fetch(url);
@@ -483,7 +569,17 @@ async function cargarMas() {
         let evento;
         try { evento = JSON.parse(line.slice(6)); } catch { continue; }
         if (evento.tipo === "comentario") {
-          agregarComentario(evento.texto, baseIndex + evento.index);
+          // Los encabezados de género se procesan siempre (marcan la sección);
+          // los comentarios reales, solo si no son un casi-duplicado de lo cargado.
+          if (generoDeHeader(evento.texto)) {
+            agregarComentario(evento.texto, baseIndex + evento.index);
+          } else {
+            const info = infoComentario(evento.texto);
+            if (!esCasiDuplicado(info, vistos)) {
+              vistos.push(info);
+              agregarComentario(evento.texto, baseIndex + evento.index);
+            }
+          }
         } else if (evento.tipo === "listo" || evento.tipo === "error") {
           break;
         }
@@ -508,7 +604,7 @@ function actualizarConteo() {
   const sel = contarSeleccionados();
   const label = document.getElementById("count-label");
   if (label) {
-    label.textContent = `${sel} seleccionados`;
+    label.textContent = `${sel} seleccionado${sel === 1 ? "" : "s"}`;
     label.classList.toggle("count-label--lleno", sel > 0);   // pill amarilla con selección
   }
   const btnPublicar = document.getElementById("btn-publicar");
@@ -564,22 +660,26 @@ function seleccionarTodos() {
 // (cantidad base ±20%), para que ningún post mande siempre el mismo número
 // y no parezca bot.
 function seleccionAleatoria() {
-  const base = parseInt(document.getElementById("rand-cantidad")?.value, 10) || 25;
-  const jitter = Math.max(1, Math.round(base * 0.2));
-  const objetivo = base - jitter + Math.floor(Math.random() * (2 * jitter + 1));
-
   const checks = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]")];
   checks.forEach((c) => {
     c.checked = false;
     c.closest(".comentario-item").classList.remove("selected");
   });
 
+  // Cantidad base: vacío/inválido → 25; negativos → 0. Nunca dejamos que la
+  // aleatoriedad se salga de [0, cantidad de comentarios].
+  const raw = parseInt(document.getElementById("rand-cantidad")?.value, 10);
+  const base = Math.max(0, Number.isFinite(raw) ? raw : 25);
+  const jitter = base > 0 ? Math.max(1, Math.round(base * 0.2)) : 0;
+  let objetivo = base - jitter + Math.floor(Math.random() * (2 * jitter + 1));
+  objetivo = Math.max(0, Math.min(objetivo, checks.length));
+
   const idx = checks.map((_, k) => k);
   for (let k = idx.length - 1; k > 0; k--) {
     const j = Math.floor(Math.random() * (k + 1));
     [idx[k], idx[j]] = [idx[j], idx[k]];
   }
-  idx.slice(0, Math.min(objetivo, checks.length)).forEach((k) => {
+  idx.slice(0, objetivo).forEach((k) => {
     checks[k].checked = true;
     checks[k].closest(".comentario-item").classList.add("selected");
   });
@@ -1350,7 +1450,7 @@ async function solicitarOrdenes() {
       `;
     }
 
-    if (ordenComentarios) {
+    if (ordenesComentarios.length > 0) {
       const resultadoComments = document.getElementById("resultado-comments");
       resultadoComments.innerHTML = comentariosParaPublicar.map((c, i) =>
         `<div class="resultado-comment-item"><span class="resultado-comment-num">${i + 1}</span><span class="resultado-comment-texto">${escapeHtml(c)}</span></div>`
@@ -1359,7 +1459,11 @@ async function solicitarOrdenes() {
 
     show("step-resultado");
   } catch (e) {
-    alert("Error al solicitar: " + e.message);
+    // Sin alert() nativo: congela la pestaña. Mostramos el error en pantalla.
+    hide("step-ordenes");
+    const box = document.getElementById("resultado-content");
+    box.innerHTML = `<span style="color:#e55;">Error al solicitar: ${escapeHtml(e.message || String(e))}</span>`;
+    show("step-resultado");
     btn.disabled = false;
     btn.textContent = "Solicitar";
   }
@@ -1489,5 +1593,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ig-link").addEventListener("keydown", (e) => {
     if (e.key === "Enter") generarComentarios();
   });
+
+  // Modal "+ Agregar": Enter confirma, Escape cancela.
+  const agregarInput = document.getElementById("agregar-input");
+  if (agregarInput) {
+    agregarInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); confirmarAgregarComentario(); }
+      else if (e.key === "Escape") { e.preventDefault(); cerrarAgregarModal(); }
+    });
+  }
+
   actualizarConteo();
 });

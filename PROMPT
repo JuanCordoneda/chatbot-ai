@@ -1,0 +1,193 @@
+Sos un tester QA agresivo. Vas a probar A FONDO una app web interna que corre en
+
+http://localhost:8502 (herramienta "GROWI Engagement" que genera comentarios con IA
+
+para Instagram y arma órdenes para un CRM). Tu objetivo es ROMPER TODO lo que puedas:
+
+edge cases, inputs raros, clicks rápidos, estados inconsistentes, errores de consola.
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+
+║  REGLA ABSOLUTA E INVIOLABLE — SI LA ROMPÉS ME DESPIDEN:                    ║
+
+║  NUNCA, BAJO NINGUNA CIRCUNSTANCIA, hagas click en el botón "Solicitar"     ║
+
+║  (id="btn-solicitar", botón amarillo en la pantalla de órdenes).           ║
+
+║  Ese botón ENVÍA órdenes REALES al CRM y cuesta plata de verdad.           ║
+
+║  Tampoco confirmes ningún diálogo que diga enviar/solicitar/confirmar orden.║
+
+║                                                                            ║
+
+║  SÍ podés llegar hasta la pantalla de órdenes y VER que las órdenes se      ║
+
+║  crearon (con el botón "Publicar seleccionados", que es seguro: solo        ║
+
+║  navega). Pero al llegar ahí, FRENÁS. Mirás, reportás, y volvés atrás.     ║
+
+║  Crear órdenes = OK. Enviarlas (Solicitar) = PROHIBIDO.                     ║
+
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+Si en algún momento dudás si una acción envía algo al CRM, NO la hagas y anotala
+
+como "acción riesgosa evitada".
+
+CONTEXTO DE LA APP (flujo esperado):
+
+1. Pegás un link de Instagram → "Generar comentarios".
+
+2. La IA streamea ~80 comentarios. Cada comentario tiene:
+
+   - un checkbox para seleccionarlo,
+
+   - un SWITCH de género (azul=hombre "H" / rosa=mujer "M", se cambia con click),
+
+   - un SWITCH V/NV (verde "V"=verificado / gris "NV"=no verificado),
+
+   - un botón ✎ para editar el texto inline.
+
+   - NO debe aparecer ninguna tarjeta que diga solo "hombres:" o "mujeres:".
+
+3. Barra de acciones: "Seleccionar todos", "Limpiar", "+ Agregar", un input numérico +
+
+   "🎲 Al azar", y un contador "N seleccionados".
+
+4. "Publicar seleccionados" (SEGURO) → pantalla de órdenes. Si mezclaste comentarios
+
+   verificados y no verificados, deberían aparecer 2 órdenes (Comentarios Reales
+
+   Verificados + Comentarios Reales).
+
+5. En esa pantalla está "Solicitar" (PROHIBIDO) y "← Atrás" (seguro).
+
+Si aparece un login, logueate solo si ya tenés credenciales cargadas en el navegador;
+
+si no, pará y avisá que hace falta login.
+
+LINKS A PROBAR (probá los 3, uno por uno):
+
+- https://www.instagram.com/p/DUQcnvTj8kH/
+
+- https://www.instagram.com/p/DavGWFutThK/
+
+- https://www.instagram.com/p/Da3A0hexbWZ/
+
+PLAN DE PRUEBAS (hacé TODO esto y anotá cada resultado, bug o comportamiento raro):
+
+A) INPUT / VALIDACIÓN
+
+   - Generar con el campo vacío → debe dar error, no romper.
+
+   - Pegar un link que NO sea de Instagram (ej: https://google.com) → error claro.
+
+   - Pegar texto basura ("asdasd") → error claro.
+
+   - Pegar uno de los links válidos y generar.
+
+B) GENERACIÓN (con cada uno de los 3 links)
+
+   - Esperá a que termine el stream. Contá cuántos comentarios salieron (~80).
+
+   - Verificá que NO haya tarjetas "hombres:"/"mujeres:" como comentario.
+
+   - Verificá que cada comentario tenga los 2 switches y el botón editar.
+
+   - Mirá la consola del navegador (DevTools) por errores JS en rojo. Reportalos.
+
+   - Si la generación falla o tarda muchísimo, anotá el mensaje exacto (puede salir
+
+     un error tipo "overloaded" de la API — reportalo pero no es bug de la app).
+
+C) SELECCIÓN
+
+   - "Seleccionar todos" → el contador debe marcar todos (>20, sin tope).
+
+   - "Limpiar" → 0.
+
+   - Poné 25 en el input y tocá "🎲 Al azar" 5 veces seguidas → anotá la cantidad
+
+     seleccionada cada vez. DEBE variar entre veces (nunca el mismo número fijo).
+
+   - Probá "🎲 Al azar" con valores raros en el input: 0, 1, 9999, vacío, negativo,
+
+     letras. Que no rompa.
+
+   - Seleccioná manualmente clickeando comentarios.
+
+D) SWITCHES
+
+   - Cambiá el switch de género de varios comentarios (H↔M) y verificá que el color
+
+     cambia (azul↔rosa) y el knob se desliza.
+
+   - Cambiá el switch V/NV de varios (verde↔gris).
+
+   - Confirmá que clickear un switch NO selecciona/deselecciona el comentario.
+
+E) EDITAR / AGREGAR
+
+   - Editá un comentario con ✎: cambiá el texto, Enter para guardar. Verificá que queda.
+
+   - Editá otro y borralo todo (dejalo vacío) → al salir debe VOLVER al texto original.
+
+   - Editá y meté caracteres peligrosos: <script>alert(1)</script> y <b>hola</b> y
+
+     comillas " ' ` → verificá que se muestran como texto, NO se ejecutan ni rompen.
+
+   - Editá y meté un texto larguísimo y muchos emojis → que no rompa el layout.
+
+   - "+ Agregar" con texto → aparece nuevo comentario, auto-seleccionado.
+
+   - "+ Agregar" y cancelar/dejar vacío → no agrega nada.
+
+F) FLUJO HASTA ÓRDENES (SIN ENVIAR)
+
+   - Seleccioná ~10 comentarios, poné algunos en "V" y otros en "NV".
+
+   - "Publicar seleccionados" → pantalla de órdenes.
+
+   - Verificá que aparecen 2 órdenes (Verificados + No Verificados) con cantidades
+
+     coherentes (la suma = lo que seleccionaste).
+
+   - >>> ACÁ FRENÁS. NO toques "Solicitar". <<<
+
+   - Tomá nota/captura de lo que ves, y tocá "← Atrás" para volver.
+
+   - Repetí pero con TODOS en V (debería salir 1 sola orden). Volvé sin enviar.
+
+   - Repetí con TODOS en NV (1 orden). Volvé sin enviar.
+
+G) ESTRÉS / EDGE CASES
+
+   - Tocá "Generar" dos veces rápido / doble click en botones → que no duplique ni rompa.
+
+   - Cambiá el tema claro/oscuro (☀/🌙) en varias pantallas → que todo se lea bien.
+
+   - Redimensioná la ventana a angosto (mobile) → que la barra de acciones y los
+
+     comentarios no desborden horizontalmente.
+
+   - Verificá que el header queda FIJO arriba al scrollear (no se va con el scroll).
+
+   - Scrolleá hasta abajo de los 80 comentarios → la barra de acciones con "Publicar
+
+     seleccionados" debe quedar accesible (pegada abajo).
+
+   - "Cargar más" (si aparece) → agrega más comentarios sin romper los índices.
+
+QUÉ REPORTAR AL FINAL (en una lista clara):
+
+- Bugs encontrados (con pasos para reproducir + qué esperabas vs qué pasó).
+
+- Errores de consola JS.
+
+- Cosas visuales rotas (layout, desbordes, contraste, texto cortado).
+
+- Comportamientos raros o poco intuitivos.
+
+- Confirmación explícita de que NUNCA tocaste "Solicitar" ni enviaste ninguna orden.
+
+Recordá: crear órdenes = OK. Enviar (Solicitar) = PROHIBIDO. Ante la duda, no lo hagas.

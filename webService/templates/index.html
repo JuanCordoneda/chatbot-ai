@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1783207634" />
+  <link rel="stylesheet" href="/static/style.css?v=1783208903" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -388,8 +388,22 @@
     <div id="panel-lista" class="panel-lista"></div>
   </div>
 
+  <!-- Modal: agregar comentario manual (reemplaza al prompt() nativo) -->
+  <div id="agregar-overlay" class="overlay hidden">
+    <div class="overlay-card intervalo-card">
+      <p class="overlay-title">Nuevo comentario</p>
+      <p class="intervalo-subtitle">Escribí el comentario que querés agregar</p>
+      <textarea id="agregar-input" class="orden-textarea" placeholder="Escribí el comentario..."></textarea>
+      <span id="agregar-input-error" class="orden-field-error hidden">Escribí un comentario</span>
+      <div class="intervalo-actions">
+        <button type="button" class="header-action-btn" onclick="cerrarAgregarModal()">Cancelar</button>
+        <button type="button" class="orden-btn-agregar intervalo-btn-confirmar" onclick="confirmarAgregarComentario()">Agregar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1783207634"></script>
+  <script src="/static/app.js?v=1783208902"></script>
 </body>
 </html>
