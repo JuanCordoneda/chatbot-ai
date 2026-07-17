@@ -398,6 +398,9 @@ def procesar_post_stream(job_id):
 
     offset_c = int(request.args.get("offset", 0))
     offset_p = int(request.args.get("progreso_offset", 0))
+    # Cuántos "reset" ya aplicó el cliente. Al reconectar, así NO le re-emitimos
+    # resets viejos (que le borrarían los comentarios ya mostrados).
+    resets_seen = int(request.args.get("resets", 0))
 
     def generate():
         def evento(tipo, **kwargs):
@@ -410,7 +413,7 @@ def procesar_post_stream(job_id):
         transcription_sent = offset_c > 0
         last_chunk = ""
         last_step = ""
-        seen_resets = 0
+        seen_resets = resets_seen
 
         while True:
             while op < len(job["progreso"]):

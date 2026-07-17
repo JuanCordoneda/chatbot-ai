@@ -6,6 +6,7 @@ let tiposGenerados = [];          // "verificado" (default) | "noverif" por índ
 let currentJobId = null;
 let streamOffset = 0;
 let streamProgresoOffset = 0;
+let streamResets = 0;   // cuántos "reset" ya aplicó el front (para no re-aplicarlos al reconectar)
 let streamMeta = {};
 let esperandoTranscripcion = false;
 let pendingComentarios = [];
@@ -117,6 +118,7 @@ async function generarComentarios() {
   currentJobId = null;
   streamOffset = 0;
   streamProgresoOffset = 0;
+  streamResets = 0;
   streamMeta = {};
   comentariosGenerados = [];
   generosGenerados = [];
@@ -176,7 +178,7 @@ async function generarComentarios() {
 function conectarStream() {
   if (!currentJobId) return;
 
-  const url = `/api/stream/${currentJobId}?offset=${streamOffset}&progreso_offset=${streamProgresoOffset}`;
+  const url = `/api/stream/${currentJobId}?offset=${streamOffset}&progreso_offset=${streamProgresoOffset}&resets=${streamResets}`;
   const reader = fetch(url).then((r) => r.body.getReader());
 
   reader.then(async (r) => {
@@ -251,7 +253,10 @@ function manejarEvento(evento) {
     }
   } else if (evento.tipo === "reset") {
     // La generación salió cortada y el backend reintenta desde cero:
-    // descartamos todo lo mostrado hasta acá.
+    // descartamos todo lo mostrado hasta acá. Contamos el reset para no
+    // volver a aplicarlo si el stream se reconecta (si no, borraría los
+    // comentarios ya mostrados de una generación completa).
+    streamResets++;
     document.getElementById("lista-comentarios").innerHTML = "";
     comentariosGenerados = [];
     generosGenerados = [];

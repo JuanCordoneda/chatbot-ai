@@ -159,12 +159,13 @@ def procesar():
 def stream(job_id):
     offset = request.args.get("offset", "0")
     progreso_offset = request.args.get("progreso_offset", "0")
+    resets = request.args.get("resets", "0")
 
     def generate():
         try:
             with requests.get(
                 f"{OPENAI_SERVICE_URL}/procesar_post/stream/{job_id}",
-                params={"offset": offset, "progreso_offset": progreso_offset},
+                params={"offset": offset, "progreso_offset": progreso_offset, "resets": resets},
                 stream=True,
                 timeout=300,
             ) as resp:
