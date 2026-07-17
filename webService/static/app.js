@@ -13,9 +13,22 @@ let pendingComentarios = [];
 // Los encabezados de género (hombres:/mujeres:) que emite la IA no son comentarios:
 // le dicen a Growi de qué género es cada bloque. El backend los usa; acá los
 // detectamos para no mostrarlos como comentarios y reinyectarlos al enviar.
-const _HEADERS_GENERO = { "hombres:": "hombres", "mujeres:": "mujeres" };
+const _HEADERS_GENERO = {
+  mujeres: "mujeres", mujer: "mujeres", women: "mujeres", female: "mujeres",
+  hombres: "hombres", hombre: "hombres", men: "hombres", male: "hombres",
+};
+// Detecta la línea marcadora de sección de género. Tolerante a variantes del
+// modelo (mayúsculas, markdown "**mujeres:**", espacios "mujeres :", inglés
+// "women:") para que un header mal escrito no rompa la asignación de género
+// (bug: si no se reconoce "mujeres:", todos los comentarios caían en "hombres").
+// Requiere que la línea COMPLETA sea el marcador (palabra + ":"), no un comentario
+// que casualmente arranque con esa palabra.
 function generoDeHeader(t) {
-  return _HEADERS_GENERO[(t || "").trim().toLowerCase()] || null;
+  const s = (t || "").trim().toLowerCase()
+    .replace(/^[*_#>`~\s-]+/, "")
+    .replace(/[*_`~\s]+$/, "");
+  const m = s.match(/^([a-zñáéíóú]+)\s*:$/);
+  return m ? (_HEADERS_GENERO[m[1]] || null) : null;
 }
 
 // Texto normalizado para detectar comentarios duplicados (minúsculas, sin

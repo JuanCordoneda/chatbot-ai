@@ -1,7 +1,25 @@
 import os
+import re
 import time
 import anthropic
 from pathlib import Path
+
+# Detección de la línea marcadora de sección de género, tolerante a variantes del
+# modelo (mayúsculas, markdown, espacios, inglés). Espeja generoDeHeader() del
+# front. Se usa para el safeguard de "cliente mixto salió con un solo género".
+_HEADERS_GENERO = {
+    "mujeres": "mujeres", "mujer": "mujeres", "women": "mujeres", "female": "mujeres",
+    "hombres": "hombres", "hombre": "hombres", "men": "hombres", "male": "hombres",
+}
+_HEADER_RE = re.compile(r"^([a-zñáéíóú]+)\s*:$")
+
+
+def _genero_de_header(line: str):
+    s = (line or "").strip().lower()
+    s = re.sub(r"^[*_#>`~\s-]+", "", s)
+    s = re.sub(r"[*_`~\s]+$", "", s)
+    m = _HEADER_RE.match(s)
+    return _HEADERS_GENERO.get(m.group(1)) if m else None
 
 # max_retries alto: el SDK reintenta solo los 429/529 (overloaded) al abrir el stream
 _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"), max_retries=4)
@@ -76,6 +94,11 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     parafrasear (usado por "Cargar más")."""
     prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar)
 
+    # Si el prompt pide las dos secciones de género, esperamos salida mixta. Si el
+    # modelo emite una sola (bug intermitente: se salta "mujeres:" y todo cae en
+    # "hombres"), lo tratamos como generación incompleta y reintentamos.
+    espera_mixta = ("mujeres:" in prompt) and ("hombres:" in prompt)
+
     prev_motivo = None
     for intento in range(1, _MAX_INTENTOS + 1):
         if intento > 1:
@@ -85,6 +108,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
         count = 0
         buffer = ""
+        generos_vistos = set()
         try:
             with _client.messages.stream(
                 model="claude-sonnet-5",
@@ -99,6 +123,9 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                     for line in lines:
                         line = line.strip()
                         if line:
+                            g = _genero_de_header(line)
+                            if g:
+                                generos_vistos.add(g)
                             count += 1
                             yield ("comentario", line)
         except Exception as e:
@@ -109,10 +136,20 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             continue
 
         if buffer.strip():
+            line = buffer.strip()
+            g = _genero_de_header(line)
+            if g:
+                generos_vistos.add(g)
             count += 1
-            yield ("comentario", buffer.strip())
+            yield ("comentario", line)
 
-        # generación completa (o último intento): la damos por buena
-        if count >= _MIN_COMENTARIOS or intento == _MAX_INTENTOS:
+        # Damos la generación por buena si tiene suficientes comentarios y —para
+        # clientes mixtos— aparecieron las dos secciones de género. Si no, y quedan
+        # intentos, reintentamos desde cero.
+        genero_ok = (not espera_mixta) or (generos_vistos >= {"mujeres", "hombres"})
+        if (count >= _MIN_COMENTARIOS and genero_ok) or intento == _MAX_INTENTOS:
             return
-        prev_motivo = f"generación cortada ({count} líneas)"
+        if count < _MIN_COMENTARIOS:
+            prev_motivo = f"generación cortada ({count} líneas)"
+        else:
+            prev_motivo = f"género incompleto (secciones vistas: {sorted(generos_vistos) or 'ninguna'})"
