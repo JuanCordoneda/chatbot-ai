@@ -8,6 +8,7 @@ COPY requirements.txt /app
 RUN pip install -r requirements.txt
 
 COPY langchainService.py /app
+COPY clients_map.json /app
 COPY modules/ /app/modules/
 COPY prompts/ /app/prompts/
 
