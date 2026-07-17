@@ -2,6 +2,13 @@ from flask import Flask, request
 import requests
 import json
 import os
+import sys
+import logging
+import traceback
+from urllib.parse import quote
+
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("whatsapp")
 
 app = Flask(__name__)
 
@@ -32,29 +39,40 @@ def verify_token():
 def received_message():
     try:
         body = request.get_json()
-    
-        entry = body["entry"][0]
-        changes = entry["changes"][0]
-        value = changes["value"]
-        message = value["messages"][0]
-        text = message["text"]
-        question = text["body"]
+        log.info("Webhook recibido: %s", json.dumps(body))
+
+        value = body["entry"][0]["changes"][0]["value"]
+
+        # Meta manda tambien webhooks de estado (sent/delivered/read) que NO
+        # traen "messages". Los ignoramos en vez de romper.
+        messages = value.get("messages")
+        if not messages:
+            log.info("Webhook sin mensajes (probablemente un status update); se ignora.")
+            return "EVENT_RECEIVED", 200
+
+        message = messages[0]
         number = message["from"]
-        
-        print(f"El texto recibido del usuario es: {question}")
-        
+
+        # Solo procesamos mensajes de texto
+        if message.get("type") != "text":
+            log.info("Mensaje de tipo '%s' no soportado; se ignora.", message.get("type"))
+            return "EVENT_RECEIVED", 200
+
+        question = message["text"]["body"]
+        log.info("Texto recibido de %s: %s", number, question)
+
         body_answer = enviar_mensaje(question, number)
         send_message = whatsapp_service(body_answer)
-        
+
         if send_message:
-            print("Mensaje enviado correctamente.")
+            log.info("Mensaje enviado correctamente a %s.", number)
         else:
-            print("Error en el envío del mensaje.")
-            
-        return "EVENT_RECEIVED"
-    
-    except Exception as e:
-        print(e)
+            log.error("Error en el envio del mensaje a %s.", number)
+
+        return "EVENT_RECEIVED", 200
+
+    except Exception:
+        log.error("Excepcion procesando webhook:\n%s", traceback.format_exc())
         return "EVENT_RECEIVED", 200
 
 def whatsapp_service(body):
@@ -63,14 +81,15 @@ def whatsapp_service(body):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {ACCESS_TOKEN}"
         }
-        
-        response = requests.post(WHATSAPP_API_URL, data=json.dumps(body), headers=headers)
-        
-        print(f"Estado de la respuesta: {response.text}")
+
+        log.info("Enviando a Meta (%s): %s", WHATSAPP_API_URL, json.dumps(body))
+        response = requests.post(WHATSAPP_API_URL, data=json.dumps(body), headers=headers, timeout=30)
+
+        log.info("Respuesta de Meta [%s]: %s", response.status_code, response.text)
         return response.status_code == 200
-        
-    except Exception as e:
-        print(e)
+
+    except Exception:
+        log.error("Excepcion enviando a Meta:\n%s", traceback.format_exc())
         return False
     
 def normalizar_numero(numero):
@@ -85,9 +104,12 @@ def normalizar_numero(numero):
 
 def enviar_mensaje(text, numero):
     numero = normalizar_numero(numero)
-    url = f"{OPENAI_SERVICE_URL}/getresponsegpt?user_prompt={text}"
-    response_gpt = requests.get(url).content.decode("utf-8")
-    
+    url = f"{OPENAI_SERVICE_URL}/getresponsegpt?user_prompt={quote(text)}"
+    log.info("Consultando openai-service: %s", url)
+    resp = requests.get(url, timeout=60)
+    log.info("Respuesta openai-service [%s]: %s", resp.status_code, resp.text[:500])
+    response_gpt = resp.content.decode("utf-8")
+
     body = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",

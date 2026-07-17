@@ -54,7 +54,7 @@ Recordá el nombre del cliente una vez que te lo dice y usalo con naturalidad, n
 
 def get_calendar_service():
     scopes = ["https://www.googleapis.com/auth/calendar"]
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    creds_json = os.environ.get("_CREDENTIALS_JSON")
     if creds_json:
         # En Railway/producción: credenciales inyectadas por variable de entorno
         creds = service_account.Credentials.from_service_account_info(
@@ -69,7 +69,7 @@ def get_calendar_service():
 
 
 def check_availability(date_str: str, time_str: str, duration_hours: int = 2) -> dict:
-    """Check if a time slot is available in Google Calendar."""
+    """Check if a time slot is available in  Calendar."""
     try:
         service = get_calendar_service()
         dt_start = datetime.fromisoformat(f"{date_str}T{time_str}:00")
