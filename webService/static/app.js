@@ -414,23 +414,6 @@ function agregarComentarioManual() {
   if (item) item.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-// Mezcla visual: reordena las tarjetas en pantalla (el envío igual se mezcla por
-// detrás). Renumera para que se vea prolijo.
-function mezclarVisual() {
-  const lista = document.getElementById("lista-comentarios");
-  if (!lista) return;
-  const items = [...lista.querySelectorAll(".comentario-item")];
-  for (let k = items.length - 1; k > 0; k--) {
-    const j = Math.floor(Math.random() * (k + 1));
-    [items[k], items[j]] = [items[j], items[k]];
-  }
-  items.forEach((it, k) => {
-    lista.appendChild(it);
-    const num = it.querySelector(".comentario-num");
-    if (num) num.textContent = k + 1;
-  });
-}
-
 function copiarComentario(e, index) {
   e.stopPropagation();
   navigator.clipboard.writeText(comentariosGenerados[index] || "").then(() => {
@@ -452,7 +435,6 @@ function finalizarStream(meta) {
     pendingComentarios.forEach((e) => { ocultarChunk(); agregarComentario(e.texto, e.index); });
     pendingComentarios = [];
   }
-  mezclarVisual();
   actualizarConteo();
   hide("loading-overlay");
   document.getElementById("stream-status").textContent = "";
@@ -511,7 +493,6 @@ async function cargarMas() {
     console.error("cargarMas error:", e);
   }
 
-  mezclarVisual();
   actualizarConteo();
   btn.disabled = false;
   btn.textContent = "+ Cargar más";
