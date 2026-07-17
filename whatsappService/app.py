@@ -104,9 +104,10 @@ def normalizar_numero(numero):
 
 def enviar_mensaje(text, numero):
     numero = normalizar_numero(numero)
-    url = f"{OPENAI_SERVICE_URL}/getresponsegpt?user_prompt={quote(text)}"
-    log.info("Consultando openai-service: %s", url)
-    resp = requests.get(url, timeout=60)
+    url = f"{OPENAI_SERVICE_URL}/getresponsegpt"
+    params = {"user_prompt": text, "phone_number": numero}
+    log.info("Consultando openai-service: %s params=%s", url, params)
+    resp = requests.get(url, params=params, timeout=60)
     log.info("Respuesta openai-service [%s]: %s", resp.status_code, resp.text[:500])
     response_gpt = resp.content.decode("utf-8")
 
