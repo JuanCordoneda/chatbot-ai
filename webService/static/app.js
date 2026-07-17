@@ -289,15 +289,15 @@ function agregarComentario(texto, index) {
   const item = document.createElement("div");
   item.className = "comentario-item";
   item.dataset.index = i;
-  const badge = generoActual
-    ? `<span class="comentario-genero comentario-genero--${generoActual}">${generoActual === "hombres" ? "H" : "M"}</span>`
+  const switchGenero = generoActual
+    ? `<button type="button" class="genero-switch genero-switch--${generoActual}" id="gen-${i}" title="Hombre / Mujer — click para cambiar" onclick="toggleGenero(event, ${i})"><span class="gs-knob">${generoActual === "hombres" ? "H" : "M"}</span></button>`
     : "";
   item.innerHTML = `
     <span class="comentario-num">${i + 1}</span>
     <input type="checkbox" id="chk-${i}" onchange="onCheckChange(${i})" />
     <span class="comentario-texto" id="txt-${i}">${escapeHtml(texto)}</span>
-    ${badge}
-    <button type="button" class="comentario-tipo comentario-tipo--${tipo}" id="tipo-${i}" title="Verificado / No verificado — click para cambiar" onclick="toggleTipo(event, ${i})">${tipo === "verificado" ? "V" : "NV"}</button>
+    ${switchGenero}
+    <button type="button" class="tipo-switch tipo-switch--${tipo}" id="tipo-${i}" title="Verificado / No verificado — click para cambiar" onclick="toggleTipo(event, ${i})"><span class="ts-knob">${tipo === "verificado" ? "V" : "NV"}</span></button>
     <button type="button" class="comentario-edit" title="Editar" onclick="editarComentario(event, ${i})">✎</button>
   `;
   item.addEventListener("click", (e) => {
@@ -331,16 +331,31 @@ function onCheckChange(index) {
   actualizarConteo();
 }
 
+// Alterna el género de un comentario (hombre azul / mujer rosa).
+function toggleGenero(e, index) {
+  e.stopPropagation();
+  const nuevo = generosGenerados[index] === "mujeres" ? "hombres" : "mujeres";
+  generosGenerados[index] = nuevo;
+  const sw = document.getElementById(`gen-${index}`);
+  if (sw) {
+    sw.classList.toggle("genero-switch--hombres", nuevo === "hombres");
+    sw.classList.toggle("genero-switch--mujeres", nuevo === "mujeres");
+    const knob = sw.querySelector(".gs-knob");
+    if (knob) knob.textContent = nuevo === "hombres" ? "H" : "M";
+  }
+}
+
 // Alterna un comentario entre verificado (94) y no verificado (95).
 function toggleTipo(e, index) {
   e.stopPropagation();
   const nuevo = tiposGenerados[index] === "noverif" ? "verificado" : "noverif";
   tiposGenerados[index] = nuevo;
-  const btn = document.getElementById(`tipo-${index}`);
-  if (btn) {
-    btn.textContent = nuevo === "verificado" ? "V" : "NV";
-    btn.classList.toggle("comentario-tipo--verificado", nuevo === "verificado");
-    btn.classList.toggle("comentario-tipo--noverif", nuevo === "noverif");
+  const sw = document.getElementById(`tipo-${index}`);
+  if (sw) {
+    sw.classList.toggle("tipo-switch--verificado", nuevo === "verificado");
+    sw.classList.toggle("tipo-switch--noverif", nuevo === "noverif");
+    const knob = sw.querySelector(".ts-knob");
+    if (knob) knob.textContent = nuevo === "verificado" ? "V" : "NV";
   }
 }
 
@@ -377,16 +392,13 @@ function editarComentario(e, index) {
   span.addEventListener("keydown", onKey);
 }
 
-// Agregar un comentario a mano. Si el cliente es mixto, pregunta el género.
+// Agregar un comentario a mano. El género default es el del cliente (o hombre
+// si es mixto); después se cambia con el switch azul/rosa del comentario.
 function agregarComentarioManual() {
   const presentes = new Set(generosGenerados.filter(g => g === "hombres" || g === "mujeres"));
   let genero = null;
-  if (presentes.size === 1) {
-    genero = [...presentes][0];
-  } else if (presentes.size >= 2) {
-    const r = (prompt("¿Comentario de cuenta de Hombre o Mujer? (h/m)", "h") || "").trim().toLowerCase();
-    genero = r.startsWith("m") ? "mujeres" : "hombres";
-  }
+  if (presentes.size === 1) genero = [...presentes][0];
+  else if (presentes.size >= 2) genero = "hombres";
   const texto = (prompt("Nuevo comentario:") || "").trim();
   if (!texto) return;
 
@@ -516,7 +528,7 @@ function actualizarConteo() {
   const label = document.getElementById("count-label");
   if (label) {
     label.textContent = `${sel} seleccionados`;
-    label.classList.remove("count-label--lleno");
+    label.classList.toggle("count-label--lleno", sel > 0);   // pill amarilla con selección
   }
   const btnPublicar = document.getElementById("btn-publicar");
   if (btnPublicar) btnPublicar.disabled = sel === 0;
@@ -563,6 +575,32 @@ function seleccionarTodos() {
   document.querySelectorAll("#lista-comentarios input[type=checkbox]").forEach((c) => {
     c.checked = true;
     c.closest(".comentario-item").classList.add("selected");
+  });
+  actualizarConteo();
+}
+
+// Selección "indiferente": elige al azar CUÁLES comentarios y CUÁNTOS
+// (cantidad base ±20%), para que ningún post mande siempre el mismo número
+// y no parezca bot.
+function seleccionAleatoria() {
+  const base = parseInt(document.getElementById("rand-cantidad")?.value, 10) || 25;
+  const jitter = Math.max(1, Math.round(base * 0.2));
+  const objetivo = base - jitter + Math.floor(Math.random() * (2 * jitter + 1));
+
+  const checks = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]")];
+  checks.forEach((c) => {
+    c.checked = false;
+    c.closest(".comentario-item").classList.remove("selected");
+  });
+
+  const idx = checks.map((_, k) => k);
+  for (let k = idx.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1));
+    [idx[k], idx[j]] = [idx[j], idx[k]];
+  }
+  idx.slice(0, Math.min(objetivo, checks.length)).forEach((k) => {
+    checks[k].checked = true;
+    checks[k].closest(".comentario-item").classList.add("selected");
   });
   actualizarConteo();
 }

@@ -1,8 +1,10 @@
 import os
+import time
 import anthropic
 from pathlib import Path
 
-_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+# max_retries alto: el SDK reintenta solo los 429/529 (overloaded) al abrir el stream
+_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"), max_retries=4)
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
@@ -55,29 +57,37 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     (el consumidor debe descartar lo emitido hasta ese punto)."""
     prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video)
 
-    prev_count = 0
+    prev_motivo = None
     for intento in range(1, _MAX_INTENTOS + 1):
         if intento > 1:
-            print(f"[ai] generación cortada ({prev_count} líneas), reintento {intento}/{_MAX_INTENTOS}", flush=True)
+            print(f"[ai] {prev_motivo}, reintento {intento}/{_MAX_INTENTOS}", flush=True)
             yield ("reset", None)
+            time.sleep(3 * (intento - 1))  # backoff: 3s, 6s (overloaded suele ser transitorio)
 
         count = 0
         buffer = ""
-        with _client.messages.stream(
-            model="claude-sonnet-5",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            for text in stream.text_stream:
-                buffer += text
-                yield ("chunk", text)
-                lines = buffer.split("\n")
-                buffer = lines.pop()
-                for line in lines:
-                    line = line.strip()
-                    if line:
-                        count += 1
-                        yield ("comentario", line)
+        try:
+            with _client.messages.stream(
+                model="claude-sonnet-5",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                for text in stream.text_stream:
+                    buffer += text
+                    yield ("chunk", text)
+                    lines = buffer.split("\n")
+                    buffer = lines.pop()
+                    for line in lines:
+                        line = line.strip()
+                        if line:
+                            count += 1
+                            yield ("comentario", line)
+        except Exception as e:
+            # overloaded_error y otros transitorios de la API: reintentar desde cero
+            if intento == _MAX_INTENTOS:
+                raise
+            prev_motivo = f"error de API ({e})"
+            continue
 
         if buffer.strip():
             count += 1
@@ -86,4 +96,4 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         # generación completa (o último intento): la damos por buena
         if count >= _MIN_COMENTARIOS or intento == _MAX_INTENTOS:
             return
-        prev_count = count
+        prev_motivo = f"generación cortada ({count} líneas)"

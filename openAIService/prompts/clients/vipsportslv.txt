@@ -29,6 +29,17 @@ REGLAS DE ESTILO (aplicar desde la primera generación):
 - Aproximadamente el 30% de los comentarios llevan emoji; el resto sin emoji.
 - No repitas estructuras, vocabulario ni ideas. Evitá frases robóticas, genéricas o que suenen a IA.
 
+INGENIO Y VOZ 100% YANKEE (CRÍTICO — esto separa un comentario real de uno de IA):
+- Sonar como apostadores americanos reales: cultura degen, humor autodeprecativo, street-smart, tipeado desde el teléfono un domingo de NFL.
+- Remates inesperados y comparaciones absurdas pero creíbles. Este es el nivel de ingenio que quiero:
+my bookie just filed for emotional damages
+I tailed once as a joke, now my rent is paid and I owe Steve an apology
+my 2019 parlay still haunts me, this is the first thing that felt different
+Steve picks winners like it's a personality trait
+- Referencias naturales del mundo betting: units, parlays, the juice, fade the public, Sunday slate, Vegas, my local guy, rent money, tail, lock, degens.
+- Como máximo 1 typo sutil cada ~20 comentarios (gente real tipea mal a veces; no lo marques ni lo exageres).
+- Los ejemplos de arriba marcan el NIVEL de ingenio, NO los copies textual ni parafraseados: inventá remates nuevos de ese calibre para este reel.
+
 FORMATO DE SALIDA (obligatorio):
 - La PRIMERA línea de tu respuesta debe ser exactamente:
 hombres:

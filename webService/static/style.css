@@ -173,15 +173,19 @@ body.light::after {
   justify-content: space-between;
   padding: 16px 32px;
   border-bottom: 1px solid rgba(255,255,255,0.15);
-  position: sticky;
+  /* fixed (no sticky): el zoom de .app rompe position:sticky en Chrome */
+  position: fixed;
   top: 0;
-  width: 100%;
+  left: 0;
+  right: 0;
   box-sizing: border-box;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  z-index: 10;
+  z-index: 50;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.16);
 }
+body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
 
 .header-left { display: flex; align-items: center; gap: 14px; }
 
@@ -269,7 +273,8 @@ body.light::after {
   max-width: 780px;
   width: 100%;
   margin: 0 auto;
-  padding: 72px 28px 120px;
+  /* +75px arriba para compensar el header fixed (fuera del flujo) */
+  padding: 147px 28px 120px;
 }
 
 #step-comentarios,
@@ -935,11 +940,17 @@ body.light .orden-btn-agregar {
 
 .comentario-item:last-child { border-bottom: none; }
 .comentario-item:hover { background: rgba(255,255,255,0.15); }
-.comentario-item.selected { background: rgba(245,168,0,0.05); }
+.comentario-item.selected {
+  background: rgba(245,168,0,0.08);
+  box-shadow: inset 3px 0 0 var(--yellow);
+}
 
 body.light .comentario-item { border-bottom-color: rgba(0,0,0,0.06); }
 body.light .comentario-item:hover { background: rgba(0,0,0,0.04); }
-body.light .comentario-item.selected { background: rgba(250,185,0,0.08); }
+body.light .comentario-item.selected {
+  background: rgba(250,185,0,0.10);
+  box-shadow: inset 3px 0 0 var(--yellow);
+}
 
 .comentario-num {
   font-size: 0.65rem;
@@ -1004,19 +1015,59 @@ body.light .comentario-item.selected { background: rgba(250,185,0,0.08); }
   cursor: text;
 }
 
-/* Badge de género (H/M) */
-.comentario-genero {
+/* Selección aleatoria */
+.rand-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.rand-input {
+  width: 52px;
+  padding: 5px 6px;
+  font-size: 0.8rem;
+  text-align: center;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+}
+.rand-input:focus { outline: none; border-color: var(--yellow); }
+
+/* Switch de género: fondo azul = hombre, fondo rosa = mujer. Click cambia. */
+.genero-switch {
+  position: relative;
   flex-shrink: 0;
+  width: 48px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  margin-top: 1px;
+  transition: background 0.22s ease;
+}
+.genero-switch--hombres { background: #3b82f6; }
+.genero-switch--mujeres { background: #ec4899; }
+.genero-switch:hover { filter: brightness(1.12); }
+
+.gs-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
   font-size: 0.6rem;
   font-weight: 800;
-  line-height: 1;
-  padding: 3px 6px;
-  border-radius: 6px;
-  margin-top: 2px;
-  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  transition: transform 0.22s ease, color 0.22s ease;
 }
-.comentario-genero--hombres { background: #7cc4ff; }
-.comentario-genero--mujeres { background: #ff9ecb; }
+.genero-switch--hombres .gs-knob { transform: translateX(0); color: #3b82f6; }
+.genero-switch--mujeres .gs-knob { transform: translateX(24px); color: #ec4899; }
 
 /* Botón editar (✎) */
 .comentario-edit {
@@ -1034,30 +1085,41 @@ body.light .comentario-item.selected { background: rgba(250,185,0,0.08); }
 .comentario-item:hover .comentario-edit { opacity: 0.7; }
 .comentario-edit:hover { opacity: 1; color: var(--yellow); background: rgba(245,168,0,0.12); }
 
-/* Toggle verificado (V) / no verificado (NV) */
-.comentario-tipo {
+/* Switch verificado (verde) / no verificado (gris). Click cambia. */
+.tipo-switch {
+  position: relative;
   flex-shrink: 0;
-  min-width: 30px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  line-height: 1;
-  padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  width: 48px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  padding: 0;
   cursor: pointer;
   margin-top: 1px;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.22s ease;
 }
-.comentario-tipo--verificado {
-  background: rgba(52,199,89,0.16);
-  color: #34c759;
-  border-color: rgba(52,199,89,0.4);
+.tipo-switch--verificado { background: #34c759; }
+.tipo-switch--noverif    { background: #6b7280; }
+.tipo-switch:hover { filter: brightness(1.12); }
+
+.ts-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 0.52rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  transition: transform 0.22s ease, color 0.22s ease;
 }
-.comentario-tipo--noverif {
-  background: rgba(160,160,160,0.16);
-  color: var(--muted);
-  border-color: rgba(160,160,160,0.4);
-}
+.tipo-switch--verificado .ts-knob { transform: translateX(0); color: #34c759; }
+.tipo-switch--noverif    .ts-knob { transform: translateX(24px); color: #6b7280; }
 
 body.light .comentario-texto { color: #222; }
 body.light .comentario-num   { color: #888; }
@@ -1093,12 +1155,21 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* se pega abajo del viewport mientras la lista está a la vista */
+  position: sticky;
+  bottom: 0;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  z-index: 5;
 }
 
 .select-row {
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
 .count-label {
@@ -2717,3 +2788,25 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
   .login-btn { padding: 1rem; font-size: 1rem; }
 }
+
+/* ── Polish general ── */
+html { scroll-behavior: smooth; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+.btn-ghost { transition: background 0.14s, color 0.14s, border-color 0.14s, transform 0.12s; }
+.btn-ghost:hover { transform: translateY(-1px); }
+.btn-ghost:active { transform: translateY(0); }
