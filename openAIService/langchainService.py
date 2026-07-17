@@ -54,9 +54,17 @@ Recordá el nombre del cliente una vez que te lo dice y usalo con naturalidad, n
 
 def get_calendar_service():
     scopes = ["https://www.googleapis.com/auth/calendar"]
-    creds = service_account.Credentials.from_service_account_file(
-        CREDENTIALS_PATH, scopes=scopes
-    )
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        # En Railway/producción: credenciales inyectadas por variable de entorno
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(creds_json), scopes=scopes
+        )
+    else:
+        # En local: archivo admin-key.json junto al servicio
+        creds = service_account.Credentials.from_service_account_file(
+            CREDENTIALS_PATH, scopes=scopes
+        )
     return build("calendar", "v3", credentials=creds)
 
 

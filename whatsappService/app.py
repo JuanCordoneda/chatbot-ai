@@ -130,4 +130,5 @@ def send_template():
         return {"error": str(e)}, 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8501, debug=False)  # Cambia debug a False para producción
+    port = int(os.environ.get("PORT", 8501))
+    app.run(host="0.0.0.0", port=port, debug=False)  # Cambia debug a False para producción
