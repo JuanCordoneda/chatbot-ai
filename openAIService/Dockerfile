@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY langchainService.py /app
 COPY requirements.txt /app
+COPY config /app/config
 
 RUN pip install -r requirements.txt
 

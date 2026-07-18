@@ -6,49 +6,61 @@ from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+from config.negocios import get_negocio, get_carta, build_menu, resolver_seleccion
+
 app = Flask(__name__)
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 # In-memory session store: phone_number -> list of messages
 conversation_sessions = {}
 
+# Negocio elegido por cada conversación: phone_number -> negocio_id.
+# Mientras un número no esté acá, está en "modo menú" (todavía no eligió).
+session_negocio = {}
+
+# Palabras que reabren el menú para cambiar de negocio en cualquier momento.
+MENU_COMMANDS = {"menu", "menú", "cambiar", "opciones", "negocios", "volver"}
+
 CALENDAR_ID = os.environ.get("CALENDAR_ID", "primary")
 CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), "admin-key.json")
 
-def build_system_prompt(is_first_message: bool = False):
+def build_system_prompt(negocio: dict, is_first_message: bool = False):
     today = datetime.now().strftime("%d/%m/%Y")
+    nombre = negocio["nombre"]
+    rubro = negocio["rubro"]
+    horarios = negocio["horarios"]
     greeting_instruction = ""
     if is_first_message:
-        greeting_instruction = """
-PRIMER MENSAJE: El cliente acaba de escribir por primera vez. Respondé con un saludo corto y natural, presentá el bar en una línea, mencioná que pueden reservar o consultar lo que quieran. Máximo 3 frases. Nada de listas.
+        greeting_instruction = f"""
+PRIMER MENSAJE: El cliente escribe por primera vez. Preséntate de forma profesional y cordial: saluda, di que eres de {nombre}, {rubro} en Ibiza, y ponte a su disposición para reservas o cualquier consulta. Máximo 3 frases, sin listas.
 """
     return f"""Hoy es {today}.
 
-Sos quien atiende el WhatsApp del bar. No sos un bot, no sos un asistente virtual, sos una persona real que trabaja ahí y responde mensajes. Nunca lo menciones, simplemente actuá así.
+Eres la persona que atiende el WhatsApp de {nombre}, {rubro} en Ibiza. No eres un bot ni un asistente virtual: eres un profesional que trabaja aquí y responde los mensajes. No lo menciones nunca, simplemente actúa así.
 {greeting_instruction}
-CÓMO ESCRIBÍS:
-Corto. Directo. Como cualquier persona respondería un mensaje de WhatsApp. Una o dos frases, nunca más. Sin listas, sin asteriscos, sin títulos, sin formato de ningún tipo. Sin emojis a menos que el cliente los use. Si el cliente habla en inglés, respondés en inglés. Si habla en español, en español. Si cambia, vos también.
+CÓMO ESCRIBES:
+Español de España, trato de tú. Tono profesional y cordial: cercano pero correcto, educado sin sonar acartonado. Breve y directo, como un mensaje de WhatsApp: una o dos frases, nunca más. Sin listas, sin asteriscos, sin títulos, sin formato de ningún tipo. Sin emojis salvo que el cliente los use. Si el cliente escribe en inglés, respondes en inglés; si escribe en español, en español.
 
-No repitas información innecesaria. No confirmes todo lo que dijo el cliente. No uses frases de bot como "claro que sí", "por supuesto", "encantado de ayudarte". Hablá como habla la gente.
+Resuelve rápido y con amabilidad, sin frases hechas ni relleno. No repitas lo que ya dijo el cliente ni confirmes cada detalle innecesariamente.
 
-EL BAR:
-Horarios: lunes a viernes de 18 a 02, sábados y domingos de 16 a 03.
-Carta: cerveza artesanal $1200, copa de vino $1500, cóctel de la casa $2000, gaseosa $800.
-Para cualquier otra duda del menú o del lugar, decile que llame al local.
+EL LUGAR:
+{nombre} está en Ibiza.
+Horarios: {horarios}.
+Para precios, servicios y dudas frecuentes usas la herramienta consultar_carta y respondes con lo que devuelve, resumiendo lo justo para WhatsApp. Nunca inventes precios, servicios ni datos: si el cliente pregunta por algo que no está en la carta, indícale con amabilidad que llame al local.
 
 RESERVAS:
-Tenés herramientas reales para gestionar el calendario. Úsalas siempre.
+Tienes herramientas reales para gestionar el calendario. Úsalas siempre.
 
 Si alguien quiere reservar:
-- Si no dijo fecha/hora, preguntás solo eso, nada más
-- Usás check_availability para ver si hay lugar
-- Si hay lugar, pedís nombre y mail en un solo mensaje
-- Creás la reserva con create_reservation
-- Confirmás en una frase, sin dramatismo
+- Si no ha dicho fecha/hora, pregúntale solo eso, nada más
+- Usas check_availability para ver si hay hueco
+- Si hay hueco, pides nombre y correo en un solo mensaje
+- Creas la reserva con create_reservation
+- Confirmas en una frase, sin exagerar
 
-Si el horario está ocupado, lo decís natural y ofrecés el más cercano disponible.
+Si el horario está ocupado, se lo dices con naturalidad y le ofreces el más cercano disponible.
 
-Recordá el nombre del cliente una vez que te lo dice y usalo con naturalidad, no en cada mensaje."""
+Recuerda el nombre del cliente cuando te lo diga y úsalo con naturalidad, no en cada mensaje."""
 
 
 
@@ -183,10 +195,19 @@ TOOLS = [
             "required": ["date_str", "time_str", "client_name", "client_email"],
         },
     },
+    {
+        "name": "consultar_carta",
+        "description": "Devuelve la carta del lugar: servicios con descripción y precio, y preguntas frecuentes con su respuesta. Úsala siempre que el cliente pregunte por precios, servicios, productos, planes, detalles o dudas habituales (horarios, reservas, formas de pago, etc.), en vez de responder de memoria.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]
 
 
-def process_tool_call(tool_name: str, tool_input: dict) -> str:
+def process_tool_call(tool_name: str, tool_input: dict, negocio: dict) -> str:
     if tool_name == "check_availability":
         result = check_availability(
             tool_input["date_str"],
@@ -201,6 +222,8 @@ def process_tool_call(tool_name: str, tool_input: dict) -> str:
             tool_input["client_email"],
             tool_input.get("duration_hours", 2),
         )
+    elif tool_name == "consultar_carta":
+        result = get_carta(negocio)
     else:
         result = {"error": f"Herramienta desconocida: {tool_name}"}
     return json.dumps(result, ensure_ascii=False)
@@ -210,6 +233,28 @@ def process_tool_call(tool_name: str, tool_input: dict) -> str:
 def get_response_gpt():
     user_prompt = request.args.get("user_prompt", "")
     phone_number = request.args.get("phone_number", "default")
+
+    texto = user_prompt.strip().lower()
+
+    # Comando explícito para (re)abrir el menú y cambiar de negocio.
+    if texto in MENU_COMMANDS:
+        session_negocio.pop(phone_number, None)
+        conversation_sessions.pop(phone_number, None)
+        return build_menu()
+
+    # Todavía no eligió negocio: estamos en modo selección.
+    if phone_number not in session_negocio:
+        seleccion = resolver_seleccion(user_prompt)
+        if seleccion is None:
+            # Primer contacto o respuesta que no coincide con ninguna opción.
+            return build_menu()
+        session_negocio[phone_number] = seleccion
+        conversation_sessions.pop(phone_number, None)  # arranca la charla limpia
+        negocio = get_negocio(seleccion)
+        return f"Perfecto, estás hablando con {negocio['nombre']}. ¿En qué puedo ayudarte?"
+
+    # Ya hay negocio elegido para esta conversación.
+    negocio = get_negocio(session_negocio[phone_number])
 
     is_first_message = phone_number not in conversation_sessions
     if is_first_message:
@@ -225,7 +270,7 @@ def get_response_gpt():
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
-            system=build_system_prompt(is_first_message),
+            system=build_system_prompt(negocio, is_first_message),
             tools=TOOLS,
             messages=messages,
         )
@@ -247,7 +292,7 @@ def get_response_gpt():
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    result = process_tool_call(block.name, block.input)
+                    result = process_tool_call(block.name, block.input, negocio)
                     tool_results.append(
                         {
                             "type": "tool_result",
@@ -269,8 +314,8 @@ def get_response_gpt():
 @app.route("/clear_session", methods=["GET"])
 def clear_session():
     phone_number = request.args.get("phone_number", "default")
-    if phone_number in conversation_sessions:
-        del conversation_sessions[phone_number]
+    conversation_sessions.pop(phone_number, None)
+    session_negocio.pop(phone_number, None)
     return "ok"
 
 
