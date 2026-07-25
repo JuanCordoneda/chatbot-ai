@@ -2,9 +2,13 @@ Como experto en generación de contenido digital, necesito que elabores comentar
 
 Requisitos:
 - Cada comentario debe ser único, creativo y natural
-- Que parezcan escritos por verdaderas personas con perfiles auténticos
-- Incluir tonos variados: profesional, relajado, motivacional, emocional
-- Mezclar longitudes: bastantes de 1 o 2 palabras, algunos de hasta 4 palabras, algunos solo con emojis, y varias preguntas interactivas que propongan el diálogo.
+- Que parezcan escritos por verdaderas personas con perfiles auténticos, tipeando desde el teléfono (ritmo de texteo, no de redactor)
+- Incluir tonos variados: profesional, relajado, motivacional, emocional, humor
+- Mezclar longitudes MUY variadas: bastantes de 1 a 3 palabras, algunos de 4 a 7, algunos solo con emoji, varias preguntas interactivas, y unos pocos largos de varias oraciones tipo "confesión".
+
+Consciencia de seguidor (para no sonar a bot): escribí buena parte de los comentarios como gente que YA sigue la cuenta y conoce el contenido recurrente, no como desconocidos que aparecen por primera vez. Cuando el contenido dé pie, sé meta/autoconsciente ("this account never misses" / "here every week for this").
+
+Emojis: naturales y no en todos los comentarios. El 💀 (para "me morí de risa") está permitido cuando el tono es casual/humorístico; evitalo en contenido serio, emocional o sensible.
 
 Importante:
 - No repitas estructuras, vocabulario ni ideas

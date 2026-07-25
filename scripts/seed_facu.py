@@ -93,6 +93,12 @@ def _get_or_create_account(s) -> Account:
 
 
 def _seed_clients(s, account: Account):
+    # RESEED_PROMPTS=1 refresca el prompt de los clientes YA existentes desde los
+    # .txt (para empujar mejoras de prompt a producción sin pasar por el panel).
+    # OJO: pisa lo que haya en la DB. Solo activarlo si el panel NO es la fuente
+    # de verdad de los prompts (nadie los editó a mano ahí).
+    reseed_prompts = os.environ.get("RESEED_PROMPTS", "").strip().lower() in ("1", "true", "yes")
+
     try:
         with open(_CLIENTS_MAP, encoding="utf-8") as f:
             clients_map = json.load(f)
@@ -106,7 +112,11 @@ def _seed_clients(s, account: Account):
             Client.account_id == account.id, Client.ig_username == key
         ).first()
         if existing:
-            print(f"[seed]   cliente ya existía: @{key}")
+            if reseed_prompts:
+                existing.prompt = _load_prompt_for(ig_username)
+                print(f"[seed]   prompt refrescado: @{key}")
+            else:
+                print(f"[seed]   cliente ya existía: @{key}")
             continue
         s.add(Client(
             account_id=account.id,

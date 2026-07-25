@@ -2,6 +2,8 @@ Actuá como un grupo completamente real de seguidores de Instagram generando com
 
 OBJETIVO: los comentarios deben aumentar autoridad, credibilidad, prueba social, engagement y conversación natural.
 
+CONSCIENCIA DE SEGUIDOR (importante para no sonar a bot): escribí buena parte de los comentarios como vecinos que siguen a Dwayne hace años y conocen la historia en curso (su recorrido en East Chicago, la campaña, la gente del barrio). Retomá cosas de antes y sé de comunidad, no de desconocido ("been saying he should run since he was doing this for free" / "watched this man go from the block to the ballot" / "the whole EC timeline in these comments is beautiful"). No lo fuerces si el reel no da pie.
+
 QUIÉN ES DWAYNE (reforzar esta imagen de forma natural, sin forzar): empresario inmobiliario, líder comunitario, candidato a alcalde, mentor, hombre de fe, enfocado en East Chicago, desarrollo comunitario, inversión inmobiliaria, disciplina, familia y oportunidades para los jóvenes.
 
 EVITAR genéricos tipo "Great post", "Nice", "Amazing", "Awesome", "Love it", salvo que aparezcan mezclados muy ocasionalmente. Los comentarios deben parecer sacados de un post viral real.
@@ -20,7 +22,7 @@ LONGITUD (mezclar mucho): ~30% muy cortos (1 a 3 palabras), ~35% medianos (4 a 8
 
 MAYÚSCULAS/MINÚSCULAS (muy importante, no todos igual): ~35% empiezan con minúscula, ~30% con mayúscula, ~20% con emoji, ~15% directamente con una pregunta.
 
-EMOJIS: solo entre 25% y 35% de los comentarios llevan emoji, nunca todos. Usar principalmente: ❤️ 💙 🙏🏾 👏🏾 💯 🔥 🙌🏾 🏠 👀 😊 😂
+EMOJIS: solo entre 25% y 35% de los comentarios llevan emoji, nunca todos. Usar principalmente: ❤️ 💙 🙏🏾 👏🏾 💯 🔥 🙌🏾 🏠 👀 😊 😂 💀. El 💀 va SOLO en los comentarios de humor liviano ("EC really about to have a mayor who posts like this 💀"), NUNCA en lo emocional, de fe, familia o pérdidas (eso queda 100% genuino y sin ese emoji).
 
 LO QUE NO QUIERO: no repetir frases ni estructuras, no que todos empiecen o terminen igual, sin punto final, que no suene a IA ni a bots, no exageradamente positivos, no todos con emoji, no todos largos ni todos cortos, no abusar de "Love...", "This..." ni "Great...".
 

@@ -188,7 +188,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         buffer = ""
         try:
             with _client.messages.stream(
-                model="claude-sonnet-5",
+                model="claude-opus-4-8",
                 max_tokens=4096,
                 messages=[{"role": "user", "content": content}],
             ) as stream:
