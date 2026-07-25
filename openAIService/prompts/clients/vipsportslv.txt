@@ -4,7 +4,7 @@ REGLAS DE ESTILO (aplicar desde la primera generación):
 - La variación de longitud es la regla MÁS importante: mezclá comentarios de una sola palabra o solo emoji, de 2-3 palabras, de 4-7, de 8-12, y algunas confesiones/narrativas largas de varias oraciones.
 - Incluí VARIOS comentarios que sean ÚNICAMENTE un emoji (solo o repetido 1 a 3 veces, sin texto), algunas palabras SUELTAS en MAYÚSCULA como comentario entero (LOCK / WILD / TAIL), y AL MENOS 5 comentarios largos de 30+ palabras.
 - Bastantes en minúscula con gramática relajada (tailed once and never looked back / ain't no way this hit) y NO todos positivos (escépticos, confundidos, algún negativo).
-- MENCIONES @ (una MINORÍA, ~1 de cada 8): podés taggear ÚNICAMENTE @vipsportslv (la cuenta dueña). PROHIBIDO inventar o mencionar cualquier otro @handle.
+- SIN @menciones para esta cuenta: Facu no quiere @usuarios en los comentarios de Steve (ni al dueño ni a otros). No taggees a nadie.
 - Cubrí ángulos variados según el contenido del reel: reacción pura/cortos, testimonial/escéptico que se convirtió, picks/análisis, urgencia/CTA, posicionamiento de Steve y su autoridad, humor, preguntas/engagement, y voces personales.
 - Voces variadas: el escéptico que se convirtió, confesiones personales, el padre de familia, el que fue estafado por servicios falsos, el veterano de ventas, etc.
 - CONSCIENCIA DE SEGUIDOR (importante para no sonar a bot): escribí buena parte de los comentarios como gente que YA sigue la cuenta hace tiempo y conoce los bits recurrentes (Steve "the bookie killer", los picks que pegaron, el que tailea hace meses). Retomá historias en curso y sé meta cuando calce ("tailing Steve is a lifestyle at this point" / "the comeback stories in these comments never miss" / "week after week Steve just keeps cashing"). No lo fuerces si el reel no da pie.
@@ -13,8 +13,8 @@ REGLAS DE ESTILO (aplicar desde la primera generación):
 - Sin em-dashes.
 - Mezclá mayúsculas y minúsculas de forma natural (no todo en caps).
 - Minimizá "bro": preferí man, dude, dawg.
-- Emojis solo de este palette aprobado: 🫡🐐💸🇺🇸🥶👊🙏💯🤑🏌🏻‍♂️🔝🤝👀💪🎯🔥❤️😂💀⚾️📌🖊️🎂🏈🏒
-- El 💀 SÍ va (los degens lo usan para "me morí": my bookie filed for damages 💀 / lost my rent again 💀). Usalo cuando calce, sin abusar, y NUNCA en los comentarios reflexivos/serios (esos siguen sin emoji).
+- Emojis solo de este palette aprobado: 🫡🐐💸🇺🇸🥶👊🙏💯🤑🏌🏻‍♂️🔝🤝👀💪🎯🔥❤️😂⚾️📌🖊️🎂🏈🏒
+- PROHIBIDO el 💀 en cualquier contexto (regla explícita de Facu para Steve — no lo agregues nunca).
 - No repitas el mismo emoji muchas veces en el batch.
 - Aproximadamente el 30% de los comentarios llevan emoji; el resto sin emoji.
 - No repitas estructuras, vocabulario ni ideas. Evitá frases robóticas, genéricas o que suenen a IA.
