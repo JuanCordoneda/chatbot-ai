@@ -192,8 +192,21 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         try:
             with _client.messages.stream(
                 model="claude-opus-4-8",
-                max_tokens=4096,
+                # max_tokens subido: con thinking prendido, el "pensar" también
+                # consume de este cupo; con 4096 podría cortar la tanda de ~70.
+                max_tokens=8192,
                 messages=[{"role": "user", "content": content}],
+                # EXPERIMENTO (adaptive thinking): que el modelo planee la
+                # distribución de largos/voces y evite repetir ANTES de escribir,
+                # para bajar el "bot-feel". effort=medium acota cuánto piensa así
+                # no penaliza tanto la latencia del streaming en vivo.
+                # Va por extra_body porque el SDK pineado (anthropic 0.54.0) no
+                # expone estos kwargs; extra_body los inyecta en el body del request.
+                # Revertir = borrar este extra_body y volver max_tokens=4096.
+                extra_body={
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": "medium"},
+                },
             ) as stream:
                 for text in stream.text_stream:
                     buffer += text
