@@ -18,6 +18,25 @@ VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN')
 WHATSAPP_API_URL = os.environ.get('WHATSAPP_API_URL')
 OPENAI_SERVICE_URL = os.environ.get('OPENAI_SERVICE_URL')
 
+# Meta devuelve code=190 (OAuthException) cuando el access token ya no sirve.
+# El subcode dice por que, para no tener que interpretar el JSON a mano.
+TOKEN_ERROR_SUBCODES = {
+    463: "el token ha caducado",
+    467: "el token ya no es valido",
+    460: "cambio la contrasena del usuario y el token se invalido",
+    458: "el token fue revocado o la app fue desinstalada",
+}
+
+# Lo que ve el cliente si el servicio de IA falla. Preferimos un mensaje cuidado
+# antes que reenviar lo que devuelva el servicio (ante un 500 seria HTML crudo).
+FALLBACK_MESSAGE = (
+    "Perdona, estamos teniendo un problema tecnico en este momento. "
+    "Vuelve a escribirnos en unos minutos, por favor."
+)
+
+# Limite de caracteres de un mensaje de texto de WhatsApp.
+MAX_WHATSAPP_TEXT = 4096
+
 @app.route("/saludar", methods=["GET"])
 def saludar():
     return "Hola"
@@ -75,6 +94,33 @@ def received_message():
         log.error("Excepcion procesando webhook:\n%s", traceback.format_exc())
         return "EVENT_RECEIVED", 200
 
+def log_meta_error(response):
+    """Loguea el error de Meta y avisa claro cuando el problema es el token."""
+    try:
+        error = response.json().get("error", {})
+    except ValueError:
+        log.error("Respuesta de Meta no es JSON [%s]: %s", response.status_code, response.text)
+        return
+
+    code = error.get("code")
+    subcode = error.get("error_subcode")
+    message = error.get("message", "")
+
+    if code == 190:
+        motivo = TOKEN_ERROR_SUBCODES.get(subcode, "el token no es valido")
+        log.error(
+            "TOKEN DE WHATSAPP INVALIDO: %s (code=%s, subcode=%s). "
+            "Genera un token permanente de Usuario de Sistema en business.facebook.com "
+            "y actualiza WHATSAPP_ACCESS_TOKEN en el .env. Detalle de Meta: %s",
+            motivo, code, subcode, message,
+        )
+    else:
+        log.error(
+            "Error de Meta [%s] code=%s subcode=%s: %s",
+            response.status_code, code, subcode, message,
+        )
+
+
 def whatsapp_service(body):
     try:
         headers = {
@@ -86,7 +132,10 @@ def whatsapp_service(body):
         response = requests.post(WHATSAPP_API_URL, data=json.dumps(body), headers=headers, timeout=30)
 
         log.info("Respuesta de Meta [%s]: %s", response.status_code, response.text)
-        return response.status_code == 200
+        if response.status_code != 200:
+            log_meta_error(response)
+            return False
+        return True
 
     except Exception:
         log.error("Excepcion enviando a Meta:\n%s", traceback.format_exc())
@@ -102,14 +151,44 @@ def normalizar_numero(numero):
     }
     return mapeo.get(numero, numero)
 
-def enviar_mensaje(text, numero):
-    numero = normalizar_numero(numero)
+def consultar_ia(text, numero):
+    """Pide la respuesta al openai-service.
+
+    Nunca devuelve el cuerpo crudo si algo falla: ante un error Flask responde
+    una pagina HTML y esa pagina acabaria enviandose al cliente como mensaje.
+    En cualquier fallo devolvemos FALLBACK_MESSAGE.
+    """
     url = f"{OPENAI_SERVICE_URL}/getresponsegpt"
     params = {"user_prompt": text, "phone_number": numero}
     log.info("Consultando openai-service: %s params=%s", url, params)
-    resp = requests.get(url, params=params, timeout=60)
+
+    try:
+        resp = requests.get(url, params=params, timeout=60)
+    except Exception:
+        log.error("Excepcion consultando openai-service:\n%s", traceback.format_exc())
+        return FALLBACK_MESSAGE
+
     log.info("Respuesta openai-service [%s]: %s", resp.status_code, resp.text[:500])
-    response_gpt = resp.content.decode("utf-8")
+
+    if resp.status_code != 200:
+        log.error(
+            "openai-service devolvio %s; se envia el mensaje de fallback en vez del cuerpo.",
+            resp.status_code,
+        )
+        return FALLBACK_MESSAGE
+
+    respuesta = resp.content.decode("utf-8", errors="replace").strip()
+    if not respuesta:
+        log.error("openai-service devolvio una respuesta vacia; se envia el fallback.")
+        return FALLBACK_MESSAGE
+
+    # WhatsApp rechaza el mensaje si supera el limite de caracteres.
+    return respuesta[:MAX_WHATSAPP_TEXT]
+
+
+def enviar_mensaje(text, numero):
+    numero = normalizar_numero(numero)
+    response_gpt = consultar_ia(text, numero)
 
     body = {
         "messaging_product": "whatsapp",

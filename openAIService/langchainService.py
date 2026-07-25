@@ -1,6 +1,7 @@
 from flask import Flask, request
 import os
 import json
+import traceback
 import anthropic
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
@@ -309,6 +310,19 @@ def get_response_gpt():
             break
 
     return "Lo siento, hubo un problema procesando tu mensaje."
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    """Ante un fallo inesperado devolvemos texto plano, nunca el HTML de Flask.
+
+    Si se escapa una excepcion (fallo de la API, del calendario, etc.), Flask
+    responderia con su pagina HTML de error 500 y el whatsapp-service acabaria
+    mandandosela al cliente. Devolvemos texto y dejamos el 500 para que el
+    whatsapp-service lo convierta en su mensaje de fallback.
+    """
+    traceback.print_exc()
+    return "Lo siento, hubo un problema procesando tu mensaje.", 500
 
 
 @app.route("/clear_session", methods=["GET"])
