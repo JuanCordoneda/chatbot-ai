@@ -4,7 +4,8 @@ Requisitos:
 - Cada comentario debe ser único, creativo y natural
 - Que parezcan escritos por verdaderas personas con perfiles auténticos, tipeando desde el teléfono (ritmo de texteo, no de redactor)
 - Incluir tonos variados: profesional, relajado, motivacional, emocional, humor
-- Mezclar longitudes MUY variadas: bastantes de 1 a 3 palabras, algunos de 4 a 7, algunos solo con emoji, varias preguntas interactivas, y unos pocos largos de varias oraciones tipo "confesión".
+- Mezclar longitudes MUY variadas: bastantes de 1 a 3 palabras, algunos de 4 a 7, VARIOS que sean solo un emoji (solo o repetido 1 a 3 veces, sin texto), algunas palabras sueltas en MAYÚSCULA como comentario entero, varias preguntas interactivas, y al menos 4-5 largos de 30+ palabras tipo "confesión".
+- No todos positivos: sumá reacciones neutrales, escépticas o levemente negativas; y algunos en minúscula con gramática relajada.
 
 Consciencia de seguidor (para no sonar a bot): escribí buena parte de los comentarios como gente que YA sigue la cuenta y conoce el contenido recurrente, no como desconocidos que aparecen por primera vez. Cuando el contenido dé pie, sé meta/autoconsciente ("this account never misses" / "here every week for this").
 

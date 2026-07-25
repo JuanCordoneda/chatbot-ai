@@ -37,9 +37,12 @@ def _load_template(client_id: str | None, account_id: int | None = None) -> str:
 # ── Formato de salida controlado por el SISTEMA (no editable por el usuario) ──
 # El género de los comentarios lo define el campo Género del cliente (TAREA 4):
 # male -> solo "hombres:", female -> solo "mujeres:", mixto/None -> ambos.
-_OUT_BASE_NO = ("- Sin numeración, sin guiones, sin comillas, sin títulos de categoría "
-                "y sin @usuarios. No expliques nada ni pidas confirmación: devolvé "
-                "solo el/los encabezado(s) indicado(s) y los comentarios, uno por línea.")
+_OUT_BASE_NO = ("- Sin numeración, sin guiones, sin comillas y sin títulos de categoría. "
+                "Podés usar @menciones SOLO con cuentas que estén explícitamente "
+                "permitidas en las instrucciones de arriba (o el dueño del post si "
+                "figura ahí): NUNCA inventes un @handle ni menciones cuentas al azar. "
+                "No expliques nada ni pidas confirmación: devolvé solo el/los "
+                "encabezado(s) indicado(s) y los comentarios, uno por línea.")
 
 
 def _system_output_format(client_gender) -> str:
