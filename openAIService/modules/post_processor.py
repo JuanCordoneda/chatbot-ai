@@ -20,6 +20,8 @@ class PostData:
     transcription: str = ""
     photo_description: str = ""
     is_video: bool = False
+    image_b64: str = ""          # imagen del post en base64 (visión multimodal)
+    image_media_type: str = ""   # ej "image/jpeg"
 
 
 def extract_shortcode(url: str) -> Optional[str]:
@@ -208,6 +210,14 @@ def _fetch_instagram_api(shortcode: str) -> dict:
             print(f"[ig_api] media null para {shortcode}", flush=True)
             return {}
 
+        # display_url = imagen del post (foto, o thumbnail del video). En carruseles
+        # tomamos la del primer item.
+        display_url = media.get("display_url", "") or ""
+        if not display_url:
+            hijos = media.get("edge_sidecar_to_children", {}).get("edges") or []
+            if hijos:
+                display_url = hijos[0].get("node", {}).get("display_url", "") or ""
+
         result = {
             "caption": (media.get("edge_media_to_caption", {}).get("edges") or [{}])[0].get("node", {}).get("text", "") or "",
             "owner_username": media.get("owner", {}).get("username", "") or "",
@@ -215,6 +225,7 @@ def _fetch_instagram_api(shortcode: str) -> dict:
             "photo_description": media.get("accessibility_caption", "") or "",
             "is_video": media.get("is_video", False),
             "video_url": media.get("video_url", "") or "",
+            "display_url": display_url,
         }
         print(f"[ig_api] ok — owner={result['owner_username']} is_video={result['is_video']}", flush=True)
         return result
@@ -276,7 +287,24 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         except Exception as e:
             print(f"[ig_api] error descargando video: {e}", flush=True)
 
-    if not caption and not transcription:
+    # Imagen del post para visión multimodal: foto (posts de imagen) o thumbnail
+    # (reels/videos). La descargamos y la mandamos a Claude junto con el texto.
+    display_url = slow.get("display_url") or ""
+    image_b64 = ""
+    image_media_type = ""
+    if display_url:
+        try:
+            import base64
+            r_img = req.get(display_url, timeout=15)
+            if r_img.status_code == 200 and r_img.content:
+                image_b64 = base64.b64encode(r_img.content).decode()
+                ct = (r_img.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
+                image_media_type = ct if ct.startswith("image/") else "image/jpeg"
+                print(f"[image] imagen del post descargada ({len(r_img.content)} bytes, {image_media_type})", flush=True)
+        except Exception as e:
+            print(f"[image] error descargando imagen: {e}", flush=True)
+
+    if not caption and not transcription and not image_b64:
         raise ValueError("No se pudo obtener el pie de página ni la transcripción del post. Verificá que el link sea público.")
 
     return PostData(
@@ -289,4 +317,6 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         transcription=transcription,
         photo_description=photo_description,
         is_video=bool(is_video),
+        image_b64=image_b64,
+        image_media_type=image_media_type,
     )

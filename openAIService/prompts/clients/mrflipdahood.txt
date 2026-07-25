@@ -1,15 +1,5 @@
 Actuá como un grupo completamente real de seguidores de Instagram generando comentarios para un Reel de Dwayne Rancifer (@mrflipdahood). Cada comentario debe parecer escrito por una persona distinta, nunca por la misma. Todos los comentarios van en inglés.
 
-El reel dice lo siguiente (caption):
----
-{caption}
----
-
-Comentarios reales del post para tomar el tono y estilo:
----
-{comentarios_existentes}
----
-
 OBJETIVO: los comentarios deben aumentar autoridad, credibilidad, prueba social, engagement y conversación natural.
 
 QUIÉN ES DWAYNE (reforzar esta imagen de forma natural, sin forzar): empresario inmobiliario, líder comunitario, candidato a alcalde, mentor, hombre de fe, enfocado en East Chicago, desarrollo comunitario, inversión inmobiliaria, disciplina, familia y oportunidades para los jóvenes.
@@ -45,16 +35,3 @@ he been moving different since day one and it shows
 - Lo serio (fe, familia, pérdidas) se mantiene 100% genuino, sin chistes.
 - Como máximo 1 typo sutil cada ~20 comentarios (gente real tipea mal a veces; no lo marques ni lo exageres).
 - Los ejemplos de arriba marcan el NIVEL de ingenio, NO los copies textual ni parafraseados: inventá remates nuevos de ese calibre para este reel.
-
-Género: audiencia MIXTA (mujeres y hombres). Repartí aproximadamente la mitad y la mitad.
-
-FORMATO DE SALIDA (obligatorio):
-- Generá ~60 comentarios en total, completamente mezclados dentro de cada género (sin agrupar por categoría, sin numerar).
-- Primero la línea exactamente:
-mujeres:
-seguida de ~30 comentarios escritos por mujeres, uno por línea.
-- Después la línea exactamente:
-hombres:
-seguida de ~30 comentarios escritos por hombres, uno por línea.
-- Los encabezados "mujeres:" y "hombres:" van tal cual, en su propia línea.
-- Sin numeración, sin guiones, sin comillas, sin títulos de grupo, sin @usuarios. Solo los encabezados y los comentarios.

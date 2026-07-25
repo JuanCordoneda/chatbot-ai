@@ -1,6 +1,20 @@
-version: "3.8"
-
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crowi
+      POSTGRES_PASSWORD: crowi
+      POSTGRES_DB: crowi
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crowi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   whatsapp-service:
     build: ./whatsappService
     ports:
@@ -11,11 +25,16 @@ services:
       - openai-service
 
   openai-service:
-    build: ./openAIService
+    build:
+      context: .
+      dockerfile: openAIService/Dockerfile
     ports:
       - "8000:8000"
     env_file:
       - .env
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - ./admin-key.json:/app/admin-key.json:ro
       - ./openAIService/session-crowagency.ofc:/app/session-crowagency.ofc:ro
@@ -23,20 +42,31 @@ services:
       - ./openAIService/modules:/app/modules
       - ./openAIService/prompts:/app/prompts
       - ./openAIService/clients_map.json:/app/clients_map.json
+      - ./common:/app/common
+      - ./migrations:/app/migrations
+      - ./scripts:/app/scripts
+      - ./alembic.ini:/app/alembic.ini
       - whisper-cache:/root/.cache/huggingface
 
   web-service:
-    build: ./webService
+    build:
+      context: .
+      dockerfile: webService/Dockerfile
     ports:
       - "8502:8502"
     env_file:
       - .env
     depends_on:
-      - openai-service
+      db:
+        condition: service_healthy
+      openai-service:
+        condition: service_started
     volumes:
       - ./webService/app.py:/app/app.py
       - ./webService/templates:/app/templates
       - ./webService/static:/app/static
+      - ./common:/app/common
 
 volumes:
   whisper-cache:
+  pgdata:

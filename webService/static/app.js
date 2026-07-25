@@ -106,19 +106,28 @@ function setProgreso(msg) {
   if (status) status.textContent = msg;
 }
 
+// Guard de re-entrada: sin esto, un doble click arranca DOS generaciones (dos
+// llamadas pagas a la API) y las dos escriben en la misma lista, dejando el doble
+// de comentarios mezclados. Se libera al terminar el stream o ante un error.
+let generando = false;
+
 async function generarComentarios() {
+  if (generando) return;
+
   const url = document.getElementById("ig-link").value.trim();
   if (!url) {
     setError("Pegá un link de Instagram primero.");
     return;
   }
 
+  generando = true;
   setError("");
   currentUrl = url;
   currentJobId = null;
   streamOffset = 0;
   streamProgresoOffset = 0;
   streamResets = 0;
+  vistosStream = new Set();
   streamMeta = {};
   comentariosGenerados = [];
   generosGenerados = [];
@@ -143,6 +152,7 @@ async function generarComentarios() {
     if (data.error) throw new Error(data.error);
     currentJobId = data.job_id;
   } catch (e) {
+    generando = false;
     hide("loading-overlay");
     show("step-input");
     setError(e.message);
@@ -238,7 +248,7 @@ function manejarEvento(evento) {
     mostrarEstadoTranscripcion(evento.texto);
     pendingComentarios.forEach((e) => {
       ocultarChunk();
-      agregarComentario(e.texto, e.index);
+      agregarComentarioFiltrado(e.texto, e.index);
     });
     pendingComentarios = [];
   } else if (evento.tipo === "chunk") {
@@ -249,7 +259,7 @@ function manejarEvento(evento) {
       pendingComentarios.push(evento);
     } else {
       ocultarChunk();
-      agregarComentario(evento.texto, evento.index);
+      agregarComentarioFiltrado(evento.texto, evento.index);
     }
   } else if (evento.tipo === "reset") {
     // La generación salió cortada y el backend reintenta desde cero:
@@ -257,6 +267,7 @@ function manejarEvento(evento) {
     // volver a aplicarlo si el stream se reconecta (si no, borraría los
     // comentarios ya mostrados de una generación completa).
     streamResets++;
+    vistosStream = new Set();
     document.getElementById("lista-comentarios").innerHTML = "";
     comentariosGenerados = [];
     generosGenerados = [];
@@ -269,6 +280,7 @@ function manejarEvento(evento) {
     streamMeta = evento;
     finalizarStream(evento);
   } else if (evento.tipo === "error") {
+    generando = false;
     hide("loading-overlay");
     hide("step-comentarios");
     show("step-input");
@@ -317,6 +329,13 @@ function mostrarScrape(data) {
   document.getElementById("scrape-owner").textContent = data.owner_username || "—";
   document.getElementById("client-badge").textContent = data.client_id || data.owner_username || "Sin cliente asignado";
 
+  // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
+  // likes/views/shares con un valor random dentro del rango configurado.
+  if (data.ranges !== undefined) window._clientRanges = data.ranges || {};
+  // @usuario del cliente: se usa para consultar qué cantidades ya se le enviaron
+  // y no repetirlas en la tirada automática.
+  if (data.owner_username) window._clientIg = data.owner_username;
+
   hide("loading-overlay");
 
   if (data.caption) {
@@ -335,6 +354,78 @@ function mostrarEstadoTranscripcion(texto) {
     ? texto
     : "Sin transcripción disponible para este post.";
   document.getElementById("transcription-block").classList.remove("hidden");
+}
+
+// ── Secciones por género en la lista de comentarios ──────────────────────────
+// Los comentarios se muestran AGRUPADOS (todos los de hombres juntos, todos los
+// de mujeres juntos) para que el vendedor solo elija Veri/No-Veri, en vez de una
+// lista plana mezclada. Las secciones acumulan: "Cargar más" suma a la sección
+// existente en lugar de abrir una nueva.
+const _SECCIONES = [
+  { key: "hombres", label: "Hombres",         icon: "♂" },
+  { key: "mujeres", label: "Mujeres",         icon: "♀" },
+  { key: "otros",   label: "Sin especificar", icon: "•" },
+];
+
+function _seccionItems(genero) {
+  const key = (genero === "hombres" || genero === "mujeres") ? genero : "otros";
+  const lista = document.getElementById("lista-comentarios");
+  let sec = lista.querySelector(`.genero-seccion[data-genero="${key}"]`);
+  if (!sec) {
+    const meta = _SECCIONES.find(s => s.key === key);
+    sec = document.createElement("div");
+    sec.className = "genero-seccion";
+    sec.dataset.genero = key;
+    sec.innerHTML = `
+      <div class="genero-seccion-header">
+        <span class="gs-sec-icon">${meta.icon}</span>
+        <span class="gs-sec-label">${meta.label}</span>
+        <span class="gs-sec-count">0</span>
+      </div>
+      <div class="genero-seccion-items"></div>`;
+    // Orden fijo en pantalla: Hombres → Mujeres → Sin especificar.
+    const orden = _SECCIONES.map(s => s.key);
+    const pos = orden.indexOf(key);
+    const siguiente = [...lista.querySelectorAll(".genero-seccion")]
+      .find(s => orden.indexOf(s.dataset.genero) > pos);
+    lista.insertBefore(sec, siguiente || null);
+  }
+  return sec.querySelector(".genero-seccion-items");
+}
+
+// Renumera 1..N en el orden visual y actualiza el contador de cada sección.
+// Devuelve el total de comentarios mostrados.
+function _refrescarSecciones() {
+  const lista = document.getElementById("lista-comentarios");
+  let n = 0;
+  lista.querySelectorAll(".genero-seccion").forEach((sec) => {
+    const items = sec.querySelectorAll(".comentario-item");
+    const cnt = sec.querySelector(".gs-sec-count");
+    if (cnt) cnt.textContent = items.length;
+    sec.classList.toggle("hidden", items.length === 0);
+    items.forEach((it) => {
+      n++;
+      const e = it.querySelector(".comentario-num");
+      if (e) e.textContent = n;
+    });
+  });
+  return n;
+}
+
+// Filtro anti-duplicados de la tanda inicial: el modelo a veces repite el MISMO
+// comentario dentro de una generación (sobre todo los cortos).
+// A propósito acá se comparan solo textos IDÉNTICOS (normalizados), no paráfrasis:
+// dentro de una tanda, variantes tipo "praying for you" / "praying for you brother"
+// son comentarios válidos y filtrarlas recortaba demasiado el total.
+// El filtro fuzzy (paráfrasis) se aplica en "Cargar más", que es donde molestaba.
+let vistosStream = new Set();
+
+function agregarComentarioFiltrado(texto, index) {
+  if (generoDeHeader(texto)) { agregarComentario(texto, index); return; }
+  const n = normComentario(texto);
+  if (vistosStream.has(n)) return;
+  vistosStream.add(n);
+  agregarComentario(texto, index);
 }
 
 function agregarComentario(texto, index) {
@@ -380,14 +471,12 @@ function agregarComentario(texto, index) {
   const skeleton = document.getElementById("skeleton-list");
   if (skeleton) skeleton.remove();
 
-  lista.appendChild(item);
+  // Va a la sección de su género (se crea sola la primera vez).
+  _seccionItems(generoActual).appendChild(item);
 
-  // Numeración visible = posición en la lista (los encabezados hombres:/mujeres:
-  // no son items, así que consumen índices internos pero no deben dejar huecos
-  // en la numeración que ve el trafficker).
-  const count = lista.querySelectorAll(".comentario-item").length;
-  const numEl = item.querySelector(".comentario-num");
-  if (numEl) numEl.textContent = count;
+  // Numeración corrida 1..N en el orden visual (los encabezados hombres:/mujeres:
+  // no son items, así que no deben dejar huecos en la numeración).
+  const count = _refrescarSecciones();
 
   const counter = document.getElementById("comments-counter");
   if (counter) {
@@ -417,6 +506,13 @@ function toggleGenero(e, index) {
     sw.classList.toggle("genero-switch--mujeres", nuevo === "mujeres");
     const knob = sw.querySelector(".gs-knob");
     if (knob) knob.textContent = nuevo === "hombres" ? "H" : "M";
+    // Al cambiar el género, el comentario se muda a la sección que corresponde
+    // (si no, el agrupado quedaría inconsistente).
+    const item = sw.closest(".comentario-item");
+    if (item) {
+      _seccionItems(nuevo).appendChild(item);
+      _refrescarSecciones();
+    }
   }
 }
 
@@ -524,11 +620,12 @@ function copiarComentario(e, index) {
 }
 
 function finalizarStream(meta) {
+  generando = false;
   mostrarScrape(meta);
   mostrarEstadoTranscripcion(meta.transcription);
   esperandoTranscripcion = false;
   if (pendingComentarios.length > 0) {
-    pendingComentarios.forEach((e) => { ocultarChunk(); agregarComentario(e.texto, e.index); });
+    pendingComentarios.forEach((e) => { ocultarChunk(); agregarComentarioFiltrado(e.texto, e.index); });
     pendingComentarios = [];
   }
   actualizarConteo();
@@ -962,6 +1059,98 @@ function onProductoChange() {
   }
   const productoNombre = prodSelect.options[prodSelect.selectedIndex]?.text || "";
   obtenerDemora(productoNombre);
+
+  // TAREA 6: si el producto es like/view/share y el cliente tiene rango, mostramos
+  // el botón 🎲 y autocompletamos la cantidad (solo si está vacía, para no pisar
+  // lo que el vendedor haya cargado al editar una orden).
+  const r = _rangoDelProducto();
+  const cantEl = document.getElementById("orden-cantidad");
+  if (r && !cantEl.value) rollCantidad();
+
+  obtenerCosto();
+}
+
+// ── Cantidad automática por rango (TAREA 6) ──────────────────────────────────
+function _tipoProducto(nombre) {
+  const n = (nombre || "").toLowerCase();
+  if (n.includes("like") || n.includes("me gusta")) return "likes";
+  if (n.includes("view") || n.includes("reproduc") || n.includes("visualiz") || n.includes("vista")) return "views";
+  if (n.includes("share") || n.includes("compart")) return "shares";
+  return null;
+}
+
+function _rangoDelProducto() {
+  const prodSelect = document.getElementById("orden-producto");
+  const nombre = prodSelect.options[prodSelect.selectedIndex]?.text || "";
+  const tipo = _tipoProducto(nombre);
+  const ranges = window._clientRanges || {};
+  const r = (tipo && ranges[tipo]) || null;
+  const btn = document.getElementById("btn-roll-cantidad");
+  if (btn) btn.style.display = r ? "" : "none";
+  return r;
+}
+
+// Tipo de producto actualmente elegido (likes/views/shares) o null.
+function _tipoActual() {
+  const prodSelect = document.getElementById("orden-producto");
+  return _tipoProducto(prodSelect.options[prodSelect.selectedIndex]?.text || "");
+}
+
+// Cantidades ya enviadas a este cliente para ese tipo de producto. Se cachean por
+// (cliente, tipo) y se suman en memoria las que se van agregando en esta sesión,
+// para no repetir ni siquiera antes de que la orden llegue al CRM.
+const _usadasCache = {};
+async function _cantidadesUsadas(tipo) {
+  const ig = window._clientIg || "";
+  if (!ig || !tipo) return new Set();
+  const key = `${ig}|${tipo}`;
+  if (!_usadasCache[key]) {
+    _usadasCache[key] = new Set();
+    try {
+      const r = await fetch(`/api/cantidades_usadas?client=${encodeURIComponent(ig)}&tipo=${encodeURIComponent(tipo)}`);
+      const d = await r.json();
+      (d.usadas || []).forEach((v) => _usadasCache[key].add(Number(v)));
+    } catch { /* si falla, seguimos sin historial */ }
+  }
+  return _usadasCache[key];
+}
+
+function _marcarUsada(tipo, val) {
+  const ig = window._clientIg || "";
+  if (!ig || !tipo) return;
+  const key = `${ig}|${tipo}`;
+  (_usadasCache[key] = _usadasCache[key] || new Set()).add(Number(val));
+}
+
+// Tira una cantidad al azar dentro del rango SIN repetir una ya enviada a este
+// cliente (Facu: "que nunca repita la cantidad"). Si ya se usaron todas las del
+// rango, avisa y permite repetir para no bloquear la operación.
+async function rollCantidad() {
+  const r = _rangoDelProducto();
+  if (!r || r.min == null || r.max == null) return;
+  const min = Math.min(r.min, r.max), max = Math.max(r.min, r.max);
+  const tipo = _tipoActual();
+  const usadas = await _cantidadesUsadas(tipo);
+
+  const disponibles = [];
+  for (let v = min; v <= max; v++) if (!usadas.has(v)) disponibles.push(v);
+
+  const hint = document.getElementById("orden-cantidad-hint");
+  let val;
+  if (disponibles.length === 0) {
+    val = Math.floor(min + Math.random() * (max - min + 1));   // rango agotado
+    if (hint) {
+      hint.textContent = `Ya se usaron todas las cantidades entre ${min} y ${max} para este cliente; puede repetirse.`;
+      hint.classList.remove("hidden");
+    }
+  } else {
+    val = disponibles[Math.floor(Math.random() * disponibles.length)];
+  }
+
+  _marcarUsada(tipo, val);
+  const el = document.getElementById("orden-cantidad");
+  el.value = val;
+  clearFieldError("orden-cantidad");
   obtenerCosto();
 }
 
@@ -1438,7 +1627,14 @@ async function solicitarOrdenes() {
       const traficoResp = await fetch("/api/enviar_trafico", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ordenes: crmOrdenes, costo_total: costoTotal }),
+        // client/url viajan para que el registro de uso quede atado al cliente
+        // (y así la tirada automática sepa qué cantidades ya se le enviaron).
+        body: JSON.stringify({
+          ordenes: crmOrdenes,
+          costo_total: costoTotal,
+          client: window._clientIg || "",
+          url: currentUrl,
+        }),
       });
       const traficoData = await traficoResp.json().catch(() => ({}));
       if (traficoData.error || traficoData.errors?.length) {

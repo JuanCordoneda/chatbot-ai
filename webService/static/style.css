@@ -2834,3 +2834,50 @@ input:focus-visible {
 .btn-ghost { transition: background 0.14s, color 0.14s, border-color 0.14s, transform 0.12s; }
 .btn-ghost:hover { transform: translateY(-1px); }
 .btn-ghost:active { transform: translateY(0); }
+
+/* ── Secciones por género en la lista de comentarios ──────────────────────── */
+/* Los comentarios se agrupan (Hombres / Mujeres / Sin especificar) para que el
+   vendedor solo elija Veri/No-Veri en vez de leer una lista mezclada. */
+.genero-seccion.hidden { display: none; }
+
+.genero-seccion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 10px 9px;
+  margin-top: 10px;
+  /* Sin position:sticky a propósito: el zoom de .app lo rompe en Chrome
+     (mismo motivo por el que el header de la app usa fixed). */
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.gs-sec-icon { font-size: 0.95rem; line-height: 1; color: var(--yellow); }
+
+.gs-sec-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+
+.gs-sec-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.genero-seccion[data-genero="hombres"] .gs-sec-icon { color: #3b82f6; }
+.genero-seccion[data-genero="mujeres"] .gs-sec-icon { color: #ec4899; }
+
+@media (max-width: 768px) {
+  .genero-seccion-header { padding: 13px 8px 8px; }
+}

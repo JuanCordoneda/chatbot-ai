@@ -17,14 +17,41 @@ INSTAGRAM_URL_RE = re.compile(
 
 _CLIENTS_MAP_PATH = os.path.join(os.path.dirname(__file__), "..", "clients_map.json")
 
+# La capa de datos multi-tenant es opcional: si el paquete `common` o la DB no
+# están disponibles, todo cae al clients_map.json de siempre.
+try:
+    from common import repository as _repo
+except Exception:
+    _repo = None
+
+
 def _load_clients_map() -> dict:
     try:
         with open(_CLIENTS_MAP_PATH, "r") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        # Antes fallaba en silencio: un JSON corrupto o el archivo ausente dejaban
+        # el mapa vacío y TODOS los posts caían al prompt de fallback sin que nada
+        # lo avisara. Ahora queda registrado.
+        print(f"[client] no pude leer {_CLIENTS_MAP_PATH}: {e}", flush=True)
         return {}
 
-def detectar_cliente(owner_username: str) -> str | None:
+def detectar_cliente(owner_username: str, account_id: int | None = None) -> str | None:
+    """Devuelve el nombre para mostrar del cliente dueño del post.
+    DB primero (multi-tenant); si no hay DB o no está el cliente, cae al
+    clients_map.json. account_id acota la búsqueda a una cuenta cuando se conoce."""
+    if not owner_username:
+        return None
+    if _repo is not None:
+        try:
+            if _repo.db_available():
+                # Con DB disponible, su respuesta es la verdad: si el cliente no
+                # existe o está PAUSADO devuelve None y NO caemos al archivo. Si
+                # cayéramos, "Pausar" no tendría ningún efecto (el cliente seguiría
+                # detectándose desde clients_map.json).
+                return _repo.get_client_display_name(owner_username, account_id)
+        except Exception as e:
+            print(f"[client] DB no disponible, uso clients_map.json ({e})", flush=True)
     clients_map = _load_clients_map()
     return clients_map.get(owner_username)
 
@@ -51,8 +78,25 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
     if client_id is None and post_data.owner_username:
         client_id = detectar_cliente(post_data.owner_username)
 
+    client_gender = None
+    if _repo is not None and post_data.owner_username:
+        try:
+            row = _repo.get_client_by_ig_username(post_data.owner_username)
+            if row:
+                client_gender = row.get("gender")
+        except Exception:
+            pass
+
     try:
-        comentarios = generar_comentarios(post_data.caption, post_data.comments, client_id)
+        comentarios = generar_comentarios(
+            post_data.caption, post_data.comments, client_id,
+            transcription=post_data.transcription,
+            photo_description=post_data.photo_description,
+            is_video=post_data.is_video,
+            image_b64=post_data.image_b64,
+            image_media_type=post_data.image_media_type,
+            client_gender=client_gender,
+        )
     except Exception as e:
         return f"Error generando los comentarios con IA: {e}"
 

@@ -348,6 +348,19 @@ def procesar_post_web():
             # si no hay cliente asignado, usamos igual el prompt de Peter Fournier.
             prompt_client_id = post_data.owner_username.lower() if client_id else "peterjfournier"
 
+            # Rangos de cantidades del cliente (TAREA 6): el front los usa para
+            # autocompletar likes/views/shares con un valor random dentro del rango.
+            ranges = {}
+            client_gender = None
+            try:
+                from common import repository as _repo
+                row = _repo.get_client_by_ig_username(post_data.owner_username) if post_data.owner_username else None
+                if row:
+                    ranges = row.get("ranges") or {}
+                    client_gender = row.get("gender")  # male/female/None -> formato de salida
+            except Exception as e:
+                print(f"[ranges] no disponible ({e})", flush=True)
+
             job["meta"] = {
                 "client_id": client_id or post_data.owner_full_name or post_data.owner_username,
                 "owner_username": post_data.owner_username,
@@ -355,6 +368,7 @@ def procesar_post_web():
                 "photo_description": post_data.photo_description,
                 "caption": post_data.caption,
                 "is_video": post_data.is_video,
+                "ranges": ranges,
             }
             job["scrape_ready"] = True
             job["transcription_ready"] = True
@@ -365,6 +379,9 @@ def procesar_post_web():
                 post_data.caption, post_data.comments, prompt_client_id,
                 post_data.transcription, post_data.photo_description,
                 post_data.is_video, evitar,
+                image_b64=post_data.image_b64,
+                image_media_type=post_data.image_media_type,
+                client_gender=client_gender,
             ):
                 if tipo == "chunk":
                     job["current_chunk"] += data

@@ -5,3 +5,7 @@ google-api-python-client==2.131.0
 google-auth==2.29.0
 faster-whisper
 ffmpeg-python
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.10
+alembic==1.14.0
+cryptography==43.0.3

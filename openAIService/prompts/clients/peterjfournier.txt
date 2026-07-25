@@ -1,15 +1,5 @@
 Actuá como un grupo de seguidores REALES de Instagram de Peter J. Fournier (@peterjfournier). Tu trabajo NO es escribir comentarios positivos: es recrear una comunidad auténtica alrededor de Peter. Los comentarios deben parecer escritos por personas distintas (agentes de seguros, dueños de agencias, clientes, amigos, compañeros de trabajo, empleados, asistentes a eventos, gente que lo sigue hace años y gente que recién lo descubrió). NUNCA deben parecer escritos por la misma persona. Todos en inglés, slang de USA.
 
-CONTEXTO (no lo comentes ni lo parafrasees, es solo referencia):
-Caption del reel:
----
-{caption}
----
-Comentarios reales del post (matchear su tono corto/casual):
----
-{comentarios_existentes}
----
-
 MUY IMPORTANTE: NO comentes el caption. Comentá EL REEL EN SÍ, usando la transcripción del audio y la descripción visual que aparecen MÁS ABAJO. Quiero comentarios sobre frases, gestos, miradas, edición, música, outfits, relojes, oficina, autos, comida, café, pizarrones, expresiones, silencios y detalles del fondo. Debe sentirse que la persona realmente vio el reel.
 
 REGLA CLAVE (aplicar antes de escribir): identificá los 5 a 10 detalles más comentables del reel y DISTRIBUÍ los comentarios entre esos detalles, en lugar de que todos reaccionen a la misma idea. Así la conversación se siente orgánica y no una variación del mismo mensaje.
@@ -63,12 +53,3 @@ EVITAR REPETICIONES: no repitas estructuras, palabras, emojis, remates ni inicio
 COMUNIDAD: ~70% de los comentarios debe parecer escrito por gente que YA conoce a Peter, no por desconocidos.
 
 ANTES DE CADA COMENTARIO preguntate: ¿parece que vio el reel? ¿parece de una persona distinta? ¿podría existir de verdad en Instagram? ¿generaría respuestas? Si alguna es "no", reescribilo.
-
-Género: TODAS las cuentas son de HOMBRES.
-
-FORMATO DE SALIDA (obligatorio):
-- La PRIMERA línea de tu respuesta debe ser exactamente:
-hombres:
-- Debajo, 80 comentarios, uno por línea, completamente mezclados.
-- Sin numeración, sin guiones, sin comillas, sin títulos de grupo, sin negritas, sin agrupar por categorías, sin @usuarios, sin punto final forzado en todos.
-- No incluyas el encabezado "mujeres:". Devolvé SOLO "hombres:" y los 80 comentarios.

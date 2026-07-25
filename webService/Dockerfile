@@ -1,11 +1,14 @@
+# Build context = raíz del repo (ver docker-compose.yml) para poder incluir el
+# paquete compartido `common/`.
 FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY webService/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
+COPY common/ /app/common/
+COPY webService/ /app/
 
 EXPOSE 8502
 

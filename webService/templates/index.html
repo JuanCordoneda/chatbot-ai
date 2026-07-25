@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1783208903" />
+  <link rel="stylesheet" href="/static/style.css?v=1783209003" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -42,6 +42,10 @@
         <button class="btn-theme" id="btn-theme" onclick="toggleTheme()">☀ Light</button>
         <div class="header-btn-group">
           {% if is_admin %}
+          <a class="header-action-btn" href="/admin" title="Panel de administración">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.4"/><path d="M13 8a5 5 0 00-.1-1l1.3-1-1.3-2.2-1.5.5a5 5 0 00-1.7-1L9.4 0H6.6l-.3 1.3a5 5 0 00-1.7 1L3.1 1.8 1.8 4l1.3 1a5 5 0 000 2l-1.3 1L3.1 11l1.5-.5a5 5 0 001.7 1l.3 1.5h2.8l.3-1.5a5 5 0 001.7-1l1.5.5 1.3-2.2-1.3-1A5 5 0 0013 8z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            Admin
+          </a>
           <button class="header-action-btn" onclick="hacerPrueba()" title="Prueba">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 5-10 5V3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
             Prueba
@@ -54,6 +58,10 @@
           <button class="header-action-btn header-action-btn--icon" onclick="location.reload()" title="Reiniciar">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
+          <a class="header-action-btn" href="/logout" title="Cerrar sesión">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Salir
+          </a>
         </div>
       </div>
     </header>
@@ -269,6 +277,7 @@
             <div class="orden-field orden-field--qty">
               <label class="orden-label">Cant. Final</label>
               <input type="number" id="orden-cantidad" class="orden-input" placeholder="1000" min="1" oninput="onCantidadInput()" />
+              <button type="button" id="btn-roll-cantidad" onclick="rollCantidad()" title="Elegir una cantidad al azar dentro del rango del cliente" style="display:none;margin-top:6px;align-self:flex-start;background:var(--surface3);border:1px solid var(--border2);color:var(--text);border-radius:8px;padding:5px 10px;font-size:.76rem;cursor:pointer;">🎲 Al azar</button>
               <span id="orden-cantidad-hint" class="orden-field-hint hidden"></span>
               <span id="orden-cantidad-error" class="orden-field-error hidden">Cantidad inválida</span>
             </div>
@@ -404,6 +413,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1783208905"></script>
+  <script src="/static/app.js?v=1783209300"></script>
 </body>
 </html>
