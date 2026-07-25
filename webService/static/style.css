@@ -2881,3 +2881,26 @@ input:focus-visible {
 @media (max-width: 768px) {
   .genero-seccion-header { padding: 13px 8px 8px; }
 }
+
+/* ── Toggle "Repartir en turnos" (no verificados) ─────────────────────────── */
+.turnos-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted2);
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.turnos-toggle:hover { border-color: var(--border2); }
+.turnos-toggle input { width: 16px; height: 16px; accent-color: var(--yellow); cursor: pointer; flex-shrink: 0; }
+.turnos-toggle b { color: var(--text); font-weight: 700; }
+.turnos-toggle:has(input:checked) {
+  border-color: var(--yellow);
+  background: var(--yellow-lo);
+}

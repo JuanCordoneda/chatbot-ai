@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1783209003" />
+  <link rel="stylesheet" href="/static/style.css?v=1783209400" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -183,6 +183,11 @@
               </span>
               <span class="count-label" id="count-label">0 seleccionados</span>
             </div>
+            <label class="turnos-toggle" id="turnos-toggle" title="Reparte los comentarios NO verificados 50/50: una tanda ahora y la otra programada para el próximo turno (mañana 10:00 / tarde 19:00). Máximo 80 no verificados.">
+              <input type="checkbox" id="chk-turnos" />
+              <span>⏰ Repartir <b>no verificados</b> en turnos (50/50, tope 80)</span>
+            </label>
+            <div id="turnos-msg" class="error hidden"></div>
             <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
               Publicar seleccionados
             </button>
@@ -413,6 +418,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1783209300"></script>
+  <script src="/static/app.js?v=1783209400"></script>
 </body>
 </html>

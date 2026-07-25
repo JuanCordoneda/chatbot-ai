@@ -835,6 +835,44 @@ const RS_META = {
 let ordenes = [];
 let comentariosParaPublicar = [];
 
+// ── Turnos de comentarios no verificados ─────────────────────────────────────
+// Facu: los no-verif tienen dos turnos (mañana 09-15:30 / tarde 15:30-23), 40 c/u.
+// Al publicar se reparten 50/50: una tanda al turno actual y la otra programada
+// al próximo turno (hora fija 10:00 / 19:00, AR = hora local del navegador).
+const TURNOS_MAX = 80;
+
+function _fmtFechaCRM(d) {
+  const p = x => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function _labelFecha(d) {
+  return d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+}
+// Devuelve [spec1, spec2] con {cuando, cuandoLabel, fechaProgramada}. spec1 es la
+// tanda que va primero (y recibe el comentario de más si la cantidad es impar).
+function _turnosPlan() {
+  const now = new Date();
+  const min = now.getHours() * 60 + now.getMinutes();
+  const MANANA = 9 * 60, TARDE = 15 * 60 + 30, NOCHE = 23 * 60;   // 09:00 / 15:30 / 23:00
+  const aHora = (h, m, addDay = 0) => {
+    const d = new Date(now); d.setHours(h, m, 0, 0); if (addDay) d.setDate(d.getDate() + addDay); return d;
+  };
+  const prox = (h) => { const d = aHora(h, 0); if (d <= now) d.setDate(d.getDate() + 1); return d; };
+  const ahora = { cuando: "ahora", cuandoLabel: "Ahora", fechaProgramada: "" };
+  const prog = (d) => ({ cuando: "programar", cuandoLabel: _labelFecha(d), fechaProgramada: _fmtFechaCRM(d) });
+
+  if (min >= MANANA && min < TARDE) {
+    // Turno mañana: una tanda ahora, la otra hoy 19:00.
+    return [ahora, prog(aHora(19, 0))];
+  }
+  if (min >= TARDE && min < NOCHE) {
+    // Turno tarde: una tanda ahora, la otra mañana 10:00.
+    return [ahora, prog(aHora(10, 0, 1))];
+  }
+  // Fuera de horario (23:00-09:00): las dos programadas (próximo 10:00 y 19:00).
+  return [prog(prox(10)), prog(prox(19))];
+}
+
 async function irAOrdenes() {
   // Seleccionamos por data-index (no por posición del DOM), porque la lista se
   // muestra mezclada visualmente.
@@ -861,34 +899,67 @@ async function irAOrdenes() {
   const idxVerif   = idxSeleccionados.filter(i => tiposGenerados[i] !== "noverif");
   const idxNoVerif = idxSeleccionados.filter(i => tiposGenerados[i] === "noverif");
 
+  // ¿Repartir los no-verificados en turnos? (toggle de la barra de acciones)
+  const turnos = !!document.getElementById("chk-turnos")?.checked && idxNoVerif.length > 0;
+
+  // Tope de no-verif por día cuando se reparte en turnos (40 mañana + 40 tarde).
+  const turnosMsg = document.getElementById("turnos-msg");
+  if (turnosMsg) turnosMsg.classList.add("hidden");
+  if (turnos && idxNoVerif.length > TURNOS_MAX) {
+    if (turnosMsg) {
+      turnosMsg.textContent = `Con turnos podés mandar hasta ${TURNOS_MAX} no verificados por día (40 + 40). Tenés ${idxNoVerif.length} seleccionados — sacá ${idxNoVerif.length - TURNOS_MAX}.`;
+      turnosMsg.classList.remove("hidden");
+    }
+    return;   // no armamos órdenes hasta que baje del tope
+  }
+
   // Conservar cualquier orden extra ya cargada (likes, views, etc.);
   // reemplazamos las de comentarios (pueden ser 2: verificados y no verificados).
   ordenes = ordenes.filter(o => o.tipo !== "comentarios");
   comentariosParaPublicar = [];
+  let _oid = Date.now();
 
-  const bloques = [
-    { indices: idxVerif,   productoId: 94, productoNombre: "Comentarios Reales Verificados" },
-    { indices: idxNoVerif, productoId: 95, productoNombre: "Comentarios Reales" },
-  ];
-  bloques.forEach((b, k) => {
-    if (b.indices.length === 0) return;
-    const { payload, cantidad } = reconstruir(b.indices);
+  const pushOrdenComentarios = (indices, productoId, productoNombre, spec, turno) => {
+    const { payload, cantidad } = reconstruir(indices);
     comentariosParaPublicar.push(...payload);
     ordenes.push({
-      id: Date.now() + k,
+      id: _oid++,
       redsocial: "Instagram",
       redsocialId: "1",
-      productoId: b.productoId,
-      productoNombre: b.productoNombre,
+      productoId,
+      productoNombre,
       cantidad,
       link: currentUrl,
-      cuando: "ahora",
-      cuandoLabel: "Ahora",
+      cuando: spec.cuando,
+      cuandoLabel: spec.cuandoLabel,
+      fechaProgramada: spec.fechaProgramada,
       obs: "",
       tipo: "comentarios",
       comentarios: payload,   // cada orden lleva SU propia lista
+      turno,                  // "1/2" | "2/2" | null
     });
-  });
+  };
+
+  const AHORA = { cuando: "ahora", cuandoLabel: "Ahora", fechaProgramada: "" };
+
+  // Verificados: siempre una orden "ahora".
+  if (idxVerif.length) {
+    pushOrdenComentarios(idxVerif, 94, "Comentarios Reales Verificados", AHORA, null);
+  }
+
+  // No verificados: una orden "ahora", o dos repartidas 50/50 en turnos.
+  if (idxNoVerif.length) {
+    if (turnos) {
+      const [spec1, spec2] = _turnosPlan();
+      const mitad = Math.ceil(idxNoVerif.length / 2);   // impar → la de más va en la 1ra tanda
+      pushOrdenComentarios(idxNoVerif.slice(0, mitad), 95, "Comentarios Reales", spec1, "1/2");
+      if (idxNoVerif.length > mitad) {
+        pushOrdenComentarios(idxNoVerif.slice(mitad), 95, "Comentarios Reales", spec2, "2/2");
+      }
+    } else {
+      pushOrdenComentarios(idxNoVerif, 95, "Comentarios Reales", AHORA, null);
+    }
+  }
 
   // Info del post
   const clientName = document.getElementById("client-badge").textContent || "—";
@@ -1533,10 +1604,11 @@ function renderOrdenes() {
           </span>
           <span class="orden-card-nombre">${escapeHtml(o.productoNombre)}</span>
           ${o.splitTotal ? `<span class="orden-card-pill orden-card-pill--split">${o.splitIndex}/${o.splitTotal}</span>` : ""}
+          ${o.turno ? `<span class="orden-card-pill orden-card-pill--split">⏰ turno ${o.turno}</span>` : ""}
         </div>
         <div class="orden-card-meta">
           <span class="orden-card-pill orden-card-pill--qty">${o.tipo === "comentarios" ? `${o.cantidad} comentarios` : `${o.cantidad.toLocaleString()} uds`}</span>
-          <span class="orden-card-pill orden-card-pill--when">${o.splitTotal ? "⏰" : (CUANDO_ICONS[o.cuando] || "⚡")} ${escapeHtml(o.cuandoLabel)}</span>
+          <span class="orden-card-pill orden-card-pill--when">${(o.splitTotal || o.turno) ? "⏰" : (CUANDO_ICONS[o.cuando] || "⚡")} ${escapeHtml(o.cuandoLabel)}</span>
           ${o.costo != null && o.costo > 0 ? `<span class="orden-card-pill orden-card-pill--cost">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
           ${o.tipo === "comentarios" ? `<span class="orden-card-pill orden-card-pill--green">✓ Comentarios IA</span>` : ""}
         </div>
