@@ -1794,11 +1794,6 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-function hacerPrueba() {
-  document.getElementById("ig-link").value = "https://www.instagram.com/p/DZyYdR9xMLi/";
-  generarComentarios();
-}
-
 async function simularOrdenes() {
   currentUrl = "https://www.instagram.com/p/DZyYdR9xMLi/";
   comentariosParaPublicar = [
