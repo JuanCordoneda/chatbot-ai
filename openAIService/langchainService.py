@@ -314,12 +314,11 @@ def procesar_post_web():
                         }
                         job["meta"] = preview_meta
                         job["scrape_ready"] = True
+                        job["step"] = "transcription"
                         if preview_meta["is_video"]:
-                            job["step"] = "transcription"
                             job["progreso"].append("Video detectado. Generando transcripción (Menos de 60 segundos)...")
                         else:
-                            job["step"] = "transcription"
-                            job["progreso"].append("Generando transcripción (Menos de 60 segundos)...")
+                            job["progreso"].append("Procesando el post...")
 
                 except Exception:
                     pass
@@ -336,8 +335,10 @@ def procesar_post_web():
             job["step"] = ""
             if post_data.transcription and not post_data.transcription.startswith("("):
                 job["progreso"].append("Transcripción lista.")
-            elif post_data.photo_description:
-                job["progreso"].append("Imagen analizada.")
+            elif post_data.is_video:
+                job["progreso"].append("No pude transcribir el audio del video; genero desde el texto y la imagen.")
+            else:
+                job["progreso"].append("Es una foto (sin audio para transcribir): genero desde el texto y la imagen.")
 
             client_id = detectar_cliente(post_data.owner_username) if post_data.owner_username else None
             print(f"[client] owner_username={post_data.owner_username!r} → client_id={client_id!r}", flush=True)
