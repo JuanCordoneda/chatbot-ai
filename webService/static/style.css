@@ -833,13 +833,33 @@ body.light .orden-btn-agregar {
 /* ── Comments card ── */
 .comments-card { padding: 0; overflow: hidden; }
 
-.comments-header { padding: 22px 24px 0; }
+.comments-header {
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+}
+body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.015), transparent); }
 
 .comments-title-row {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 4px;
+}
+
+/* Acento amarillo antes del título de la card de comentarios */
+.comments-card .card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.comments-card .card-title::before {
+  content: "";
+  width: 4px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--yellow);
+  box-shadow: 0 0 10px rgba(250,185,0,0.55);
 }
 
 .badge-listo {
@@ -861,11 +881,14 @@ body.light .orden-btn-agregar {
   font-weight: 500;
   color: var(--yellow);
   min-height: 2em;
-  padding: 4px 0 14px;
+  padding: 6px 0 2px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
+/* En estado "Listo" el status queda vacío: lo colapsamos para que el header no
+   arrastre un hueco (evita el salto durante el stream porque ahí no está vacío). */
+.stream-status:empty { min-height: 0; padding: 0; }
 
 .stream-status:not(:empty)::before {
   content: "";
@@ -929,72 +952,95 @@ body.light .orden-btn-agregar {
 
 .comentario-item {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px 10px;
-  border-radius: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.10);
+  align-items: center;
+  gap: 13px;
+  padding: 11px 14px 11px 12px;
+  border-radius: 13px;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background 0.16s ease, border-color 0.16s ease,
+              box-shadow 0.16s ease, transform 0.12s ease;
   animation: itemIn 0.24s ease both;
   position: relative;
 }
+/* Divisor sutil entre filas (fino, no un borde duro) */
+.comentario-item::after {
+  content: "";
+  position: absolute;
+  left: 14px; right: 14px; bottom: 0;
+  height: 1px;
+  background: rgba(255,255,255,0.055);
+  transition: opacity 0.16s ease;
+}
+.comentario-item:last-child::after { display: none; }
 
 @keyframes itemIn {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.comentario-item:last-child { border-bottom: none; }
-.comentario-item:hover { background: rgba(255,255,255,0.15); }
-.comentario-item.selected {
-  background: rgba(245,168,0,0.08);
-  box-shadow: inset 3px 0 0 var(--yellow);
+.comentario-item:hover {
+  background: rgba(255,255,255,0.055);
+  border-color: rgba(255,255,255,0.08);
+  transform: translateX(2px);
 }
+.comentario-item:hover::after { opacity: 0; }
+.comentario-item.selected {
+  background: var(--yellow-lo);
+  border-color: rgba(250,185,0,0.28);
+  box-shadow: inset 3px 0 0 var(--yellow), 0 4px 18px rgba(0,0,0,0.22);
+}
+.comentario-item.selected::after { opacity: 0; }
 
-body.light .comentario-item { border-bottom-color: rgba(0,0,0,0.06); }
-body.light .comentario-item:hover { background: rgba(0,0,0,0.04); }
+body.light .comentario-item::after { background: rgba(0,0,0,0.06); }
+body.light .comentario-item:hover { background: rgba(0,0,0,0.035); border-color: rgba(0,0,0,0.06); }
 body.light .comentario-item.selected {
-  background: rgba(250,185,0,0.10);
-  box-shadow: inset 3px 0 0 var(--yellow);
+  background: rgba(250,185,0,0.12);
+  border-color: rgba(250,185,0,0.35);
+  box-shadow: inset 3px 0 0 var(--yellow), 0 4px 16px rgba(0,0,0,0.06);
 }
 
 .comentario-num {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: var(--muted);
-  min-width: 18px;
-  text-align: right;
-  margin-top: 3px;
+  min-width: 22px;
+  text-align: center;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+  transition: opacity 0.16s ease, color 0.16s ease;
 }
+.comentario-item:hover .comentario-num { opacity: 0.9; }
+.comentario-item.selected .comentario-num { opacity: 1; color: var(--yellow); }
 
 .comentario-item input[type="checkbox"] {
   appearance: none;
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
   border: 1.5px solid var(--border2);
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
-  margin-top: 2px;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.12s;
   position: relative;
   background: var(--bg);
   flex-shrink: 0;
 }
-
-.comentario-item input[type="checkbox"]:checked {
-  background: var(--yellow);
+.comentario-item:hover input[type="checkbox"]:not(:checked) {
   border-color: var(--yellow);
-  box-shadow: 0 0 12px rgba(245,168,0,0.25);
 }
+.comentario-item input[type="checkbox"]:checked {
+  background: linear-gradient(160deg, var(--yellow-br), var(--yellow));
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(250,185,0,0.16), 0 2px 8px rgba(250,185,0,0.35);
+}
+.comentario-item input[type="checkbox"]:active { transform: scale(0.9); }
 
 .comentario-item input[type="checkbox"]:checked::after {
   content: '';
   position: absolute;
-  left: 4px; top: 1px;
+  left: 5px; top: 1px;
   width: 5px; height: 9px;
   border: 2px solid #000;
   border-top: none; border-left: none;
@@ -1004,7 +1050,7 @@ body.light .comentario-item.selected {
 .comentario-texto {
   font-size: 0.92rem;
   color: #f0f0f0;
-  line-height: 1.7;
+  line-height: 1.55;
   cursor: pointer;
   flex: 1;
   /* Sin min-width:0 el texto no encoge por debajo de su contenido y empuja los
@@ -1049,37 +1095,38 @@ body.light .comentario-item.selected {
 .genero-switch {
   position: relative;
   flex-shrink: 0;
-  width: 48px;
-  height: 24px;
-  border-radius: 12px;
+  width: 50px;
+  height: 25px;
+  border-radius: 13px;
   border: none;
   padding: 0;
   cursor: pointer;
-  margin-top: 1px;
-  transition: background 0.22s ease;
+  transition: background 0.28s cubic-bezier(.4,.2,.2,1), box-shadow 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.28);
 }
-.genero-switch--hombres { background: #3b82f6; }
-.genero-switch--mujeres { background: #ec4899; }
-.genero-switch:hover { filter: brightness(1.12); }
+.genero-switch--hombres { background: linear-gradient(180deg, #4f92ff, #3b82f6); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25), 0 0 0 1px rgba(59,130,246,0.35), 0 2px 8px rgba(59,130,246,0.30); }
+.genero-switch--mujeres { background: linear-gradient(180deg, #f45cae, #ec4899); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25), 0 0 0 1px rgba(236,72,153,0.35), 0 2px 8px rgba(236,72,153,0.30); }
+.genero-switch:hover { filter: brightness(1.08); }
+.genero-switch:active { transform: scale(0.95); }
 
 .gs-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 2.5px;
+  left: 2.5px;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #fff;
+  background: linear-gradient(180deg, #ffffff, #eef1f5);
   font-size: 0.6rem;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-  transition: transform 0.22s ease, color 0.22s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(0,0,0,0.06);
+  transition: transform 0.28s cubic-bezier(.4,.2,.2,1), color 0.28s ease;
 }
-.genero-switch--hombres .gs-knob { transform: translateX(0); color: #3b82f6; }
-.genero-switch--mujeres .gs-knob { transform: translateX(24px); color: #ec4899; }
+.genero-switch--hombres .gs-knob { transform: translateX(0); color: #2f6fd6; }
+.genero-switch--mujeres .gs-knob { transform: translateX(25px); color: #d63088; }
 
 /* Botón editar (✎) */
 .comentario-edit {
@@ -1101,37 +1148,38 @@ body.light .comentario-item.selected {
 .tipo-switch {
   position: relative;
   flex-shrink: 0;
-  width: 48px;
-  height: 24px;
-  border-radius: 12px;
+  width: 50px;
+  height: 25px;
+  border-radius: 13px;
   border: none;
   padding: 0;
   cursor: pointer;
-  margin-top: 1px;
-  transition: background 0.22s ease;
+  transition: background 0.28s cubic-bezier(.4,.2,.2,1), box-shadow 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.28);
 }
-.tipo-switch--verificado { background: #34c759; }
-.tipo-switch--noverif    { background: #6b7280; }
-.tipo-switch:hover { filter: brightness(1.12); }
+.tipo-switch--verificado { background: linear-gradient(180deg, #40d868, #34c759); box-shadow: inset 0 1px 2px rgba(0,0,0,0.22), 0 0 0 1px rgba(52,199,89,0.35), 0 2px 8px rgba(52,199,89,0.30); }
+.tipo-switch--noverif    { background: linear-gradient(180deg, #7a828e, #6b7280); box-shadow: inset 0 1px 2px rgba(0,0,0,0.28); }
+.tipo-switch:hover { filter: brightness(1.08); }
+.tipo-switch:active { transform: scale(0.95); }
 
 .ts-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 2.5px;
+  left: 2.5px;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #fff;
-  font-size: 0.52rem;
+  background: linear-gradient(180deg, #ffffff, #eef1f5);
+  font-size: 0.55rem;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-  transition: transform 0.22s ease, color 0.22s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(0,0,0,0.06);
+  transition: transform 0.28s cubic-bezier(.4,.2,.2,1), color 0.28s ease;
 }
-.tipo-switch--verificado .ts-knob { transform: translateX(0); color: #34c759; }
-.tipo-switch--noverif    .ts-knob { transform: translateX(24px); color: #6b7280; }
+.tipo-switch--verificado .ts-knob { transform: translateX(0); color: #24a145; }
+.tipo-switch--noverif    .ts-knob { transform: translateX(25px); color: #565c66; }
 
 body.light .comentario-texto { color: #222; }
 body.light .comentario-num   { color: #888; }
@@ -1163,16 +1211,17 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 /* ── Actions bar ── */
 .comments-actions-bar {
   padding: 16px 24px 22px;
-  border-top: 1px solid rgba(255,255,255,0.22);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 12px;
   /* se pega abajo del viewport mientras la lista está a la vista */
   position: sticky;
   bottom: 0;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 -10px 26px -12px rgba(0,0,0,0.5);
   z-index: 5;
 }
 
@@ -1202,11 +1251,12 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   background: var(--yellow);
   color: #000;
   border-color: var(--yellow);
+  box-shadow: 0 2px 14px rgba(250,185,0,0.35);
 }
 
 .btn-publish {
   width: 100%;
-  background: var(--yellow);
+  background: linear-gradient(180deg, var(--yellow-br), var(--yellow));
   color: #000;
   font-family: var(--font);
   font-size: 1rem;
@@ -1216,12 +1266,14 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   padding: 17px 22px;
   cursor: pointer;
   letter-spacing: -0.02em;
-  transition: background 0.15s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px rgba(250,185,0,0.22);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.2s, filter 0.15s;
 }
 
 .btn-publish:hover {
-  background: var(--yellow-br);
-  box-shadow: 0 6px 30px rgba(245,168,0,0.35), 0 0 0 1px rgba(245,168,0,0.15);
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgba(245,168,0,0.4), 0 0 0 1px rgba(245,168,0,0.15);
 }
 
 .btn-publish:active { transform: scale(0.98); }
@@ -2850,20 +2902,40 @@ input:focus-visible {
 .genero-seccion-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 10px 9px;
-  margin-top: 10px;
+  gap: 10px;
+  padding: 13px 14px 13px 16px;
+  margin: 12px 0 8px;
+  position: relative;
+  overflow: hidden;
   /* Sin position:sticky a propósito: el zoom de .app lo rompe en Chrome
      (mismo motivo por el que el header de la app usa fixed). */
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
+}
+/* Barra de acento a la izquierda, teñida por género */
+.genero-seccion-header::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--yellow);
 }
 
-.gs-sec-icon { font-size: 0.95rem; line-height: 1; color: var(--yellow); }
+.gs-sec-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--yellow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 8px;
+  background: rgba(250,185,0,0.14);
+}
 
 .gs-sec-label {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2872,21 +2944,30 @@ input:focus-visible {
 
 .gs-sec-count {
   margin-left: auto;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 800;
-  color: var(--muted);
-  background: var(--surface2);
+  color: var(--muted2);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 2px 10px;
+  padding: 3px 11px;
+  min-width: 30px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
-.genero-seccion[data-genero="hombres"] .gs-sec-icon { color: #3b82f6; }
-.genero-seccion[data-genero="mujeres"] .gs-sec-icon { color: #ec4899; }
+/* Tinte por género: icono, acento y contador */
+.genero-seccion[data-genero="hombres"] .gs-sec-icon { color: #5b96ff; background: rgba(59,130,246,0.16); }
+.genero-seccion[data-genero="mujeres"] .gs-sec-icon { color: #f472b6; background: rgba(236,72,153,0.16); }
+.genero-seccion[data-genero="hombres"] .genero-seccion-header::before { background: #3b82f6; }
+.genero-seccion[data-genero="mujeres"] .genero-seccion-header::before { background: #ec4899; }
+.genero-seccion[data-genero="hombres"] .genero-seccion-header { background: linear-gradient(90deg, rgba(59,130,246,0.10), var(--surface2) 55%); border-color: rgba(59,130,246,0.28); }
+.genero-seccion[data-genero="mujeres"] .genero-seccion-header { background: linear-gradient(90deg, rgba(236,72,153,0.10), var(--surface2) 55%); border-color: rgba(236,72,153,0.28); }
+.genero-seccion[data-genero="hombres"] .gs-sec-count { color: #7db0ff; border-color: rgba(59,130,246,0.35); }
+.genero-seccion[data-genero="mujeres"] .gs-sec-count { color: #f588c2; border-color: rgba(236,72,153,0.35); }
 
 @media (max-width: 768px) {
-  .genero-seccion-header { padding: 13px 8px 8px; }
+  .genero-seccion-header { padding: 11px 10px 11px 14px; }
 }
 
 /* Mixto: Hombres y Mujeres lado a lado en 2 columnas (no apilados). Con un solo
@@ -2941,17 +3022,10 @@ input:focus-visible {
   padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface2);
-  cursor: pointer;
+  background: var(--yellow-lo);
+  border-color: var(--yellow);
   font-size: 0.82rem;
   color: var(--muted2);
   user-select: none;
-  transition: border-color 0.15s, background 0.15s;
 }
-.turnos-toggle:hover { border-color: var(--border2); }
-.turnos-toggle input { width: 16px; height: 16px; accent-color: var(--yellow); cursor: pointer; flex-shrink: 0; }
 .turnos-toggle b { color: var(--text); font-weight: 700; }
-.turnos-toggle:has(input:checked) {
-  border-color: var(--yellow);
-  background: var(--yellow-lo);
-}
