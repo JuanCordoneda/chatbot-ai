@@ -2908,10 +2908,12 @@ input:focus-visible {
     margin-right: calc((100% - (100vw / 1.2 - 3rem)) / 2);
   }
 }
-/* En pantallas anchas el panel de seleccionados es fijo a la derecha (260px):
-   achicamos la tarjeta y la pegamos a la izquierda para no quedar debajo. */
+/* El panel de seleccionados es fijo a la derecha (260px) y aparece SOLO cuando
+   hay comentarios seleccionados (>1500px). En ese caso achicamos la tarjeta y la
+   pegamos a la izquierda para no quedar debajo del panel. Sin selección, la
+   tarjeta queda centrada a todo el ancho (regla de arriba). */
 @media (min-width: 1501px) {
-  .comments-card--wide {
+  body:has(#panel-seleccionados:not(.hidden)) .comments-card--wide {
     width: calc(100vw / 1.2 - 1.5rem - 20rem);
     margin-left: calc((100% - 100vw / 1.2) / 2 + 1.5rem);
     margin-right: 0;
