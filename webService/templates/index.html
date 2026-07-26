@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785000700" />
+  <link rel="stylesheet" href="/static/style.css?v=1785200100" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -134,7 +134,7 @@
               <p id="scrape-caption-text"></p>
             </details>
             <details id="photo-description-block" class="hidden scrape-details" open>
-              <summary>Descripción de imagen</summary>
+              <summary id="photo-description-summary">Descripción de imagen</summary>
               <p id="photo-description-text"></p>
             </details>
             <details id="transcription-block" class="hidden scrape-details" open>
@@ -180,10 +180,9 @@
               </span>
               <span class="count-label" id="count-label">0 seleccionados</span>
             </div>
-            <label class="turnos-toggle" id="turnos-toggle" title="Reparte los comentarios NO verificados 50/50: una tanda ahora y la otra programada para el próximo turno (mañana 10:00 / tarde 19:00). Máximo 80 no verificados.">
-              <input type="checkbox" id="chk-turnos" />
-              <span>⏰ Repartir <b>no verificados</b> en turnos (50/50, tope 80)</span>
-            </label>
+            <div class="turnos-toggle" id="turnos-toggle" title="Los comentarios NO verificados se reparten 50/50: una tanda ahora y la otra programada para el próximo turno (mañana 10:00 / tarde 19:00). Máximo 80 no verificados.">
+              <span>⏰ Los <b>no verificados</b> se reparten solos en turnos (50/50, mañana/tarde · tope 80)</span>
+            </div>
             <div id="turnos-msg" class="error hidden"></div>
             <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
               Publicar seleccionados
@@ -415,6 +414,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785000700"></script>
+  <script src="/static/app.js?v=1785200100"></script>
 </body>
 </html>

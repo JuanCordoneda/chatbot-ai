@@ -350,6 +350,8 @@ function mostrarScrape(data) {
     document.getElementById("scrape-caption-block").classList.remove("hidden");
   }
   if (data.photo_description) {
+    const sum = document.getElementById("photo-description-summary");
+    if (sum) sum.textContent = data.is_video ? "Vista previa del video" : "Descripción de imagen";
     document.getElementById("photo-description-text").textContent = data.photo_description;
     document.getElementById("photo-description-block").classList.remove("hidden");
   }
@@ -935,15 +937,13 @@ async function irAOrdenes() {
   const idxVerif   = idxSeleccionados.filter(i => tiposGenerados[i] !== "noverif");
   const idxNoVerif = idxSeleccionados.filter(i => tiposGenerados[i] === "noverif");
 
-  // ¿Repartir los no-verificados en turnos? (toggle de la barra de acciones)
-  const turnos = !!document.getElementById("chk-turnos")?.checked && idxNoVerif.length > 0;
-
-  // Tope de no-verif por día cuando se reparte en turnos (40 mañana + 40 tarde).
+  // Los no-verificados SIEMPRE se reparten en turnos (mañana/tarde), sin toggle.
+  // Tope de no-verif por día (40 mañana + 40 tarde).
   const turnosMsg = document.getElementById("turnos-msg");
   if (turnosMsg) turnosMsg.classList.add("hidden");
-  if (turnos && idxNoVerif.length > TURNOS_MAX) {
+  if (idxNoVerif.length > TURNOS_MAX) {
     if (turnosMsg) {
-      turnosMsg.textContent = `Con turnos podés mandar hasta ${TURNOS_MAX} no verificados por día (40 + 40). Tenés ${idxNoVerif.length} seleccionados — sacá ${idxNoVerif.length - TURNOS_MAX}.`;
+      turnosMsg.textContent = `Podés mandar hasta ${TURNOS_MAX} no verificados por día (40 + 40). Tenés ${idxNoVerif.length} seleccionados — sacá ${idxNoVerif.length - TURNOS_MAX}.`;
       turnosMsg.classList.remove("hidden");
     }
     return;   // no armamos órdenes hasta que baje del tope
@@ -983,17 +983,15 @@ async function irAOrdenes() {
     pushOrdenComentarios(idxVerif, 94, "Comentarios Reales Verificados", AHORA, null);
   }
 
-  // No verificados: una orden "ahora", o dos repartidas 50/50 en turnos.
+  // No verificados: SIEMPRE repartidos 50/50 en turnos (mañana/tarde). Con un
+  // solo comentario va una única tanda (no se puede partir en dos).
   if (idxNoVerif.length) {
-    if (turnos) {
-      const [spec1, spec2] = _turnosPlan();
-      const mitad = Math.ceil(idxNoVerif.length / 2);   // impar → la de más va en la 1ra tanda
-      pushOrdenComentarios(idxNoVerif.slice(0, mitad), 95, "Comentarios Reales", spec1, "1/2");
-      if (idxNoVerif.length > mitad) {
-        pushOrdenComentarios(idxNoVerif.slice(mitad), 95, "Comentarios Reales", spec2, "2/2");
-      }
-    } else {
-      pushOrdenComentarios(idxNoVerif, 95, "Comentarios Reales", AHORA, null);
+    const [spec1, spec2] = _turnosPlan();
+    const mitad = Math.ceil(idxNoVerif.length / 2);   // impar → la de más va en la 1ra tanda
+    const hayDos = idxNoVerif.length > mitad;
+    pushOrdenComentarios(idxNoVerif.slice(0, mitad), 95, "Comentarios Reales", spec1, hayDos ? "1/2" : null);
+    if (hayDos) {
+      pushOrdenComentarios(idxNoVerif.slice(mitad), 95, "Comentarios Reales", spec2, "2/2");
     }
   }
 

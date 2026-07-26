@@ -247,10 +247,11 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
                                       "data": image_b64}},
         {"type": "text", "text": (
             "Describí en español, en 2 a 5 oraciones, qué se ve en esta imagen de "
-            "un post de Instagram: personas y gestos, ropa y accesorios, lugar, "
-            "objetos, comida, cualquier texto que aparezca en la imagen, y el "
-            "ambiente general. Concreto y fiel a lo que se ve. Devolvé SOLO la "
-            "descripción, sin preámbulos ni comillas."
+            "Instagram (puede ser una foto, o la portada/preview de un video): "
+            "personas y gestos, ropa y accesorios, lugar, objetos, comida, "
+            "cualquier texto que aparezca en la imagen, y el ambiente general. "
+            "Concreto y fiel a lo que se ve. Devolvé SOLO la descripción, sin "
+            "preámbulos ni comillas."
         )},
     ]
     try:
