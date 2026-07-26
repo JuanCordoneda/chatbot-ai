@@ -322,6 +322,7 @@ def login():
     if session.get("logged_in"):
         return redirect(url_for("index"))
     error = None
+    username = ""
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -334,7 +335,7 @@ def login():
             session["is_admin"] = user["is_admin"]
             return redirect(url_for("index"))
         error = "Usuario o contraseña incorrectos"
-    resp = make_response(render_template("login.html", error=error))
+    resp = make_response(render_template("login.html", error=error, username=username))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
