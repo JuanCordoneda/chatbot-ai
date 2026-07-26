@@ -409,6 +409,11 @@ function _refrescarSecciones() {
       if (e) e.textContent = n;
     });
   });
+  // Mixto = hay comentarios de hombres Y de mujeres → 2 columnas (lado a lado,
+  // no apilados). Con un solo género queda en una columna a todo el ancho.
+  const hayH = lista.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
+  const hayM = lista.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
+  lista.classList.toggle("lista-2col", !!(hayH && hayM));
   return n;
 }
 

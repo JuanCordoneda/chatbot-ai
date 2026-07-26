@@ -2882,6 +2882,21 @@ input:focus-visible {
   .genero-seccion-header { padding: 13px 8px 8px; }
 }
 
+/* Mixto: Hombres y Mujeres lado a lado en 2 columnas (no apilados). Con un solo
+   género la lista queda en una columna a todo el ancho (sin .lista-2col). */
+#lista-comentarios.lista-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+  align-items: start;
+}
+#lista-comentarios.lista-2col .genero-seccion[data-genero="otros"] {
+  grid-column: 1 / -1;   /* "Sin especificar" ocupa el ancho completo */
+}
+@media (max-width: 720px) {
+  #lista-comentarios.lista-2col { grid-template-columns: 1fr; }  /* apilado en pantallas angostas */
+}
+
 /* ── Toggle "Repartir en turnos" (no verificados) ─────────────────────────── */
 .turnos-toggle {
   display: flex;
