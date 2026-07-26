@@ -287,7 +287,7 @@ def procesar_post_web():
     def run():
         from modules.post_processor import scrape_post
         from modules.ai_generator import generar_comentarios_stream
-        from modules.engagement_flow import detectar_cliente
+        from modules.engagement_flow import detectar_cliente, alias_owner
 
         job = _jobs[job_id]
         try:
@@ -344,9 +344,9 @@ def procesar_post_web():
             if client_id:
                 job["progreso"].append(f"Cliente detectado: {client_id}")
 
-            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_username);
-            # si no hay cliente asignado, usamos igual el prompt de Peter Fournier.
-            prompt_client_id = post_data.owner_username.lower() if client_id else "peterjfournier"
+            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_username,
+            # ya normalizado por alias de collab); si no, el de Peter Fournier.
+            prompt_client_id = alias_owner(post_data.owner_username).lower() if client_id else "peterjfournier"
 
             # Rangos de cantidades del cliente (TAREA 6): el front los usa para
             # autocompletar likes/views/shares con un valor random dentro del rango.
@@ -354,7 +354,7 @@ def procesar_post_web():
             client_gender = None
             try:
                 from common import repository as _repo
-                row = _repo.get_client_by_ig_username(post_data.owner_username) if post_data.owner_username else None
+                row = _repo.get_client_by_ig_username(alias_owner(post_data.owner_username)) if post_data.owner_username else None
                 if row:
                     ranges = row.get("ranges") or {}
                     client_gender = row.get("gender")  # male/female/None -> formato de salida

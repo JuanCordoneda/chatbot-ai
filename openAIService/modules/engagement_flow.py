@@ -36,10 +36,28 @@ def _load_clients_map() -> dict:
         print(f"[client] no pude leer {_CLIENTS_MAP_PATH}: {e}", flush=True)
         return {}
 
+# Collabs: hay posts que un cliente publica desde una cuenta partner y que deben
+# usar el prompt/género del cliente principal. Ej: muchos reels de Peter Fournier
+# se postean desde @itshollyperez (su collab). Mapeamos el owner de la collab al
+# ig_username del cliente principal ANTES de resolver prompt/género/nombre.
+_CLIENT_ALIASES = {
+    "itshollyperez": "peterjfournier",
+}
+
+
+def alias_owner(owner_username: str | None) -> str | None:
+    """Si el owner es una cuenta de collab conocida, devuelve el ig_username del
+    cliente principal; si no, lo devuelve tal cual. Idempotente."""
+    if not owner_username:
+        return owner_username
+    return _CLIENT_ALIASES.get(owner_username.strip().lower(), owner_username)
+
+
 def detectar_cliente(owner_username: str, account_id: int | None = None) -> str | None:
     """Devuelve el nombre para mostrar del cliente dueño del post.
     DB primero (multi-tenant); si no hay DB o no está el cliente, cae al
     clients_map.json. account_id acota la búsqueda a una cuenta cuando se conoce."""
+    owner_username = alias_owner(owner_username)  # collab -> cliente principal
     if not owner_username:
         return None
     if _repo is not None:
