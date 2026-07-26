@@ -2,6 +2,7 @@ let currentUrl = "";
 let comentariosGenerados = [];
 let generosGenerados = [];        // género por índice: "hombres" | "mujeres" | null | "__header__"
 let generoActual = null;          // género de la sección que se está streameando
+let esMixto = false;              // cliente mixto → 2 columnas desde el arranque
 let tiposGenerados = [];          // "verificado" (default) | "noverif" por índice
 let currentJobId = null;
 let streamOffset = 0;
@@ -129,6 +130,7 @@ async function generarComentarios() {
   streamResets = 0;
   vistosStream = new Set();
   streamMeta = {};
+  esMixto = false;
   comentariosGenerados = [];
   generosGenerados = [];
   generoActual = null;
@@ -275,6 +277,8 @@ function manejarEvento(evento) {
     tiposGenerados = [];
     pendingComentarios = [];
     streamOffset = 0;
+    // El reset borró el DOM: si es mixto, re-armamos las 2 columnas vacías.
+    if (esMixto) { _seccionItems("hombres"); _seccionItems("mujeres"); _refrescarSecciones(); }
     actualizarConteo();
   } else if (evento.tipo === "listo") {
     streamMeta = evento;
@@ -346,6 +350,17 @@ function mostrarScrape(data) {
     document.getElementById("photo-description-text").textContent = data.photo_description;
     document.getElementById("photo-description-block").classList.remove("hidden");
   }
+
+  // Cliente mixto (sin género fijo): armamos las 2 columnas (Hombres | Mujeres)
+  // vacías desde el arranque, para que la de Hombres no aparezca recién al final
+  // cuando termina la de Mujeres. Los comentarios luego llenan cada columna.
+  const g = (data.gender || "").toString().toLowerCase();
+  esMixto = !(g === "male" || g === "female");
+  if (esMixto) {
+    _seccionItems("hombres");   // sección vacía a la izquierda
+    _seccionItems("mujeres");   // sección vacía a la derecha
+    _refrescarSecciones();      // aplica lista-2col + wide y mantiene ambas visibles
+  }
 }
 
 function mostrarEstadoTranscripcion(texto) {
@@ -402,18 +417,21 @@ function _refrescarSecciones() {
     const items = sec.querySelectorAll(".comentario-item");
     const cnt = sec.querySelector(".gs-sec-count");
     if (cnt) cnt.textContent = items.length;
-    sec.classList.toggle("hidden", items.length === 0);
+    // En mixto mantenemos Hombres y Mujeres visibles aunque estén vacías (para que
+    // las 2 columnas estén desde el arranque). "otros" se oculta si queda vacía.
+    const g = sec.dataset.genero;
+    const mantener = esMixto && (g === "hombres" || g === "mujeres");
+    sec.classList.toggle("hidden", items.length === 0 && !mantener);
     items.forEach((it) => {
       n++;
       const e = it.querySelector(".comentario-num");
       if (e) e.textContent = n;
     });
   });
-  // Mixto = hay comentarios de hombres Y de mujeres → 2 columnas (lado a lado,
-  // no apilados). Con un solo género queda en una columna a todo el ancho.
+  // 2 columnas si el cliente es mixto (desde el arranque) o si ya hay ambos géneros.
   const hayH = lista.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
   const hayM = lista.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
-  const mixto = !!(hayH && hayM);
+  const mixto = esMixto || !!(hayH && hayM);
   lista.classList.toggle("lista-2col", mixto);
   // En mixto la tarjeta rompe el ancho de .main y usa todo el ancho visible.
   const card = lista.closest(".comments-card");

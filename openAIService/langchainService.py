@@ -370,6 +370,9 @@ def procesar_post_web():
                 "caption": post_data.caption,
                 "is_video": post_data.is_video,
                 "ranges": ranges,
+                # Género del cliente (male/female/None). El front lo usa para, si es
+                # mixto (None), armar las 2 columnas desde el arranque.
+                "gender": client_gender,
             }
             job["scrape_ready"] = True
             job["transcription_ready"] = True

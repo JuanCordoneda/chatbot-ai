@@ -2887,8 +2887,14 @@ input:focus-visible {
 #lista-comentarios.lista-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0 20px;
+  column-gap: 44px;
   align-items: start;
+}
+/* Divisor sutil entre las 2 columnas (queda centrado en el gap). */
+#lista-comentarios.lista-2col .genero-seccion[data-genero="mujeres"] {
+  border-left: 1px solid var(--border);
+  padding-left: 44px;
+  margin-left: -44px;
 }
 #lista-comentarios.lista-2col .genero-seccion[data-genero="otros"] {
   grid-column: 1 / -1;   /* "Sin especificar" ocupa el ancho completo */
