@@ -296,6 +296,7 @@ function manejarEvento(evento) {
 
 const STEP_LABELS = {
   transcription: { icon: "🎙️", texto: "Generando la transcripción del video...", sub: "menos de 60 segundos" },
+  procesando: { icon: "⏳", texto: "Analizando el post...", sub: "un momento" },
 };
 
 function mostrarStep(nombre) {

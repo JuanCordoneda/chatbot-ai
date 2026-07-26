@@ -314,7 +314,7 @@ def procesar_post_web():
                         }
                         job["meta"] = preview_meta
                         job["scrape_ready"] = True
-                        job["step"] = "transcription"
+                        job["step"] = "transcription" if preview_meta["is_video"] else "procesando"
                         if preview_meta["is_video"]:
                             job["progreso"].append("Video detectado. Generando transcripción (Menos de 60 segundos)...")
                         else:
@@ -323,10 +323,9 @@ def procesar_post_web():
                 except Exception:
                     pass
 
-            # Garantizar que el step esté seteado antes del scrape lento
-            # (puede ser video aunque el fast preview no lo haya detectado)
-            if job["step"] != "transcription":
-                job["step"] = "transcription"
+            # Garantizar que se muestre un step de "cargando" antes del scrape lento.
+            if not job.get("step"):
+                job["step"] = "procesando"
 
             post_data = scrape_post(post_url)
             t_scrape = time.time() - t0
