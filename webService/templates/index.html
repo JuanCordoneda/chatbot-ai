@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785000500" />
+  <link rel="stylesheet" href="/static/style.css?v=1785000600" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -34,7 +34,7 @@
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <img src="/static/growi.png" alt="GROWI" class="logo" />
+        <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
         <span class="header-sep"></span>
         <span class="header-tag">Engagement Tool</span>
       </div>
@@ -51,8 +51,9 @@
             Sim. Órdenes
           </button>
           {% endif %}
-          <button class="header-action-btn header-action-btn--icon" onclick="location.reload()" title="Reiniciar">
+          <button class="header-action-btn" onclick="location.reload()" title="Refrescar / empezar de nuevo">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Refrescar
           </button>
           <a class="header-action-btn" href="/logout" title="Cerrar sesión">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -414,6 +415,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785000500"></script>
+  <script src="/static/app.js?v=1785000600"></script>
 </body>
 </html>

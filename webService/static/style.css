@@ -190,6 +190,8 @@ body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
 .header-left { display: flex; align-items: center; gap: 14px; }
 
 .logo { height: 42px; width: auto; border-radius: 10px; }
+.logo-link { display: inline-flex; align-items: center; text-decoration: none; cursor: pointer; }
+.logo-link:hover { opacity: 0.85; }
 
 .header-sep {
   width: 1px;
