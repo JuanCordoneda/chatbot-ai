@@ -95,6 +95,11 @@ def _account_crm_cfg(account_id):
             cfg = _repo.get_account_crm_config(account_id)
             if cfg and cfg.get("crm_email"):
                 cfg["crm_url"] = cfg.get("crm_url") or GROWI_CRM_URL
+                # El proxy es infra COMPARTIDA (la IP que el CRM tiene en whitelist).
+                # Si la cuenta del vendedor no lo tiene cargado, usamos el del .env;
+                # sin esto sus pedidos salen directos y el CRM los bloquea (por eso
+                # solo andaba el admin, que usa la config del .env).
+                cfg["crm_proxy"] = cfg.get("crm_proxy") or _GROWI_PROXY_URL
                 return cfg
         except Exception as e:
             print(f"[growi-web] no pude leer config de cuenta {account_id} ({e})", flush=True)
