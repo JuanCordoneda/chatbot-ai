@@ -332,11 +332,25 @@ def procesar_post_web():
             t_scrape = time.time() - t0
             print(f"[TIMING] scrape: {t_scrape:.2f}s", flush=True)
 
+            # Foto (no video): generamos una descripción textual de la imagen para
+            # mostrarla al usuario (el alt-text de IG suele venir vacío/pobre).
+            if not post_data.is_video and post_data.image_b64:
+                job["progreso"].append("Analizando la imagen...")
+                try:
+                    from modules.ai_generator import describir_imagen
+                    desc = describir_imagen(post_data.image_b64, post_data.image_media_type, post_data.caption)
+                    if desc:
+                        post_data.photo_description = desc
+                except Exception as e:
+                    print(f"[describe] no pude describir la imagen ({e})", flush=True)
+
             job["step"] = ""
             if post_data.transcription and not post_data.transcription.startswith("("):
                 job["progreso"].append("Transcripción lista.")
             elif post_data.is_video:
                 job["progreso"].append("No pude transcribir el audio del video; genero desde el texto y la imagen.")
+            elif post_data.photo_description:
+                job["progreso"].append("Imagen analizada: genero desde el texto y la descripción.")
             else:
                 job["progreso"].append("Es una foto (sin audio para transcribir): genero desde el texto y la imagen.")
 

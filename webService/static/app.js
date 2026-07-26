@@ -3,6 +3,7 @@ let comentariosGenerados = [];
 let generosGenerados = [];        // género por índice: "hombres" | "mujeres" | null | "__header__"
 let generoActual = null;          // género de la sección que se está streameando
 let esMixto = false;              // cliente mixto → 2 columnas desde el arranque
+let ultimoEsVideo = false;        // último post: ¿es video? (para el bloque de transcripción)
 let tiposGenerados = [];          // "verificado" (default) | "noverif" por índice
 let currentJobId = null;
 let streamOffset = 0;
@@ -131,6 +132,7 @@ async function generarComentarios() {
   vistosStream = new Set();
   streamMeta = {};
   esMixto = false;
+  ultimoEsVideo = false;
   comentariosGenerados = [];
   generosGenerados = [];
   generoActual = null;
@@ -332,6 +334,7 @@ function ocultarChunk() {
 function mostrarScrape(data) {
   document.getElementById("scrape-owner").textContent = data.owner_username || "—";
   document.getElementById("client-badge").textContent = data.client_id || data.owner_username || "Sin cliente asignado";
+  ultimoEsVideo = !!data.is_video;
 
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
   // likes/views/shares con un valor random dentro del rango configurado.
@@ -365,6 +368,12 @@ function mostrarScrape(data) {
 
 function mostrarEstadoTranscripcion(texto) {
   const tieneTranscripcion = texto && !texto.startsWith("(");
+  // Foto: no mostramos el bloque de "Transcripción del video" (ya se muestra la
+  // descripción de imagen en su propio bloque).
+  if (!tieneTranscripcion && !ultimoEsVideo) {
+    document.getElementById("transcription-block").classList.add("hidden");
+    return;
+  }
   document.getElementById("transcription-text").textContent = tieneTranscripcion
     ? texto
     : "Sin transcripción disponible para este post.";

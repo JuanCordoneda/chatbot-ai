@@ -233,3 +233,33 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         if count >= _MIN_COMENTARIOS or intento == _MAX_INTENTOS:
             return
         prev_motivo = f"generación cortada ({count} líneas)"
+
+
+def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "") -> str:
+    """Describe textualmente la imagen de un post (para mostrarla al usuario como
+    si fuera el pie de página). Llamada de visión corta, en español. Devuelve ""
+    ante cualquier problema (el llamador simplemente no muestra descripción)."""
+    if not image_b64:
+        return ""
+    content = [
+        {"type": "image", "source": {"type": "base64",
+                                      "media_type": image_media_type or "image/jpeg",
+                                      "data": image_b64}},
+        {"type": "text", "text": (
+            "Describí en español, en 2 a 5 oraciones, qué se ve en esta imagen de "
+            "un post de Instagram: personas y gestos, ropa y accesorios, lugar, "
+            "objetos, comida, cualquier texto que aparezca en la imagen, y el "
+            "ambiente general. Concreto y fiel a lo que se ve. Devolvé SOLO la "
+            "descripción, sin preámbulos ni comillas."
+        )},
+    ]
+    try:
+        resp = _client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=500,
+            messages=[{"role": "user", "content": content}],
+        )
+        return "".join(b.text for b in resp.content if b.type == "text").strip()
+    except Exception as e:
+        print(f"[describe] error describiendo imagen: {e}", flush=True)
+        return ""
