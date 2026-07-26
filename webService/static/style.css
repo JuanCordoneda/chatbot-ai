@@ -2893,8 +2893,29 @@ input:focus-visible {
 #lista-comentarios.lista-2col .genero-seccion[data-genero="otros"] {
   grid-column: 1 / -1;   /* "Sin especificar" ocupa el ancho completo */
 }
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   #lista-comentarios.lista-2col { grid-template-columns: 1fr; }  /* apilado en pantallas angostas */
+}
+
+/* Mixto: la tarjeta de comentarios rompe el max-width de .main (780px) y usa TODO
+   el ancho visible. El zoom 1.2 de .app obliga a compensar los vw dividiéndolos
+   por 1.2 para no desbordar. Solo desktop; en mobile el zoom se resetea a 1. */
+@media (min-width: 769px) {
+  .comments-card--wide {
+    width: calc(100vw / 1.2 - 3rem);
+    max-width: none;
+    margin-left: calc((100% - (100vw / 1.2 - 3rem)) / 2);
+    margin-right: calc((100% - (100vw / 1.2 - 3rem)) / 2);
+  }
+}
+/* En pantallas anchas el panel de seleccionados es fijo a la derecha (260px):
+   achicamos la tarjeta y la pegamos a la izquierda para no quedar debajo. */
+@media (min-width: 1501px) {
+  .comments-card--wide {
+    width: calc(100vw / 1.2 - 1.5rem - 20rem);
+    margin-left: calc((100% - 100vw / 1.2) / 2 + 1.5rem);
+    margin-right: 0;
+  }
 }
 
 /* ── Toggle "Repartir en turnos" (no verificados) ─────────────────────────── */

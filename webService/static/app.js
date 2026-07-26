@@ -413,7 +413,11 @@ function _refrescarSecciones() {
   // no apilados). Con un solo género queda en una columna a todo el ancho.
   const hayH = lista.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
   const hayM = lista.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
-  lista.classList.toggle("lista-2col", !!(hayH && hayM));
+  const mixto = !!(hayH && hayM);
+  lista.classList.toggle("lista-2col", mixto);
+  // En mixto la tarjeta rompe el ancho de .main y usa todo el ancho visible.
+  const card = lista.closest(".comments-card");
+  if (card) card.classList.toggle("comments-card--wide", mixto);
   return n;
 }
 
