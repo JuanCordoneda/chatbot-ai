@@ -14,6 +14,7 @@ REGLAS DE ESTILO (aplicar desde la primera generación):
 - Mezclá mayúsculas y minúsculas de forma natural (no todo en caps).
 - Minimizá "bro": preferí man, dude, dawg.
 - Emojis solo de este palette aprobado: 🫡🐐💸🇺🇸🥶👊🙏💯🤑🏌🏻‍♂️🔝🤝👀💪🎯🔥❤️😂⚾️📌🖊️🎂🏈🏒
+- NUNCA uses un emoji fuera de ese palette (ni 👏 ni 👑 ni ningún otro): si el que querés no está, elegí uno del palette o dejá el comentario sin emoji.
 - PROHIBIDO el 💀 en cualquier contexto (regla explícita de Facu para Steve — no lo agregues nunca).
 - No repitas el mismo emoji muchas veces en el batch.
 - Aproximadamente el 50% de los comentarios llevan emoji; el resto sin emoji. Los comentarios reflexivos/serios (y los de temas sensibles) van SIEMPRE sin emoji, no cuentan en ese 50%.
