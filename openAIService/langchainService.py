@@ -29,6 +29,9 @@ _calendar_lock = threading.Lock()
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+# Cuánto vive un job en memoria después de creado (el front ya terminó de leerlo
+# mucho antes; esto es solo para no acumular basura).
+_JOB_TTL = int(os.environ.get("JOB_TTL", "1800"))    # 30 min
 
 
 def _gender_de(ig_username: str):
@@ -285,7 +288,17 @@ def procesar_post_web():
 
     job_id = str(uuid.uuid4())
     with _jobs_lock:
+        # Purga de jobs viejos: el dict crecía para siempre (cada job se queda con
+        # sus ~70 comentarios en memoria). Con muchas generaciones al día eso solo
+        # sube, y el proceso termina sin RAM — otra vía de "se satura el sistema".
+        limite = time.time() - _JOB_TTL
+        viejos = [k for k, v in _jobs.items() if v.get("_creado", 0) < limite]
+        for k in viejos:
+            _jobs.pop(k, None)
+        if viejos:
+            print(f"[jobs] purgados {len(viejos)} jobs viejos (quedan {len(_jobs)})", flush=True)
         _jobs[job_id] = {
+            "_creado": time.time(),
             "comentarios": [],
             "progreso": [],
             "meta": {},
@@ -351,6 +364,9 @@ def procesar_post_web():
             job["step"] = ""
             if post_data.transcription and not post_data.transcription.startswith("("):
                 job["progreso"].append("Transcripción lista.")
+            elif post_data.transcription.startswith("("):
+                # Falló: mostramos el motivo concreto, no un silencio.
+                job["progreso"].append("⚠️ " + post_data.transcription.strip("()"))
             elif post_data.photo_description:
                 job["progreso"].append("Imagen analizada.")
 

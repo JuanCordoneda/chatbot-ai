@@ -61,7 +61,13 @@ def _get_whisper_model():
 
 def _transcribe_video(video_path: str) -> str:
     try:
-        model = _get_whisper_model()
+        try:
+            model = _get_whisper_model()
+        except Exception as e:
+            # Si el modelo no carga (falta el binario, sin RAM, sin disco para
+            # bajarlo), TODOS los videos fallan: que el mensaje lo diga.
+            print(f"[whisper] no se pudo cargar el modelo: {e}", flush=True)
+            return f"(transcripción no disponible: no se pudo cargar el motor de transcripción — {e})"
         t0 = time.time()
         with _whisper_sem:
             espera = time.time() - t0
@@ -70,6 +76,10 @@ def _transcribe_video(video_path: str) -> str:
             segments, _ = model.transcribe(video_path)
             text = " ".join(s.text for s in segments).strip()
         print(f"[whisper] transcripción: {len(text)} chars en {time.time()-t0:.1f}s", flush=True)
+        if not text:
+            # Video sin voz (música, ambiente): no es un error, pero antes quedaba
+            # un bloque vacío y parecía que había fallado.
+            return "(sin transcripción: el video no tiene voz hablada — solo música o sonido ambiente)"
         return text
     except Exception as e:
         print(f"[whisper] error: {e}", flush=True)
@@ -198,7 +208,7 @@ def _fetch_instagram_api(shortcode: str) -> dict:
     cookies = _load_ig_cookies()
     if not cookies.get("sessionid"):
         print("[ig_api] sin sesión disponible", flush=True)
-        return {}
+        return {"_error": "no hay sesión de Instagram configurada en el server"}
 
     try:
         r = req.post(
@@ -224,12 +234,15 @@ def _fetch_instagram_api(shortcode: str) -> dict:
 
         if r.status_code != 200:
             print(f"[ig_api] status {r.status_code}", flush=True)
-            return {}
+            motivo = ("Instagram nos está limitando (rate limit)" if r.status_code == 429
+                      else "la sesión de Instagram venció o fue bloqueada" if r.status_code in (401, 403)
+                      else f"Instagram respondió {r.status_code}")
+            return {"_error": motivo}
 
         media = r.json().get("data", {}).get("xdt_shortcode_media")
         if not media:
             print(f"[ig_api] media null para {shortcode}", flush=True)
-            return {}
+            return {"_error": "Instagram no devolvió los datos del post (puede ser privado, borrado, o la sesión venció)"}
 
         # display_url = imagen del post (foto, o thumbnail del video). En carruseles
         # tomamos la del primer item.
@@ -253,13 +266,54 @@ def _fetch_instagram_api(shortcode: str) -> dict:
 
     except Exception as e:
         print(f"[ig_api] error: {e}", flush=True)
-        return {}
+        return {"_error": f"no se pudo contactar a Instagram ({type(e).__name__})"}
+
+
+# Caché de posts ya scrapeados. "Cargar más" (y volver a pegar el mismo link)
+# re-scrapeaba TODO de cero: bajaba el video otra vez, lo re-transcribía y volvía
+# a describir la imagen. Eso multiplicaba la carga y los pedidos a Instagram sin
+# aportar nada, porque el post es el mismo. Ahora se reusa por unos minutos.
+_scrape_cache = {}                     # shortcode -> (timestamp, PostData)
+_scrape_cache_lock = threading.Lock()
+_SCRAPE_TTL = int(os.environ.get("SCRAPE_CACHE_TTL", "600"))    # 10 min
+_SCRAPE_CACHE_MAX = 12                 # el image_b64 pesa: acotamos la memoria
+
+
+def _cache_get(shortcode: str):
+    with _scrape_cache_lock:
+        hit = _scrape_cache.get(shortcode)
+        if not hit:
+            return None
+        ts, data = hit
+        if time.time() - ts > _SCRAPE_TTL:
+            _scrape_cache.pop(shortcode, None)
+            return None
+        return data
+
+
+def _cache_put(shortcode: str, data: "PostData"):
+    with _scrape_cache_lock:
+        _scrape_cache[shortcode] = (time.time(), data)
+        # Purga: vencidos primero, y si igual sobra, el más viejo.
+        ahora = time.time()
+        for k in [k for k, (ts, _) in _scrape_cache.items() if ahora - ts > _SCRAPE_TTL]:
+            _scrape_cache.pop(k, None)
+        while len(_scrape_cache) > _SCRAPE_CACHE_MAX:
+            _scrape_cache.pop(min(_scrape_cache, key=lambda k: _scrape_cache[k][0]), None)
 
 
 def scrape_post(url: str, max_comments: int = 0) -> PostData:
     shortcode = extract_shortcode(url)
     if not shortcode:
         raise ValueError(f"No se pudo extraer el shortcode del link: {url}")
+
+    # Solo se cachea lo que salió BIEN: si la transcripción falló, el próximo
+    # intento tiene que volver a probar (si no, un rate limit puntual quedaba
+    # pegado 10 minutos).
+    cacheado = _cache_get(shortcode)
+    if cacheado is not None:
+        print(f"[cache] post {shortcode} reusado (sin re-scrapear ni re-transcribir)", flush=True)
+        return cacheado
 
     t0 = time.time()
 
@@ -295,6 +349,27 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     video_url = slow.get("video_url") or fast.get("video_url") or ""
     transcription = ""
 
+    # Es un reel pero no tenemos el link del video: casi siempre es Instagram
+    # fallando de forma transitoria (rate limit / sesión). Reintentamos la API un
+    # par de veces con backoff antes de rendirnos — antes esto se rendía en el
+    # primer intento y el usuario veía "sin transcripción" sin saber por qué.
+    if is_video and not video_url:
+        for intento in (1, 2):
+            print(f"[ig_api] reel sin video_url ({slow.get('_error') or 'sin motivo'}), "
+                  f"reintento {intento}/2...", flush=True)
+            time.sleep(1.5 * intento)
+            retry = _fetch_instagram_api(shortcode)
+            if retry.get("video_url"):
+                slow = {**slow, **{k: v for k, v in retry.items() if v}}
+                video_url = retry["video_url"]
+                caption = caption or retry.get("caption") or ""
+                owner_username = owner_username or retry.get("owner_username") or ""
+                display_url_retry = retry.get("display_url") or ""
+                if display_url_retry:
+                    slow["display_url"] = display_url_retry
+                print("[ig_api] reintento OK: video_url recuperado", flush=True)
+                break
+
     # Imagen del post para visión multimodal: foto (posts de imagen) o thumbnail
     # (reels/videos). La descargamos y la mandamos a Claude junto con el texto.
     display_url = slow.get("display_url") or ""
@@ -329,15 +404,33 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
 
     if is_video and video_url:
         print(f"[ig_api] descargando video para transcripción...", flush=True)
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                video_path = os.path.join(tmpdir, f"{shortcode}.mp4")
-                r_vid = req.get(video_url, timeout=60)
-                with open(video_path, "wb") as f:
-                    f.write(r_vid.content)
-                transcription = _transcribe_video(video_path)
-        except Exception as e:
-            print(f"[ig_api] error descargando video: {e}", flush=True)
+        # La descarga del video también se reintenta: un corte de red en el medio
+        # dejaba el archivo trunco y whisper devolvía basura o error.
+        ultimo_error = None
+        for intento in (1, 2):
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    video_path = os.path.join(tmpdir, f"{shortcode}.mp4")
+                    r_vid = req.get(video_url, timeout=60)
+                    if r_vid.status_code != 200 or not r_vid.content:
+                        raise IOError(f"descarga del video devolvió {r_vid.status_code}")
+                    with open(video_path, "wb") as f:
+                        f.write(r_vid.content)
+                    transcription = _transcribe_video(video_path)
+                ultimo_error = None
+                break
+            except Exception as e:
+                ultimo_error = e
+                print(f"[ig_api] error descargando video (intento {intento}/2): {e}", flush=True)
+                time.sleep(1.5 * intento)
+        if ultimo_error is not None:
+            transcription = f"(transcripción no disponible: no se pudo descargar el video — {ultimo_error})"
+    elif is_video:
+        # Reel sin video_url ni después de los reintentos: le decimos al usuario
+        # POR QUÉ, en vez del genérico "sin transcripción disponible".
+        motivo = slow.get("_error") or "Instagram no devolvió el link del video"
+        transcription = f"(transcripción no disponible: {motivo}. Probá de nuevo en un minuto.)"
+        print(f"[ig_api] sin transcripción — {motivo}", flush=True)
 
     if desc_future is not None:
         try:
@@ -351,9 +444,10 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
             desc_executor.shutdown(wait=False)
 
     if not caption and not transcription and not image_b64:
-        raise ValueError("No se pudo obtener el pie de página ni la transcripción del post. Verificá que el link sea público.")
+        motivo = slow.get("_error") or "el post puede ser privado o el link estar mal"
+        raise ValueError(f"No se pudo obtener el contenido del post: {motivo}.")
 
-    return PostData(
+    resultado = PostData(
         url=url,
         shortcode=shortcode,
         caption=caption,
@@ -366,3 +460,11 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         image_b64=image_b64,
         image_media_type=image_media_type,
     )
+
+    # Se cachea solo si el post salió completo: un video sin transcripción por un
+    # error transitorio NO se guarda, así el siguiente intento vuelve a probar.
+    transcripcion_fallada = transcription.startswith("(transcripción no disponible")
+    if not transcripcion_fallada:
+        _cache_put(shortcode, resultado)
+    print(f"[TIMING] scrape_post total: {time.time()-t0:.2f}s", flush=True)
+    return resultado

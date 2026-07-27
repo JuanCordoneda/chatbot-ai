@@ -105,7 +105,9 @@ def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str
     if photo_description:
         prompt += f"\n\nDescripción visual de la foto/imagen:\n---\n{photo_description}\n---"
 
-    if transcription:
+    # Los mensajes de error vienen entre paréntesis ("(transcripción no disponible: ...)"):
+    # se le muestran al usuario, pero NO se le mandan al modelo como si fueran el audio.
+    if transcription and not transcription.strip().startswith("("):
         prompt += f"\n\nTranscripción del audio del video:\n---\n{transcription}\n---"
 
     if has_image:
@@ -254,13 +256,18 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
             "preámbulos ni comillas."
         )},
     ]
-    try:
-        resp = _client.messages.create(
-            model="claude-opus-4-8",
-            max_tokens=500,
-            messages=[{"role": "user", "content": content}],
-        )
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
-    except Exception as e:
-        print(f"[describe] error describiendo imagen: {e}", flush=True)
-        return ""
+    # Un 529/overloaded puntual dejaba al post sin descripción. Reintentamos una
+    # vez antes de rendirnos (el fallback sigue siendo el alt-text de Instagram).
+    for intento in (1, 2):
+        try:
+            resp = _client.messages.create(
+                model="claude-opus-4-8",
+                max_tokens=500,
+                messages=[{"role": "user", "content": content}],
+            )
+            return "".join(b.text for b in resp.content if b.type == "text").strip()
+        except Exception as e:
+            print(f"[describe] error describiendo imagen (intento {intento}/2): {e}", flush=True)
+            if intento == 1:
+                time.sleep(2)
+    return ""

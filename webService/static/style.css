@@ -968,12 +968,16 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
 /* ── Comment items ── */
 #lista-comentarios { padding: 0 16px; }
 
+/* Grid (no flex) para que num / check / texto / switches queden alineados en
+   columnas verticales entre todas las filas: con flex cada fila ubicaba los
+   switches donde terminaba su texto y la lista se veía desprolija. */
 .comentario-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 22px 19px minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: 13px;
-  padding: 11px 14px 11px 12px;
-  border-radius: 13px;
+  gap: 12px;
+  padding: 9px 12px 9px 10px;
+  border-radius: 11px;
   border: 1px solid transparent;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease,
@@ -985,12 +989,15 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
 .comentario-item::after {
   content: "";
   position: absolute;
-  left: 14px; right: 14px; bottom: 0;
+  left: 10px; right: 10px; bottom: 0;
   height: 1px;
-  background: rgba(255,255,255,0.055);
+  background: rgba(255,255,255,0.05);
   transition: opacity 0.16s ease;
 }
 .comentario-item:last-child::after { display: none; }
+/* La fila anterior tampoco muestra divisor cuando la de abajo está resaltada. */
+.comentario-item:has(+ .comentario-item:hover)::after,
+.comentario-item:has(+ .comentario-item.selected)::after { opacity: 0; }
 
 @keyframes itemIn {
   from { opacity: 0; transform: translateY(6px); }
@@ -998,9 +1005,8 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
 }
 
 .comentario-item:hover {
-  background: rgba(255,255,255,0.055);
-  border-color: rgba(255,255,255,0.08);
-  transform: translateX(2px);
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.07);
 }
 .comentario-item:hover::after { opacity: 0; }
 .comentario-item.selected {
@@ -1019,18 +1025,24 @@ body.light .comentario-item.selected {
 }
 
 .comentario-num {
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 700;
   color: var(--muted);
   min-width: 22px;
   text-align: center;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  opacity: 0.55;
+  opacity: 0.45;
   transition: opacity 0.16s ease, color 0.16s ease;
 }
-.comentario-item:hover .comentario-num { opacity: 0.9; }
+.comentario-item:hover .comentario-num { opacity: 0.85; }
 .comentario-item.selected .comentario-num { opacity: 1; color: var(--yellow); }
+
+/* Navegación por teclado: la fila entera es clickeable, el foco tiene que verse. */
+.comentario-item:focus-within {
+  border-color: rgba(250,185,0,0.45);
+  background: rgba(255,255,255,0.045);
+}
 
 .comentario-item input[type="checkbox"] {
   appearance: none;
@@ -1113,9 +1125,9 @@ body.light .comentario-item.selected {
 .genero-switch {
   position: relative;
   flex-shrink: 0;
-  width: 50px;
-  height: 25px;
-  border-radius: 13px;
+  width: 42px;
+  height: 22px;
+  border-radius: 11px;
   border: none;
   padding: 0;
   cursor: pointer;
@@ -1129,10 +1141,10 @@ body.light .comentario-item.selected {
 
 .gs-knob {
   position: absolute;
-  top: 2.5px;
-  left: 2.5px;
-  width: 20px;
-  height: 20px;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: linear-gradient(180deg, #ffffff, #eef1f5);
   font-size: 0.6rem;
@@ -1144,7 +1156,7 @@ body.light .comentario-item.selected {
   transition: transform 0.28s cubic-bezier(.4,.2,.2,1), color 0.28s ease;
 }
 .genero-switch--hombres .gs-knob { transform: translateX(0); color: #2f6fd6; }
-.genero-switch--mujeres .gs-knob { transform: translateX(25px); color: #d63088; }
+.genero-switch--mujeres .gs-knob { transform: translateX(20px); color: #d63088; }
 
 /* Botón editar (✎) */
 .comentario-edit {
@@ -1166,9 +1178,9 @@ body.light .comentario-item.selected {
 .tipo-switch {
   position: relative;
   flex-shrink: 0;
-  width: 50px;
-  height: 25px;
-  border-radius: 13px;
+  width: 42px;
+  height: 22px;
+  border-radius: 11px;
   border: none;
   padding: 0;
   cursor: pointer;
@@ -1182,10 +1194,10 @@ body.light .comentario-item.selected {
 
 .ts-knob {
   position: absolute;
-  top: 2.5px;
-  left: 2.5px;
-  width: 20px;
-  height: 20px;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: linear-gradient(180deg, #ffffff, #eef1f5);
   font-size: 0.55rem;
@@ -1197,7 +1209,7 @@ body.light .comentario-item.selected {
   transition: transform 0.28s cubic-bezier(.4,.2,.2,1), color 0.28s ease;
 }
 .tipo-switch--verificado .ts-knob { transform: translateX(0); color: #24a145; }
-.tipo-switch--noverif    .ts-knob { transform: translateX(25px); color: #565c66; }
+.tipo-switch--noverif    .ts-knob { transform: translateX(20px); color: #565c66; }
 
 body.light .comentario-texto { color: #222; }
 body.light .comentario-num   { color: #888; }
@@ -2734,8 +2746,9 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
     gap: 10px;
     row-gap: 8px;
     /* En pantallas muy angostas (~256-320px) los elementos de ancho fijo no
-       entran en una línea: dejamos que los switches bajen a una segunda línea
-       (accesibles) en vez de cortarse fuera de la tarjeta. */
+       entran en una línea: volvemos a flex (el grid de desktop no envuelve) para
+       que los switches bajen a una segunda línea en vez de cortarse. */
+    display: flex;
     flex-wrap: wrap;
     border-radius: 10px;
   }
@@ -2919,28 +2932,51 @@ input:focus-visible {
    vendedor solo elija Veri/No-Veri en vez de leer una lista mezclada. */
 .genero-seccion.hidden { display: none; }
 
+/* Cada género es un panel cerrado (header + filas dentro del mismo marco), en
+   vez de un header suelto con filas desnudas colgando debajo. */
+.genero-seccion {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+.genero-seccion-items { padding: 6px; }
+
 .genero-seccion-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 13px 14px 13px 16px;
-  margin: 12px 0 8px;
+  padding: 12px 14px 12px 16px;
   position: relative;
   overflow: hidden;
   /* Sin position:sticky a propósito: el zoom de .app lo rompe en Chrome
      (mismo motivo por el que el header de la app usa fixed). */
   background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-bottom: 1px solid var(--border);
 }
 /* Barra de acento a la izquierda, teñida por género */
 .genero-seccion-header::before {
   content: "";
   position: absolute;
   left: 0; top: 0; bottom: 0;
-  width: 4px;
+  width: 3px;
   background: var(--yellow);
 }
+
+/* Estado vacío: en mixto la columna del género sin comentarios quedaba como un
+   hueco negro al lado de la otra llena. */
+.genero-seccion-empty {
+  display: none;
+  margin: 10px;
+  padding: 26px 16px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted2);
+  border: 1px dashed var(--border2);
+  border-radius: 10px;
+}
+.genero-seccion-items:empty + .genero-seccion-empty { display: block; }
 
 .gs-sec-icon {
   font-size: 1.05rem;
@@ -2962,8 +2998,40 @@ input:focus-visible {
   color: var(--muted2);
 }
 
-.gs-sec-count {
+/* "12 sel." — aparece solo cuando hay selección en esa columna */
+.gs-sec-sel {
   margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #0d0d0d;
+  background: var(--yellow);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-variant-numeric: tabular-nums;
+}
+.gs-sec-sel.hidden { display: none; }
+
+/* Marcar / desmarcar la columna entera de un click */
+.gs-sec-all {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+.gs-sec-sel.hidden + .gs-sec-all { margin-left: auto; }
+.gs-sec-all:hover:not(:disabled) { color: var(--yellow); border-color: var(--yellow); background: rgba(250,185,0,0.10); }
+.gs-sec-all--on { color: var(--yellow); border-color: rgba(250,185,0,0.5); }
+.gs-sec-all:disabled { opacity: 0.35; cursor: default; }
+
+.gs-sec-count {
   font-size: 0.72rem;
   font-weight: 800;
   color: var(--muted2);
@@ -2985,6 +3053,8 @@ input:focus-visible {
 .genero-seccion[data-genero="mujeres"] .genero-seccion-header { background: linear-gradient(90deg, rgba(236,72,153,0.10), var(--surface2) 55%); border-color: rgba(236,72,153,0.28); }
 .genero-seccion[data-genero="hombres"] .gs-sec-count { color: #7db0ff; border-color: rgba(59,130,246,0.35); }
 .genero-seccion[data-genero="mujeres"] .gs-sec-count { color: #f588c2; border-color: rgba(236,72,153,0.35); }
+.genero-seccion[data-genero="hombres"] { border-color: rgba(59,130,246,0.22); }
+.genero-seccion[data-genero="mujeres"] { border-color: rgba(236,72,153,0.22); }
 
 @media (max-width: 768px) {
   .genero-seccion-header { padding: 11px 10px 11px 14px; }
@@ -2995,14 +3065,8 @@ input:focus-visible {
 #lista-comentarios.lista-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  column-gap: 44px;
+  column-gap: 18px;
   align-items: start;
-}
-/* Divisor sutil entre las 2 columnas (queda centrado en el gap). */
-#lista-comentarios.lista-2col .genero-seccion[data-genero="mujeres"] {
-  border-left: 1px solid var(--border);
-  padding-left: 44px;
-  margin-left: -44px;
 }
 #lista-comentarios.lista-2col .genero-seccion[data-genero="otros"] {
   grid-column: 1 / -1;   /* "Sin especificar" ocupa el ancho completo */

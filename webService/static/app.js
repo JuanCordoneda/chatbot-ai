@@ -399,9 +399,12 @@ function mostrarEstadoTranscripcion(texto) {
     document.getElementById("transcription-block").classList.add("hidden");
     return;
   }
+  // Si falló, el backend manda el motivo entre paréntesis: lo mostramos tal cual
+  // (rate limit de Instagram, sesión vencida, video que no se pudo bajar…) en vez
+  // del genérico "sin transcripción", que no le decía nada a nadie.
   document.getElementById("transcription-text").textContent = tieneTranscripcion
     ? texto
-    : "Sin transcripción disponible para este post.";
+    : (texto ? texto.replace(/^\(|\)$/g, "") : "Sin transcripción disponible para este post.");
   document.getElementById("transcription-block").classList.remove("hidden");
 }
 
@@ -429,9 +432,12 @@ function _seccionItems(genero) {
       <div class="genero-seccion-header">
         <span class="gs-sec-icon">${meta.icon}</span>
         <span class="gs-sec-label">${meta.label}</span>
+        <span class="gs-sec-sel hidden">0 sel.</span>
+        <button type="button" class="gs-sec-all" onclick="toggleSeccion('${key}')">Todos</button>
         <span class="gs-sec-count">0</span>
       </div>
-      <div class="genero-seccion-items"></div>`;
+      <div class="genero-seccion-items"></div>
+      <div class="genero-seccion-empty">Todavía no hay comentarios de ${meta.label.toLowerCase()}</div>`;
     // Orden fijo en pantalla: Hombres → Mujeres → Sin especificar.
     const orden = _SECCIONES.map(s => s.key);
     const pos = orden.indexOf(key);
@@ -776,8 +782,44 @@ function contarSeleccionados() {
   return [...document.querySelectorAll("#lista-comentarios input[type=checkbox]")].filter(c => c.checked).length;
 }
 
+// Selecciona / deselecciona toda una columna de género de un click: con 2
+// columnas de ~30 comentarios, tildarlos uno por uno era lo más tedioso.
+function toggleSeccion(key) {
+  const sec = document.querySelector(`.genero-seccion[data-genero="${key}"]`);
+  if (!sec) return;
+  const checks = [...sec.querySelectorAll("input[type=checkbox]")];
+  if (!checks.length) return;
+  const marcar = checks.some(c => !c.checked);   // si falta alguno → marcar todos
+  checks.forEach((c) => {
+    c.checked = marcar;
+    c.closest(".comentario-item").classList.toggle("selected", marcar);
+  });
+  actualizarConteo();
+}
+
+// Contador "N sel." por sección + estado del botón Todos.
+function _refrescarConteoSecciones() {
+  document.querySelectorAll("#lista-comentarios .genero-seccion").forEach((sec) => {
+    const checks = [...sec.querySelectorAll("input[type=checkbox]")];
+    const sel = checks.filter(c => c.checked).length;
+    const badge = sec.querySelector(".gs-sec-sel");
+    if (badge) {
+      badge.textContent = `${sel} sel.`;
+      badge.classList.toggle("hidden", sel === 0);
+    }
+    const btn = sec.querySelector(".gs-sec-all");
+    if (btn) {
+      const todos = checks.length > 0 && sel === checks.length;
+      btn.textContent = todos ? "Ninguno" : "Todos";
+      btn.classList.toggle("gs-sec-all--on", todos);
+      btn.disabled = checks.length === 0;
+    }
+  });
+}
+
 function actualizarConteo() {
   const sel = contarSeleccionados();
+  _refrescarConteoSecciones();
   const label = document.getElementById("count-label");
   if (label) {
     label.textContent = `${sel} seleccionado${sel === 1 ? "" : "s"}`;
