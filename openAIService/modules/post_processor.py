@@ -3,6 +3,8 @@ import os
 import json
 import html as html_lib
 import tempfile
+import time
+import threading
 import concurrent.futures
 import requests as req
 from dataclasses import dataclass
@@ -34,21 +36,40 @@ def is_video_url(url: str) -> bool:
 
 
 _whisper_model = None
+# Con varios posts a la vez, 3 hilos entraban juntos acá y cada uno cargaba SU
+# propio modelo (x3 de RAM, y en el server chico eso mataba al proceso: "falla la
+# transcripción"). El lock garantiza que se cargue UNA sola vez.
+_whisper_load_lock = threading.Lock()
+# faster-whisper no es thread-safe para transcribir en paralelo sobre la misma
+# instancia, y además cada transcripción ya usa varios cores: dejamos pasar de a
+# WHISPER_CONCURRENCIA (default 2). Los demás esperan turno en vez de saturar la CPU.
+_whisper_sem = threading.BoundedSemaphore(int(os.environ.get("WHISPER_CONCURRENCIA", "2")))
+# Cores por transcripción: acotado para que N transcripciones no se peleen por la CPU.
+_WHISPER_THREADS = int(os.environ.get("WHISPER_THREADS", "4"))
+
 
 def _get_whisper_model():
     global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
-    return _whisper_model
+    with _whisper_load_lock:
+        if _whisper_model is None:
+            from faster_whisper import WhisperModel
+            print(f"[whisper] cargando modelo (cpu_threads={_WHISPER_THREADS})...", flush=True)
+            _whisper_model = WhisperModel("base", device="cpu", compute_type="int8",
+                                          cpu_threads=_WHISPER_THREADS)
+        return _whisper_model
 
 
 def _transcribe_video(video_path: str) -> str:
     try:
         model = _get_whisper_model()
-        segments, _ = model.transcribe(video_path)
-        text = " ".join(s.text for s in segments).strip()
-        print(f"[whisper] transcripción: {len(text)} chars", flush=True)
+        t0 = time.time()
+        with _whisper_sem:
+            espera = time.time() - t0
+            if espera > 0.5:
+                print(f"[whisper] esperó {espera:.1f}s por turno (otra transcripción en curso)", flush=True)
+            segments, _ = model.transcribe(video_path)
+            text = " ".join(s.text for s in segments).strip()
+        print(f"[whisper] transcripción: {len(text)} chars en {time.time()-t0:.1f}s", flush=True)
         return text
     except Exception as e:
         print(f"[whisper] error: {e}", flush=True)
@@ -240,7 +261,6 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     if not shortcode:
         raise ValueError(f"No se pudo extraer el shortcode del link: {url}")
 
-    import time
     t0 = time.time()
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
