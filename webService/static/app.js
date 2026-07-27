@@ -334,10 +334,25 @@ function ocultarChunk() {
   el.classList.add("hidden");
 }
 
+// Orden de los bloques de contexto arriba de los comentarios:
+//   foto  → Pie de página, Descripción de imagen
+//   video → Pie de página, Transcripción, Descripción de la portada
+// La fila es flex-column, así que alcanza con el `order` de cada bloque.
+function _ordenarBloquesContexto(esVideo) {
+  const cap = document.getElementById("scrape-caption-block");
+  const desc = document.getElementById("photo-description-block");
+  const tr = document.getElementById("transcription-block");
+  if (!cap || !desc || !tr) return;
+  cap.style.order = "1";
+  tr.style.order = esVideo ? "2" : "3";
+  desc.style.order = esVideo ? "3" : "2";
+}
+
 function mostrarScrape(data) {
   document.getElementById("scrape-owner").textContent = data.owner_username || "—";
   document.getElementById("client-badge").textContent = data.client_id || data.owner_username || "Sin cliente asignado";
   ultimoEsVideo = !!data.is_video;
+  _ordenarBloquesContexto(ultimoEsVideo);
 
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
   // likes/views/shares con un valor random dentro del rango configurado.
@@ -354,7 +369,7 @@ function mostrarScrape(data) {
   }
   if (data.photo_description) {
     const sum = document.getElementById("photo-description-summary");
-    if (sum) sum.textContent = data.is_video ? "Vista previa del video" : "Descripción de imagen";
+    if (sum) sum.textContent = data.is_video ? "Descripción de la portada del video" : "Descripción de imagen";
     document.getElementById("photo-description-text").textContent = data.photo_description;
     document.getElementById("photo-description-block").classList.remove("hidden");
   }

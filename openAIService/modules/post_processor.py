@@ -275,18 +275,6 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     video_url = slow.get("video_url") or fast.get("video_url") or ""
     transcription = ""
 
-    if is_video and video_url:
-        print(f"[ig_api] descargando video para transcripción...", flush=True)
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                video_path = os.path.join(tmpdir, f"{shortcode}.mp4")
-                r_vid = req.get(video_url, timeout=60)
-                with open(video_path, "wb") as f:
-                    f.write(r_vid.content)
-                transcription = _transcribe_video(video_path)
-        except Exception as e:
-            print(f"[ig_api] error descargando video: {e}", flush=True)
-
     # Imagen del post para visión multimodal: foto (posts de imagen) o thumbnail
     # (reels/videos). La descargamos y la mandamos a Claude junto con el texto.
     display_url = slow.get("display_url") or ""
@@ -303,6 +291,44 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
                 print(f"[image] imagen del post descargada ({len(r_img.content)} bytes, {image_media_type})", flush=True)
         except Exception as e:
             print(f"[image] error descargando imagen: {e}", flush=True)
+
+    # Descripción visual para mostrarle al vendedor: la genera la IA mirando la
+    # imagen real (foto, o portada/preview del video). El accessibility_caption de
+    # Instagram queda solo como fallback si la llamada de visión falla.
+    # Arranca ANTES de la transcripción para que en videos ambas corran en paralelo
+    # y la descripción no sume latencia propia.
+    desc_executor = None
+    desc_future = None
+    if image_b64:
+        try:
+            from modules.ai_generator import describir_imagen
+            desc_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            desc_future = desc_executor.submit(describir_imagen, image_b64, image_media_type, caption)
+        except Exception as e:
+            print(f"[describe] no disponible ({e})", flush=True)
+
+    if is_video and video_url:
+        print(f"[ig_api] descargando video para transcripción...", flush=True)
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                video_path = os.path.join(tmpdir, f"{shortcode}.mp4")
+                r_vid = req.get(video_url, timeout=60)
+                with open(video_path, "wb") as f:
+                    f.write(r_vid.content)
+                transcription = _transcribe_video(video_path)
+        except Exception as e:
+            print(f"[ig_api] error descargando video: {e}", flush=True)
+
+    if desc_future is not None:
+        try:
+            desc_ia = desc_future.result(timeout=30)
+            if desc_ia:
+                photo_description = desc_ia
+                print(f"[describe] descripción IA lista ({len(desc_ia)} chars)", flush=True)
+        except Exception as e:
+            print(f"[describe] error/timeout, uso alt-text de Instagram ({e})", flush=True)
+        finally:
+            desc_executor.shutdown(wait=False)
 
     if not caption and not transcription and not image_b64:
         raise ValueError("No se pudo obtener el pie de página ni la transcripción del post. Verificá que el link sea público.")
