@@ -3,6 +3,7 @@ let comentariosGenerados = [];
 let generosGenerados = [];        // género por índice: "hombres" | "mujeres" | null | "__header__"
 let generoActual = null;          // género de la sección que se está streameando
 let esMixto = false;              // cliente mixto → 2 columnas desde el arranque
+let generoFijo = null;            // cliente male/female → "hombres"/"mujeres": UNA sola sección
 let ultimoEsVideo = false;        // último post: ¿es video? (para el bloque de transcripción)
 let tiposGenerados = [];          // "verificado" (default) | "noverif" por índice
 let currentJobId = null;
@@ -132,6 +133,7 @@ async function generarComentarios() {
   vistosStream = new Set();
   streamMeta = {};
   esMixto = false;
+  generoFijo = null;
   ultimoEsVideo = false;
   comentariosGenerados = [];
   generosGenerados = [];
@@ -275,7 +277,7 @@ function manejarEvento(evento) {
     document.getElementById("lista-comentarios").innerHTML = "";
     comentariosGenerados = [];
     generosGenerados = [];
-    generoActual = null;
+    generoActual = generoFijo;
     tiposGenerados = [];
     pendingComentarios = [];
     streamOffset = 0;
@@ -362,6 +364,11 @@ function mostrarScrape(data) {
   // cuando termina la de Mujeres. Los comentarios luego llenan cada columna.
   const g = (data.gender || "").toString().toLowerCase();
   esMixto = !(g === "male" || g === "female");
+  // Cliente de un solo género: fijamos la sección. Aunque la IA se mande un
+  // header del otro género, todos los comentarios van a la sección del cliente
+  // y la otra columna nunca aparece.
+  generoFijo = g === "male" ? "hombres" : (g === "female" ? "mujeres" : null);
+  generoActual = generoFijo;
   if (esMixto) {
     _seccionItems("hombres");   // sección vacía a la izquierda
     _seccionItems("mujeres");   // sección vacía a la derecha
@@ -472,7 +479,7 @@ function agregarComentario(texto, index) {
   // muestran como comentarios, pero se guardan para reinyectarlos al enviar.
   const gen = generoDeHeader(texto);
   if (gen) {
-    generoActual = gen;
+    generoActual = generoFijo || gen;
     comentariosGenerados[index] = texto;
     generosGenerados[index] = "__header__";
     return;

@@ -31,6 +31,20 @@ _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
 
+def _gender_de(ig_username: str):
+    """Género configurado del cliente ("male"/"female") o None (mixto).
+    El front lo usa para mostrar UNA sola sección en vez de las 2 columnas."""
+    if not ig_username:
+        return None
+    try:
+        from common import repository as _repo
+        row = _repo.get_client_by_ig_username(ig_username)
+        return (row or {}).get("gender")
+    except Exception as e:
+        print(f"[gender] no disponible ({e})", flush=True)
+        return None
+
+
 # ── Session management ────────────────────────────────────────────────────────
 
 def _get_session(phone: str) -> tuple[list, bool]:
@@ -311,6 +325,7 @@ def procesar_post_web():
                             "photo_description": "",
                             "transcription": "",
                             "is_video": url_is_video or fast_preview.get("is_video", False),
+                            "gender": _gender_de(preview_owner),
                         }
                         job["meta"] = preview_meta
                         job["scrape_ready"] = True
@@ -369,6 +384,8 @@ def procesar_post_web():
                 "caption": post_data.caption,
                 "is_video": post_data.is_video,
                 "ranges": ranges,
+                # male/female -> el front muestra UNA sola sección; None -> mixto (2 columnas)
+                "gender": client_gender,
             }
             job["scrape_ready"] = True
             job["transcription_ready"] = True
