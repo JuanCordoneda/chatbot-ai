@@ -305,7 +305,8 @@ function updatePromptCount() {
 function togglePromptFull() {
   const modal = document.querySelector("#client-mo .ax-modal");
   const full = modal.classList.toggle("ax-modal--full");
-  document.getElementById("client-prompt-expand").textContent = full ? "⤡" : "⤢";
+  modal.querySelector(".ax-editor-btn-ico").textContent = full ? "⤡" : "⤢";
+  document.getElementById("client-prompt-expand-txt").textContent = full ? "Achicar prompt" : "Agrandar prompt";
   document.getElementById("client-prompt").focus();
 }
 
@@ -328,9 +329,10 @@ function openClientModal(id) {
   hideErr("client-err");
   const c = id ? clientsCache.find(x => x.id === id) : null;
   document.getElementById("client-title").textContent = c ? "Editar cliente" : "Nuevo cliente";
-  document.getElementById("client-subtitle").textContent = c
-    ? "Los cambios impactan al instante, sin reiniciar nada."
-    : "Se guarda en la base y el motor lo usa al instante, sin deploy.";
+  // Editando no hace falta bajada: el título ya dice todo.
+  const sub = document.getElementById("client-subtitle");
+  sub.textContent = c ? "" : "Se guarda en la base y el motor lo usa al instante, sin deploy.";
+  sub.style.display = c ? "none" : "";
   document.getElementById("client-id").value = c ? c.id : "";
   document.getElementById("client-ig").value = c ? c.ig_username : "";
   document.getElementById("client-name").value = c ? c.display_name : "";
@@ -343,7 +345,8 @@ function openClientModal(id) {
   }
   document.getElementById("client-prompt").value = c ? c.prompt : "";
   document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
-  document.getElementById("client-prompt-expand").textContent = "⤢";
+  document.querySelector("#client-mo .ax-editor-btn-ico").textContent = "⤢";
+  document.getElementById("client-prompt-expand-txt").textContent = "Agrandar prompt";
   clientSnapshot = _clientFormState();
   updatePromptCount();
   openMo("client-mo");

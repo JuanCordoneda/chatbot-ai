@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785300020" />
+  <link rel="stylesheet" href="/static/style.css?v=1785300026" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -122,10 +122,10 @@
       background: rgba(0,0,0,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .ax-mo.ax-on { display: flex; }
     .ax-modal { zoom: 1.1; background: var(--surface); border: 1px solid var(--border2); border-radius: 22px; width: 100%; max-width: 620px;
-      max-height: 84vh; overflow: auto; padding: 26px; box-shadow: 0 40px 100px rgba(0,0,0,.6); animation: axpop .18s ease; }
+      max-height: 86vh; overflow: auto; padding: 26px; box-shadow: 0 40px 100px rgba(0,0,0,.6); animation: axpop .18s ease; }
     /* El de cliente es el más cargado (datos + rangos + prompt largo): va más
        ancho y con la tipografía un escalón arriba, si no queda todo apretado. */
-    .ax-modal--lg { max-width: 940px; padding: 32px 34px; }
+    .ax-modal--lg { max-width: 1120px; padding: 34px 36px; }
     .ax-modal--lg h3 { font-size: 1.4rem; }
     .ax-modal--lg .ax-msub { font-size: .9rem; margin-bottom: 22px; }
     .ax-modal--lg .ax-field { margin-bottom: 18px; }
@@ -140,31 +140,35 @@
        Es la tarea principal del modal, así que se lleva su propia columna y
        toda la altura disponible: editar un prompt largo en una cajita de 200px
        obligaba a scrollear dentro del scroll del modal. */
-    .ax-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 26px; align-items: start; }
-    .ax-split-prompt { position: sticky; top: 0; }
+    /* El prompt va DEBAJO de los datos, a todo el ancho del modal (no en una
+       columna al costado): se lee y se edita mejor con líneas largas. */
+    .ax-split { display: block; }
     .ax-field--editor { display: flex; flex-direction: column; margin-bottom: 0; }
     .ax-editor-meta { display: inline-flex; align-items: center; gap: 8px; }
-    .ax-editor-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted);
-      border-radius: 8px; width: 24px; height: 22px; line-height: 1; cursor: pointer; font-size: .8rem;
+    /* Botón visible y con texto: el ícono solo no se entendía. */
+    .ax-editor-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--surface2);
+      border: 1px solid var(--border2); color: var(--muted2); border-radius: 9px; padding: 5px 11px;
+      line-height: 1; cursor: pointer; font-family: var(--font); font-size: .78rem; font-weight: 600;
       transition: color .13s, border-color .13s, background .13s; }
+    .ax-editor-btn-ico { font-size: .9rem; line-height: 1; }
     .ax-editor-btn:hover { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
     /* Prosa, no código: el monoespaciado chico hacía pesada la lectura. */
-    .ax-field--editor textarea { flex: 1; min-height: 420px; resize: vertical;
+    .ax-field--editor textarea { flex: 1; min-height: 240px; resize: vertical;
       font-family: var(--font); font-size: .92rem; line-height: 1.65; padding: 14px 16px; }
     .ax-field--editor textarea::placeholder { color: var(--faint); }
 
     /* Pantalla completa: el editor se come el modal entero. */
     /* vw/vh se miden sin zoom: los dividimos por 1.1 para no desbordar. */
     .ax-modal--full { max-width: calc(96vw / 1.1); height: calc(92vh / 1.1); max-height: none; display: flex; flex-direction: column; }
-    .ax-modal--full .ax-split { grid-template-columns: 1fr; flex: 1; min-height: 0; }
+    .ax-modal--full .ax-split { flex: 1; min-height: 0; }
     .ax-modal--full .ax-split-datos { display: none; }
     .ax-modal--full .ax-split-prompt { height: 100%; }
     .ax-modal--full .ax-field--editor { height: 100%; }
     .ax-modal--full .ax-field--editor textarea { min-height: 0; height: 100%; resize: none; font-size: .98rem; }
 
     /* Guardar siempre a mano, aunque el prompt sea larguísimo. */
-    .ax-modal-actions--sticky { position: sticky; bottom: -32px; align-items: center;
-      margin: 18px -34px -32px; padding: 16px 34px; background: var(--surface);
+    .ax-modal-actions--sticky { position: sticky; bottom: -34px; align-items: center;
+      margin: 18px -36px -34px; padding: 16px 36px; background: var(--surface);
       border-top: 1px solid var(--border); border-radius: 0 0 22px 22px; }
     .ax-dirty { margin-right: auto; font-size: .8rem; font-weight: 600; color: var(--yellow); display: none; }
     .ax-dirty.ax-on { display: inline; }
@@ -228,9 +232,6 @@
       .ax-uso-row { grid-template-columns: 110px 1fr 44px; gap: 8px; }
       .ax-grid2 { grid-template-columns: 1fr; }
       .ax-modal--lg { padding: 22px 18px; }
-      /* Angosto: una sola columna, primero los datos y después el editor. */
-      .ax-split { grid-template-columns: 1fr; gap: 4px; }
-      .ax-split-prompt { position: static; }
       .ax-field--editor textarea { min-height: 240px; }
       .ax-modal-actions--sticky { margin: 14px -18px -22px; padding: 12px 18px; }
       .ax-page-h { flex-direction: column; align-items: stretch; }
@@ -393,14 +394,14 @@
           <div class="ax-prefixed"><span>@</span><input id="client-ig" placeholder="peterjfournier" autocomplete="off" /></div>
         </div>
         <div class="ax-field">
-          <label>Estado</label>
-          <select id="client-status"><option value="active">Activo</option><option value="paused">Pausado</option></select>
+          <label>Nombre para mostrar</label>
+          <input id="client-name" placeholder="Peter Fournier" autocomplete="off" />
         </div>
       </div>
       <div class="ax-grid2">
         <div class="ax-field">
-          <label>Nombre para mostrar</label>
-          <input id="client-name" placeholder="Peter Fournier" autocomplete="off" />
+          <label>Estado</label>
+          <select id="client-status"><option value="active">Activo</option><option value="paused">Pausado</option></select>
         </div>
         <div class="ax-field">
           <label>Género</label>
@@ -446,13 +447,16 @@
             <span>Instrucciones para la IA</span>
             <span class="ax-editor-meta">
               <span class="ax-hint" id="client-prompt-count">0 caracteres</span>
-              <button type="button" class="ax-editor-btn" id="client-prompt-expand" onclick="togglePromptFull()" title="Pantalla completa (⌥E)">⤢</button>
+              <button type="button" class="ax-editor-btn" id="client-prompt-expand" onclick="togglePromptFull()" title="Ver el prompt en grande (⌥E)">
+                <span class="ax-editor-btn-ico">⤢</span>
+                <span id="client-prompt-expand-txt">Agrandar prompt</span>
+              </button>
             </span>
           </label>
           <textarea id="client-prompt" spellcheck="true" oninput="updatePromptCount()" placeholder="Ej: Actuá como seguidores reales de un influencer de fitness. Comentarios cortos y variados, con buena onda, en el idioma del post. Nada genérico tipo 'nice post' o 'great content'…"></textarea>
           <div class="ax-help">
             <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <span>Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos. Guardás con <b>⌘/Ctrl + Enter</b>.</span>
+            <span>Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos.</span>
           </div>
         </div>
       </div>
@@ -551,6 +555,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785300020"></script>
+  <script src="/static/admin.js?v=1785300026"></script>
 </body>
 </html>
