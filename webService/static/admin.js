@@ -96,21 +96,25 @@ function hideErr(id) { document.getElementById(id).classList.remove("ax-on"); }
 // Vendedor (cuenta) seleccionado para la pestaña Clientes.
 let selectedVendedor = null;
 
+// Modo de la página: admin (gestiona todas las cuentas) o vendedor (solo la suya).
+const IS_ADMIN = document.body.dataset.isAdmin === "true";
+const MY_ACCOUNT = parseInt(document.body.dataset.account || "0") || null;
+function setTxt(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
+
 // ── KPIs ──
 function renderKpis() {
   const act = clientsCache.filter(c => c.status === "active").length;
   const pau = clientsCache.filter(c => c.status === "paused").length;
   const venAct = vendedoresCache.filter(v => v.active).length;
-  document.getElementById("kpi-cli-act").textContent = selectedVendedor ? act : "–";
-  document.getElementById("kpi-cli-sub").textContent = selectedVendedor ? `${clientsCache.length} en total` : "elegí un vendedor";
-  document.getElementById("kpi-cli-pau").textContent = selectedVendedor ? pau : "–";
-  document.getElementById("kpi-ven-act").textContent = venAct;
+  setTxt("kpi-cli-act", selectedVendedor ? act : "–");
+  setTxt("kpi-cli-sub", selectedVendedor ? `${clientsCache.length} en total` : "elegí un vendedor");
+  setTxt("kpi-cli-pau", selectedVendedor ? pau : "–");
+  setTxt("kpi-ven-act", venAct);
   const inact = vendedoresCache.length - venAct;
-  document.getElementById("kpi-ven-sub").textContent = inact ? `${inact} inactivo${inact === 1 ? "" : "s"}` : "todos activos";
-  document.getElementById("tab-cli-cnt").textContent = selectedVendedor ? clientsCache.length : 0;
-  document.getElementById("tab-ven-cnt").textContent = vendedoresCache.length;
-  const tu = document.getElementById("tab-usr-cnt");
-  if (tu) tu.textContent = selectedVendedor ? usuariosCache.length : 0;
+  setTxt("kpi-ven-sub", inact ? `${inact} inactivo${inact === 1 ? "" : "s"}` : "todos activos");
+  setTxt("tab-cli-cnt", selectedVendedor ? clientsCache.length : 0);
+  setTxt("tab-ven-cnt", vendedoresCache.length);
+  setTxt("tab-usr-cnt", selectedVendedor ? usuariosCache.length : 0);
 }
 
 // ── Clientes ──
@@ -547,8 +551,15 @@ async function toggleUserActive(id) {
 // Primero los vendedores: definen el selector y el vendedor por defecto; recién
 // entonces cargamos los clientes de ese vendedor.
 (async function init() {
-  await loadVendedores();
-  loadClients();
-  loadUsuarios();
-  loadUso();
+  if (IS_ADMIN) {
+    await loadVendedores();
+    loadClients();
+    loadUsuarios();
+    loadUso();
+  } else {
+    // Modo vendedor: solo sus clientes. selectedVendedor truthy para pasar los
+    // guards; el backend usa la cuenta de la sesión (ignora el ?vendedor).
+    selectedVendedor = MY_ACCOUNT || "me";
+    loadClients();
+  }
 })();

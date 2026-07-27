@@ -287,7 +287,7 @@ def procesar_post_web():
     def run():
         from modules.post_processor import scrape_post
         from modules.ai_generator import generar_comentarios_stream
-        from modules.engagement_flow import detectar_cliente, alias_owner
+        from modules.engagement_flow import detectar_cliente
 
         job = _jobs[job_id]
         try:
@@ -314,56 +314,39 @@ def procesar_post_web():
                         }
                         job["meta"] = preview_meta
                         job["scrape_ready"] = True
-                        job["step"] = "transcription" if preview_meta["is_video"] else "procesando"
                         if preview_meta["is_video"]:
+                            job["step"] = "transcription"
                             job["progreso"].append("Video detectado. Generando transcripción (Menos de 60 segundos)...")
                         else:
-                            job["progreso"].append("Procesando el post...")
+                            job["step"] = "transcription"
+                            job["progreso"].append("Generando transcripción (Menos de 60 segundos)...")
 
                 except Exception:
                     pass
 
-            # Garantizar que se muestre un step de "cargando" antes del scrape lento.
-            if not job.get("step"):
-                job["step"] = "procesando"
+            # Garantizar que el step esté seteado antes del scrape lento
+            # (puede ser video aunque el fast preview no lo haya detectado)
+            if job["step"] != "transcription":
+                job["step"] = "transcription"
 
             post_data = scrape_post(post_url)
             t_scrape = time.time() - t0
             print(f"[TIMING] scrape: {t_scrape:.2f}s", flush=True)
 
-            # Descripción visual: para FOTOS describimos la imagen, y para VIDEOS
-            # describimos la portada/preview (el frame que se ve antes de reproducir).
-            # El alt-text de IG suele venir vacío, así que ayuda mucho en ambos casos.
-            if post_data.image_b64:
-                job["progreso"].append(
-                    "Analizando la portada del video..." if post_data.is_video else "Analizando la imagen..."
-                )
-                try:
-                    from modules.ai_generator import describir_imagen
-                    desc = describir_imagen(post_data.image_b64, post_data.image_media_type, post_data.caption)
-                    if desc:
-                        post_data.photo_description = desc
-                except Exception as e:
-                    print(f"[describe] no pude describir la imagen ({e})", flush=True)
-
             job["step"] = ""
             if post_data.transcription and not post_data.transcription.startswith("("):
                 job["progreso"].append("Transcripción lista.")
-            elif post_data.is_video:
-                job["progreso"].append("No pude transcribir el audio del video; genero desde el texto y la imagen.")
             elif post_data.photo_description:
-                job["progreso"].append("Imagen analizada: genero desde el texto y la descripción.")
-            else:
-                job["progreso"].append("Es una foto (sin audio para transcribir): genero desde el texto y la imagen.")
+                job["progreso"].append("Imagen analizada.")
 
             client_id = detectar_cliente(post_data.owner_username) if post_data.owner_username else None
             print(f"[client] owner_username={post_data.owner_username!r} → client_id={client_id!r}", flush=True)
             if client_id:
                 job["progreso"].append(f"Cliente detectado: {client_id}")
 
-            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_username,
-            # ya normalizado por alias de collab); si no, el de Peter Fournier.
-            prompt_client_id = alias_owner(post_data.owner_username).lower() if client_id else "peterjfournier"
+            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_username);
+            # si no hay cliente asignado, usamos igual el prompt de Peter Fournier.
+            prompt_client_id = post_data.owner_username.lower() if client_id else "peterjfournier"
 
             # Rangos de cantidades del cliente (TAREA 6): el front los usa para
             # autocompletar likes/views/shares con un valor random dentro del rango.
@@ -371,7 +354,7 @@ def procesar_post_web():
             client_gender = None
             try:
                 from common import repository as _repo
-                row = _repo.get_client_by_ig_username(alias_owner(post_data.owner_username)) if post_data.owner_username else None
+                row = _repo.get_client_by_ig_username(post_data.owner_username) if post_data.owner_username else None
                 if row:
                     ranges = row.get("ranges") or {}
                     client_gender = row.get("gender")  # male/female/None -> formato de salida
@@ -386,9 +369,6 @@ def procesar_post_web():
                 "caption": post_data.caption,
                 "is_video": post_data.is_video,
                 "ranges": ranges,
-                # Género del cliente (male/female/None). El front lo usa para, si es
-                # mixto (None), armar las 2 columnas desde el arranque.
-                "gender": client_gender,
             }
             job["scrape_ready"] = True
             job["transcription_ready"] = True

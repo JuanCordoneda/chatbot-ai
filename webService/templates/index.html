@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785220000" />
+  <link rel="stylesheet" href="/static/style.css?v=1785300000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -39,6 +39,12 @@
         <span class="header-tag">Engagement Tool</span>
       </div>
       <div class="header-actions">
+        {% if username %}
+        <span class="header-user" title="Sesión iniciada como {{ username }}">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 14a5.5 5.5 0 0111 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          {{ username }}
+        </span>
+        {% endif %}
         <button class="btn-theme" id="btn-theme" onclick="toggleTheme()">☀ Light</button>
         <div class="header-btn-group">
           {% if is_admin %}
@@ -50,6 +56,11 @@
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="2" rx="1" fill="currentColor"/><rect x="2" y="7.5" width="9" height="2" rx="1" fill="currentColor"/><rect x="2" y="11" width="6" height="2" rx="1" fill="currentColor"/></svg>
             Sim. Órdenes
           </button>
+          {% else %}
+          <a class="header-action-btn" href="/mis-clientes" title="Mis clientes y sus prompts">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Mis clientes
+          </a>
           {% endif %}
           <button class="header-action-btn" onclick="location.reload()" title="Refrescar / empezar de nuevo">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -414,6 +425,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785220000"></script>
+  <script src="/static/app.js?v=1785300000"></script>
 </body>
 </html>

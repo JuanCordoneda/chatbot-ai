@@ -210,6 +210,24 @@ body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
 
 .header-actions { display: flex; gap: 10px; align-items: center; }
 
+.header-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-user svg { flex-shrink: 0; }
+
 .header-btn-group {
   display: flex;
   align-items: center;
@@ -2543,6 +2561,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   }
 
   .header-tag, .header-sep { display: none; }
+
+  .header-user { max-width: 130px; padding: 4px 8px; font-size: 0.68rem; }
 
   .logo { height: 30px; }
 

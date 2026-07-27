@@ -356,7 +356,11 @@ def logout():
 def index():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    resp = make_response(render_template("index.html", is_admin=session.get("is_admin", False)))
+    resp = make_response(render_template(
+        "index.html",
+        is_admin=session.get("is_admin", False),
+        username=session.get("username", ""),
+    ))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -630,14 +634,33 @@ def _repo_error_response(fn):
 @app.route("/admin")
 @require_admin
 def admin_page():
-    resp = make_response(render_template("admin.html", username=session.get("username", "")))
+    resp = make_response(render_template("admin.html", username=session.get("username", ""),
+                                         is_admin=True, account_id=session.get("account_id") or ""))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+@app.route("/mis-clientes")
+@require_login
+def mis_clientes_page():
+    """Los VENDEDORES gestionan SOLO sus propios clientes: misma UI que el admin
+    pero en modo acotado (sin selector de vendedor ni pestañas de usuarios/
+    vendedores/uso). El scoping a su cuenta lo garantiza _target_account_id."""
+    resp = make_response(render_template("admin.html", username=session.get("username", ""),
+                                         is_admin=False, account_id=session.get("account_id") or ""))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return resp
 
 
 def _target_account_id():
-    """account_id del vendedor sobre el que opera el admin. Viene por query string
-    (?vendedor=<id>) o en el body JSON (account_id / vendedor). RepoError si falta."""
+    """Cuenta sobre la que se opera. El VENDEDOR (no admin) siempre trabaja sobre
+    SU propia cuenta: ignora el ?vendedor, así no puede tocar clientes de otras
+    cuentas. El ADMIN elige la cuenta por query string (?vendedor=<id>) o el body."""
+    if not session.get("is_admin"):
+        acc = session.get("account_id")
+        if acc:
+            return acc
+        raise _repo.RepoError("Cuenta no disponible")
     raw = (request.args.get("vendedor")
            or (request.get_json(silent=True) or {}).get("account_id")
            or (request.get_json(silent=True) or {}).get("vendedor"))
@@ -729,14 +752,14 @@ def admin_usuarios_update(user_id):
 
 # --- Clientes (scoped al vendedor elegido: ?vendedor=<account_id>) ---
 @app.route("/api/admin/clients", methods=["GET"])
-@require_admin
+@require_login
 @_repo_error_response
 def admin_clients_list():
     return jsonify({"clients": _repo.list_clients(_target_account_id())})
 
 
 @app.route("/api/admin/clients", methods=["POST"])
-@require_admin
+@require_login
 @_repo_error_response
 def admin_clients_create():
     d = request.get_json(silent=True) or {}
@@ -753,7 +776,7 @@ def admin_clients_create():
 
 
 @app.route("/api/admin/clients/<int:client_id>", methods=["PATCH"])
-@require_admin
+@require_login
 @_repo_error_response
 def admin_clients_update(client_id):
     d = request.get_json(silent=True) or {}
@@ -772,7 +795,7 @@ def admin_clients_update(client_id):
 
 
 @app.route("/api/admin/clients/<int:client_id>", methods=["DELETE"])
-@require_admin
+@require_login
 @_repo_error_response
 def admin_clients_delete(client_id):
     ok = _repo.delete_client(_target_account_id(), client_id)

@@ -194,12 +194,12 @@
     }
   </style>
 </head>
-<body class="ax">
+<body class="ax" data-is-admin="{{ 'true' if is_admin else 'false' }}" data-account="{{ account_id }}">
   <header class="ax-h">
     <div class="ax-h-left">
       <img src="/static/growi.png" alt="GROWI" class="ax-logo" />
       <span class="ax-sep"></span>
-      <span class="ax-h-title">Admin <span class="ax-dim">· panel</span></span>
+      <span class="ax-h-title">{% if is_admin %}Admin <span class="ax-dim">· panel</span>{% else %}Mis clientes{% endif %}</span>
     </div>
     <div class="ax-h-right">
       <span class="ax-userchip"><span class="ax-av" id="me-av">A</span><span id="me-name">{{ username }}</span></span>
@@ -215,14 +215,16 @@
   <div class="ax-wrap">
     <div class="ax-page-h">
       <div>
-        <h1>Administración</h1>
-        <p>Gestioná tus vendedores (cada uno entra con su login de Growi), sus clientes y el uso.</p>
+        <h1>{% if is_admin %}Administración{% else %}Mis clientes{% endif %}</h1>
+        <p>{% if is_admin %}Gestioná tus vendedores (cada uno entra con su login de Growi), sus clientes y el uso.{% else %}Editá tus clientes y sus prompts. Los cambios impactan al instante, sin reiniciar nada.{% endif %}</p>
       </div>
       <div class="ax-seg" role="tablist">
         <div class="ax-tab ax-on" data-tab="clientes" onclick="switchTab('clientes')">Clientes <span class="ax-cnt" id="tab-cli-cnt">0</span></div>
+        {% if is_admin %}
         <div class="ax-tab" data-tab="usuarios" onclick="switchTab('usuarios')">Usuarios <span class="ax-cnt" id="tab-usr-cnt">0</span></div>
         <div class="ax-tab" data-tab="vendedores" onclick="switchTab('vendedores')">Vendedores <span class="ax-cnt" id="tab-ven-cnt">0</span></div>
         <div class="ax-tab" data-tab="uso" onclick="switchTab('uso')">Uso</div>
+        {% endif %}
       </div>
     </div>
 
@@ -239,6 +241,7 @@
         <div class="ax-k-sub">no reciben engagement</div>
         <div class="ax-k-ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="6" y="5" width="4" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="5" width="4" height="14" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg></div>
       </div>
+      {% if is_admin %}
       <div class="ax-kpi">
         <div class="ax-k-label">Vendedores</div>
         <div class="ax-k-num" id="kpi-ven-act">–</div>
@@ -251,14 +254,17 @@
         <div class="ax-k-sub">generar · publicar · enviar</div>
         <div class="ax-k-ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 18l5-6 4 4 6-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       </div>
+      {% endif %}
     </div>
 
     <section class="ax-panel ax-on" id="panel-clientes">
       <div class="ax-toolbar">
+        {% if is_admin %}
         <div class="ax-field" style="margin:0;min-width:220px;">
           <label style="font-size:.72rem;">Vendedor</label>
           <select id="vendedor-select" onchange="onVendedorChange()"></select>
         </div>
+        {% endif %}
         <div class="ax-search">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           <input id="cli-search" placeholder="Buscar por nombre o @usuario…" oninput="renderClients()" />
@@ -271,6 +277,7 @@
       <div class="ax-list" id="clientes-list"></div>
     </section>
 
+    {% if is_admin %}
     <!-- Usuarios (logins) del vendedor elegido = asientos de la suscripción -->
     <section class="ax-panel" id="panel-usuarios">
       <div class="ax-toolbar">
@@ -308,6 +315,7 @@
       </div>
       <div class="ax-tablecard" id="uso-list"></div>
     </section>
+    {% endif %}
   </div>
 
   <!-- Modal cliente -->
@@ -468,6 +476,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1783209100"></script>
+  <script src="/static/admin.js?v=1785300000"></script>
 </body>
 </html>
