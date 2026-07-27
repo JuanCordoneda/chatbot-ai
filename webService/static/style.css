@@ -208,77 +208,106 @@ body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
   color: var(--muted);
 }
 
-.header-actions { display: flex; gap: 10px; align-items: center; }
+.header-actions { display: flex; gap: 8px; align-items: center; }
 
+/* El usuario NO es un control: vive a la izquierda, junto a la marca, y su
+   identidad la da el avatar amarillo (no el texto), para que no compita con los
+   botones de la derecha ni se lea como uno más. */
 .header-user {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 220px;
-  padding: 5px 10px;
-  font-size: 0.72rem;
+  gap: 8px;
+  max-width: 240px;
+  min-width: 0;
+}
+
+.header-user-av {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  background: linear-gradient(160deg, var(--yellow-br), var(--yellow));
+  box-shadow: 0 2px 8px rgba(250,185,0,0.28);
+}
+
+.header-user-name {
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--muted);
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 999px;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
-.header-user svg { flex-shrink: 0; }
 
 .header-btn-group {
   display: flex;
   align-items: center;
+  height: 32px;
+  box-sizing: border-box;
   background: var(--surface2);
   border: 1px solid var(--border2);
-  border-radius: 10px;
+  border-radius: 999px;
   overflow: hidden;
+  padding: 0 2px;
 }
 
 .header-action-btn {
   display: flex;
   align-items: center;
   gap: 6px;
+  height: 26px;
   background: transparent;
   border: none;
-  border-right: 1px solid var(--border);
   color: var(--muted2);
   font-family: var(--font);
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 7px 12px;
+  padding: 0 12px;
+  border-radius: 999px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.13s, color 0.13s;
 }
+/* Separadores como líneas finas entre botones (no bordes de caja). */
+.header-action-btn + .header-action-btn { box-shadow: -1px 0 0 var(--border); }
+.header-action-btn:hover { box-shadow: none; }
+.header-action-btn:hover + .header-action-btn { box-shadow: none; }
 
-.header-action-btn:last-child { border-right: none; }
+.header-action-btn svg { opacity: 0.8; }
 
 .header-action-btn:hover {
   background: var(--surface3);
   color: var(--text);
 }
+.header-action-btn:hover svg { opacity: 1; }
 
 .header-action-btn--icon {
-  padding: 7px 10px;
+  padding: 0 9px;
 }
 
-/* Theme switcher */
+/* El switch de tema ahora es un botón más del grupo (misma clase); queda la
+   regla por si alguna vista lo usa suelto. */
 .btn-theme {
+  height: 26px;
   background: var(--surface2);
   border: 1px solid var(--border2);
-  border-radius: 20px;
+  border-radius: 999px;
   color: var(--muted2);
   font-family: var(--font);
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 6px 12px;
+  padding: 0 13px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
@@ -919,15 +948,21 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
 }
 
 /* ── Skeleton ── */
-.skeleton-list { padding: 10px 24px 14px; }
+.skeleton-list { padding: 10px 16px 14px; }
 
 .skeleton-item {
   height: 14px;
-  background: linear-gradient(90deg, var(--surface2) 25%, #1e1e1e 50%, var(--surface2) 75%);
+  /* Contraste alto a propósito: con el gris de --surface2 el bloque quedaba
+     casi invisible sobre la tarjeta y parecía un hueco vacío, no una carga. */
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.13) 50%, rgba(255,255,255,0.05) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.8s infinite;
   border-radius: 7px;
-  margin: 18px 0;
+  margin: 16px 0;
+}
+body.light .skeleton-item {
+  background: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.11) 50%, rgba(0,0,0,0.05) 75%);
+  background-size: 200% 100%;
 }
 
 .skeleton-item:nth-child(2) { width: 80%; animation-delay: 0.12s; }
@@ -950,7 +985,20 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
   font-size: 0.9rem;
   color: #ccc;
   line-height: 1.6;
-  min-height: 44px;
+  /* Altura FIJA de una línea: si la caja crecía al envolver el texto, cada
+     comentario largo empujaba toda la lista hacia abajo mientras se tipeaba. */
+  height: 49px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+/* Entre comentario y comentario: la caja se queda (reserva el alto) pero se
+   apaga, en vez de desaparecer y reaparecer. */
+.typing-preview--idle {
+  background: rgba(255,255,255,0.02);
+  border-color: var(--border);
 }
 
 .typing-preview::after {
@@ -959,6 +1007,7 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
   animation: blink 0.7s step-end infinite;
   margin-left: 1px;
 }
+.typing-preview--idle::after { opacity: 0.25; animation: none; }
 
 @keyframes blink {
   0%, 100% { opacity: 1; }
@@ -999,9 +1048,11 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
 .comentario-item:has(+ .comentario-item:hover)::after,
 .comentario-item:has(+ .comentario-item.selected)::after { opacity: 0; }
 
+/* Solo fade: con translateY, cada comentario que entraba arrastraba visualmente
+   a los de abajo y la lista parecía moverse todo el tiempo durante el stream. */
 @keyframes itemIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .comentario-item:hover {
@@ -2574,32 +2625,32 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
   .header-tag, .header-sep { display: none; }
 
-  .header-user { max-width: 130px; padding: 4px 8px; font-size: 0.68rem; }
+  /* Misma armonía que en desktop, un escalón más chico. */
+  .header-btn-group { height: 28px; }
+
+  /* En mobile queda solo el avatar: el mail completo no entra al lado del logo. */
+  .header-user-name { display: none; }
+  .header-user-av { width: 22px; height: 22px; font-size: 0.64rem; }
 
   .logo { height: 30px; }
 
   .header-actions { gap: 6px; }
 
-  .header-btn-group {
-    border-radius: 9px;
-    gap: 0;
-  }
-
   /* En mobile: solo icono, texto oculto */
   .header-action-btn {
-    padding: 8px 10px;
+    height: 22px;
+    padding: 0 9px;
     gap: 0;
   }
 
   .header-action-btn span { display: none; }
   .header-action-btn svg { width: 15px; height: 15px; }
 
-  .header-action-btn--icon { padding: 8px 10px; }
+  .header-action-btn--icon { padding: 0 8px; }
 
   .btn-theme {
     font-size: 0.7rem;
-    padding: 6px 10px;
-    border-radius: 9px;
+    padding: 0 10px;
     gap: 4px;
   }
 
@@ -2737,6 +2788,7 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
     margin: 0 14px 6px;
     padding: 10px 13px;
     font-size: 0.85rem;
+    height: 42px;   /* una línea, acorde al padding/tipografía de mobile */
   }
 
   #lista-comentarios { padding: 0 6px; }

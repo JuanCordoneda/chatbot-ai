@@ -4,31 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=1785300020" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
     .ax a { text-decoration: none; color: inherit; }
 
-    .ax-h {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 14px; padding: 14px 26px; box-sizing: border-box;
-      background: color-mix(in srgb, var(--bg) 88%, transparent);
-      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-      border-bottom: 1px solid rgba(255,255,255,0.12); box-shadow: 0 6px 24px rgba(0,0,0,0.16);
-    }
-    body.light .ax-h { box-shadow: 0 6px 24px rgba(0,0,0,0.07); border-bottom-color: var(--border); }
-    .ax-h-left { display: flex; align-items: center; gap: 13px; min-width: 0; }
-    .ax-h-left .ax-logo { height: 34px; width: auto; border-radius: 9px; }
-    .ax-sep { width: 1px; height: 20px; background: var(--border2); }
-    .ax-h-title { font-weight: 800; letter-spacing: -0.02em; font-size: 1.02rem; }
-    .ax-h-title .ax-dim { color: var(--faint); font-weight: 600; }
-    .ax-h-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .ax-userchip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px;
-      background: var(--surface2); border: 1px solid var(--border); border-radius: 100px; font-size: .84rem; }
-    .ax-userchip .ax-av { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
-      font-size: .72rem; font-weight: 700; color: #1a1a1a; background: var(--yellow); }
+    /* El header usa las clases compartidas de style.css (mismas que el home).
+       En el home vive dentro de .app, que tiene zoom 1.2: sin replicarlo acá se
+       vería ~17% más chico que en la herramienta. El zoom obliga a compensar el
+       ancho (100vw / 1.2) para que el fixed no desborde a la derecha. */
+    .header { zoom: 1.2; width: calc(100vw / 1.2); }
+    /* Mismo corte que style.css: en mobile el home resetea el zoom a 1. */
+    @media (max-width: 768px) { .header { zoom: 1; width: 100%; } }
 
     .ax-btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border2);
       background: var(--surface2); color: var(--text); padding: 9px 15px; border-radius: 11px; cursor: pointer;
@@ -44,7 +32,11 @@
     .ax-btn--sm { padding: 6px 11px; font-size: .8rem; border-radius: 9px; }
     .ax-btn--icon { padding: 7px; }
 
-    .ax-wrap { max-width: 1160px; margin: 0 auto; padding: 92px 24px 80px; position: relative; z-index: 1; }
+    /* 90px = alto real del header ya escalado (16+42+16 px × 1.2) + aire.
+       zoom 1.1: al 100% del navegador todo se veía chico (el header ya va a 1.2
+       por venir del home). Los modales llevan el mismo zoom aparte, porque son
+       fixed y quedan fuera de este contenedor. */
+    .ax-wrap { zoom: 1.1; max-width: 1160px; margin: 0 auto; padding: 98px 24px 80px; position: relative; z-index: 1; }
     .ax-page-h { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
     .ax-page-h h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; }
     .ax-page-h p { color: var(--faint); font-size: .9rem; margin-top: 3px; }
@@ -129,8 +121,53 @@
     .ax-mo { position: fixed; inset: 0; z-index: 90; display: none; align-items: center; justify-content: center; padding: 18px;
       background: rgba(0,0,0,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .ax-mo.ax-on { display: flex; }
-    .ax-modal { background: var(--surface); border: 1px solid var(--border2); border-radius: 22px; width: 100%; max-width: 620px;
-      max-height: 90vh; overflow: auto; padding: 26px; box-shadow: 0 40px 100px rgba(0,0,0,.6); animation: axpop .18s ease; }
+    .ax-modal { zoom: 1.1; background: var(--surface); border: 1px solid var(--border2); border-radius: 22px; width: 100%; max-width: 620px;
+      max-height: 84vh; overflow: auto; padding: 26px; box-shadow: 0 40px 100px rgba(0,0,0,.6); animation: axpop .18s ease; }
+    /* El de cliente es el más cargado (datos + rangos + prompt largo): va más
+       ancho y con la tipografía un escalón arriba, si no queda todo apretado. */
+    .ax-modal--lg { max-width: 940px; padding: 32px 34px; }
+    .ax-modal--lg h3 { font-size: 1.4rem; }
+    .ax-modal--lg .ax-msub { font-size: .9rem; margin-bottom: 22px; }
+    .ax-modal--lg .ax-field { margin-bottom: 18px; }
+    .ax-modal--lg .ax-field label { font-size: .86rem; }
+    .ax-modal--lg .ax-field input, .ax-modal--lg .ax-field select { padding: 12px 14px; font-size: .95rem; }
+    .ax-modal--lg .ax-grid2 { gap: 18px; }
+    .ax-modal--lg .ax-range-row { grid-template-columns: 110px 1fr 16px 1fr; }
+    .ax-modal--lg .ax-range-row input { padding: 10px 12px; font-size: .92rem; }
+    .ax-modal--lg .ax-help { font-size: .82rem; }
+
+    /* ── Editor de prompt ──────────────────────────────────────────────────
+       Es la tarea principal del modal, así que se lleva su propia columna y
+       toda la altura disponible: editar un prompt largo en una cajita de 200px
+       obligaba a scrollear dentro del scroll del modal. */
+    .ax-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 26px; align-items: start; }
+    .ax-split-prompt { position: sticky; top: 0; }
+    .ax-field--editor { display: flex; flex-direction: column; margin-bottom: 0; }
+    .ax-editor-meta { display: inline-flex; align-items: center; gap: 8px; }
+    .ax-editor-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted);
+      border-radius: 8px; width: 24px; height: 22px; line-height: 1; cursor: pointer; font-size: .8rem;
+      transition: color .13s, border-color .13s, background .13s; }
+    .ax-editor-btn:hover { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
+    /* Prosa, no código: el monoespaciado chico hacía pesada la lectura. */
+    .ax-field--editor textarea { flex: 1; min-height: 420px; resize: vertical;
+      font-family: var(--font); font-size: .92rem; line-height: 1.65; padding: 14px 16px; }
+    .ax-field--editor textarea::placeholder { color: var(--faint); }
+
+    /* Pantalla completa: el editor se come el modal entero. */
+    /* vw/vh se miden sin zoom: los dividimos por 1.1 para no desbordar. */
+    .ax-modal--full { max-width: calc(96vw / 1.1); height: calc(92vh / 1.1); max-height: none; display: flex; flex-direction: column; }
+    .ax-modal--full .ax-split { grid-template-columns: 1fr; flex: 1; min-height: 0; }
+    .ax-modal--full .ax-split-datos { display: none; }
+    .ax-modal--full .ax-split-prompt { height: 100%; }
+    .ax-modal--full .ax-field--editor { height: 100%; }
+    .ax-modal--full .ax-field--editor textarea { min-height: 0; height: 100%; resize: none; font-size: .98rem; }
+
+    /* Guardar siempre a mano, aunque el prompt sea larguísimo. */
+    .ax-modal-actions--sticky { position: sticky; bottom: -32px; align-items: center;
+      margin: 18px -34px -32px; padding: 16px 34px; background: var(--surface);
+      border-top: 1px solid var(--border); border-radius: 0 0 22px 22px; }
+    .ax-dirty { margin-right: auto; font-size: .8rem; font-weight: 600; color: var(--yellow); display: none; }
+    .ax-dirty.ax-on { display: inline; }
     @keyframes axpop { from { opacity: 0; transform: scale(.96) translateY(6px); } to { opacity: 1; transform: none; } }
     .ax-modal h3 { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 3px; }
     .ax-modal .ax-msub { color: var(--faint); font-size: .86rem; margin-bottom: 18px; }
@@ -185,30 +222,51 @@
 
     @media (max-width: 720px) {
       .ax-kpis { grid-template-columns: repeat(2, 1fr); }
+      /* En mobile no hace falta escalar: el ancho ya es el limitante. */
+      .ax-wrap, .ax-modal { zoom: 1; }
       .ax-wrap { padding: 84px 14px 60px; }
       .ax-uso-row { grid-template-columns: 110px 1fr 44px; gap: 8px; }
-      .ax-h-title .ax-dim { display: none; }
       .ax-grid2 { grid-template-columns: 1fr; }
+      .ax-modal--lg { padding: 22px 18px; }
+      /* Angosto: una sola columna, primero los datos y después el editor. */
+      .ax-split { grid-template-columns: 1fr; gap: 4px; }
+      .ax-split-prompt { position: static; }
+      .ax-field--editor textarea { min-height: 240px; }
+      .ax-modal-actions--sticky { margin: 14px -18px -22px; padding: 12px 18px; }
       .ax-page-h { flex-direction: column; align-items: stretch; }
       .ax-seg { overflow-x: auto; }
     }
   </style>
 </head>
 <body class="ax" data-is-admin="{{ 'true' if is_admin else 'false' }}" data-account="{{ account_id }}">
-  <header class="ax-h">
-    <div class="ax-h-left">
-      <img src="/static/growi.png" alt="GROWI" class="ax-logo" />
-      <span class="ax-sep"></span>
-      <span class="ax-h-title">{% if is_admin %}Admin <span class="ax-dim">· panel</span>{% else %}Mis clientes{% endif %}</span>
+  <!-- Mismo header que el home: comparte las clases de style.css (.header,
+       .logo, .header-user, .header-btn-group…) para que logo, tipografías y
+       botones sean idénticos en las dos páginas. -->
+  <header class="header">
+    <div class="header-left">
+      <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
+      <span class="header-sep"></span>
+      <span class="header-tag">{% if is_admin %}Administración{% else %}Mis clientes{% endif %}</span>
+      {% if username %}
+      <span class="header-sep"></span>
+      <span class="header-user" title="Sesión iniciada como {{ username }}">
+        <span class="header-user-av" id="me-av">{{ username[0]|upper }}</span>
+        <span class="header-user-name" id="me-name">{{ username }}</span>
+      </span>
+      {% endif %}
     </div>
-    <div class="ax-h-right">
-      <span class="ax-userchip"><span class="ax-av" id="me-av">A</span><span id="me-name">{{ username }}</span></span>
-      <button class="ax-btn ax-btn--sm" id="btn-theme" onclick="toggleTheme()">☀ Light</button>
-      <a class="ax-btn ax-btn--sm" href="/">
-        <svg viewBox="0 0 16 16" fill="none"><path d="M9.5 3.5L5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Herramienta
-      </a>
-      <a class="ax-btn ax-btn--sm ax-btn--danger" href="/logout">Salir</a>
+    <div class="header-actions">
+      <div class="header-btn-group">
+        <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
+        <a class="header-action-btn" href="/" title="Volver al generador de comentarios">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M9.5 3.5L5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Generador de comentarios
+        </a>
+        <a class="header-action-btn" href="/logout" title="Cerrar sesión">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Salir
+        </a>
+      </div>
     </div>
   </header>
 
@@ -320,11 +378,15 @@
 
   <!-- Modal cliente -->
   <div class="ax-mo" id="client-mo">
-    <div class="ax-modal">
+    <div class="ax-modal ax-modal--lg">
       <h3 id="client-title">Nuevo cliente</h3>
       <div class="ax-msub" id="client-subtitle">Se guarda en la base y el motor lo usa al instante, sin deploy.</div>
       <div class="ax-err" id="client-err"></div>
       <input type="hidden" id="client-id" />
+      <!-- Dos columnas: a la izquierda los datos, a la derecha el prompt a toda
+           la altura (es lo que más se edita y lo que más espacio necesita). -->
+      <div class="ax-split">
+      <div class="ax-split-datos">
       <div class="ax-grid2">
         <div class="ax-field">
           <label>@usuario de Instagram</label>
@@ -376,16 +438,29 @@
           <span>Al armar la orden en la herramienta, la cantidad se elige <b>sola al azar</b> dentro del rango — no un número fijo. Dejalo vacío si no querés autocompletar.</span>
         </div>
       </div>
-      <div class="ax-field">
-        <label>Instrucciones para la IA <span class="ax-hint" id="client-prompt-count">0 caracteres</span></label>
-        <textarea id="client-prompt" oninput="updatePromptCount()" placeholder="Ej: Actuá como seguidores reales de un influencer de fitness. Comentarios cortos y variados, con buena onda, en el idioma del post. Nada genérico tipo 'nice post' o 'great content'…"></textarea>
-        <div class="ax-help">
-          <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <span>Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos.</span>
+      </div><!-- /.ax-split-datos -->
+
+      <div class="ax-split-prompt">
+        <div class="ax-field ax-field--editor">
+          <label>
+            <span>Instrucciones para la IA</span>
+            <span class="ax-editor-meta">
+              <span class="ax-hint" id="client-prompt-count">0 caracteres</span>
+              <button type="button" class="ax-editor-btn" id="client-prompt-expand" onclick="togglePromptFull()" title="Pantalla completa (⌥E)">⤢</button>
+            </span>
+          </label>
+          <textarea id="client-prompt" spellcheck="true" oninput="updatePromptCount()" placeholder="Ej: Actuá como seguidores reales de un influencer de fitness. Comentarios cortos y variados, con buena onda, en el idioma del post. Nada genérico tipo 'nice post' o 'great content'…"></textarea>
+          <div class="ax-help">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos. Guardás con <b>⌘/Ctrl + Enter</b>.</span>
+          </div>
         </div>
       </div>
-      <div class="ax-modal-actions">
-        <button class="ax-btn" onclick="closeMo('client-mo')">Cancelar</button>
+      </div><!-- /.ax-split -->
+
+      <div class="ax-modal-actions ax-modal-actions--sticky">
+        <span class="ax-dirty" id="client-dirty">Cambios sin guardar</span>
+        <button class="ax-btn" onclick="closeClientModal()">Cancelar</button>
         <button class="ax-btn ax-btn--primary" id="client-save" onclick="saveClient()">Guardar cliente</button>
       </div>
     </div>
@@ -469,13 +544,13 @@
       <h3 id="confirm-title">¿Confirmás?</h3>
       <p id="confirm-text"></p>
       <div class="ax-modal-actions" style="justify-content:center;">
-        <button class="ax-btn" onclick="closeMo('confirm-mo')">Cancelar</button>
+        <button class="ax-btn" id="confirm-cancel">Cancelar</button>
         <button class="ax-btn ax-btn--danger" id="confirm-ok" style="border-color:rgba(255,90,90,.4)">Borrar</button>
       </div>
     </div>
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785300000"></script>
+  <script src="/static/admin.js?v=1785300020"></script>
 </body>
 </html>

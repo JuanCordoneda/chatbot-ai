@@ -320,19 +320,16 @@ function mostrarStep(nombre) {
   card.classList.remove("hidden");
 }
 
-function mostrarChunk(texto) {
-  const el = document.getElementById("typing-preview");
-  el.textContent = texto;
-  el.classList.remove("hidden");
+// La caja amarilla de "tipeando" quedó descartada: aparecía y desaparecía con
+// cada comentario y era puro ruido visual. Del chunk solo aprovechamos la señal
+// de que ya empezó a llegar texto, para sacar el skeleton.
+function mostrarChunk(_texto) {
   const skeleton = document.getElementById("skeleton-list");
   if (skeleton) skeleton.remove();
 }
 
-function ocultarChunk() {
-  const el = document.getElementById("typing-preview");
-  el.textContent = "";
-  el.classList.add("hidden");
-}
+function ocultarChunk() {}
+function finalizarChunk() {}
 
 // Orden de los bloques de contexto arriba de los comentarios:
 //   foto  → Pie de página, Descripción de imagen
@@ -459,8 +456,12 @@ function _refrescarSecciones() {
     if (cnt) cnt.textContent = items.length;
     // En mixto mantenemos Hombres y Mujeres visibles aunque estén vacías (para que
     // las 2 columnas estén desde el arranque). "otros" se oculta si queda vacía.
+    // ...pero solo una vez que empezaron a llegar comentarios: antes de eso el
+    // skeleton ya ocupa ese espacio y dos paneles "Todavía no hay..." vacíos
+    // debajo se ven como un hueco muerto.
     const g = sec.dataset.genero;
-    const mantener = esMixto && (g === "hombres" || g === "mujeres");
+    const hayAlguno = lista.querySelector(".comentario-item");
+    const mantener = esMixto && hayAlguno && (g === "hombres" || g === "mujeres");
     sec.classList.toggle("hidden", items.length === 0 && !mantener);
     items.forEach((it) => {
       n++;
@@ -696,6 +697,7 @@ function finalizarStream(meta) {
     pendingComentarios = [];
   }
   actualizarConteo();
+  finalizarChunk();
   hide("loading-overlay");
   document.getElementById("stream-status").textContent = "";
   document.getElementById("status-listo").classList.remove("hidden");

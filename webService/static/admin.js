@@ -65,9 +65,39 @@ function switchTab(name) {
 // ── Modales ──
 function openMo(id) { document.getElementById(id).classList.add("ax-on"); }
 function closeMo(id) { document.getElementById(id).classList.remove("ax-on"); }
-document.addEventListener("click", e => { if (e.target.classList.contains("ax-mo")) e.target.classList.remove("ax-on"); });
+document.addEventListener("click", e => {
+  if (!e.target.classList.contains("ax-mo")) return;
+  // El de cliente pasa por su propia guarda de cambios sin guardar.
+  if (e.target.id === "client-mo") { closeClientModal(); return; }
+  e.target.classList.remove("ax-on");
+});
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") document.querySelectorAll(".ax-mo.ax-on").forEach(m => m.classList.remove("ax-on"));
+  const enClienteEditor = document.getElementById("client-mo").classList.contains("ax-on");
+  const modal = document.querySelector("#client-mo .ax-modal");
+
+  // ⌘/Ctrl + Enter guarda desde el textarea (Enter suelto sigue siendo salto de línea).
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && enClienteEditor) {
+    e.preventDefault();
+    document.getElementById("client-save").click();
+    return;
+  }
+  // ⌥E entra y sale de pantalla completa sin soltar el teclado.
+  if (enClienteEditor && e.altKey && (e.key === "e" || e.key === "E" || e.code === "KeyE")) {
+    e.preventDefault();
+    togglePromptFull();
+    return;
+  }
+  if (e.key === "Escape") {
+    // Con el confirm abierto, Esc = Cancelar (y resuelve la promesa que espera).
+    if (document.getElementById("confirm-mo").classList.contains("ax-on")) {
+      document.getElementById("confirm-cancel").click();
+      return;
+    }
+    // Estando en pantalla completa, el primer Esc solo vuelve al modal normal.
+    if (enClienteEditor && modal.classList.contains("ax-modal--full")) { togglePromptFull(); return; }
+    if (enClienteEditor) { closeClientModal(); return; }
+    document.querySelectorAll(".ax-mo.ax-on").forEach(m => m.classList.remove("ax-on"));
+  }
   if (e.key === "Enter" && !e.shiftKey) {
     const open = document.querySelector(".ax-mo.ax-on");
     if (!open) return;
@@ -77,14 +107,26 @@ document.addEventListener("keydown", e => {
   }
 });
 
+// Cualquier campo del modal de cliente (no solo el prompt) refresca el aviso de
+// "cambios sin guardar".
+["input", "change"].forEach(ev =>
+  document.addEventListener(ev, e => {
+    if (e.target.closest && e.target.closest("#client-mo")) updatePromptCount();
+  })
+);
+
 function confirmDialog({ title, text, okLabel = "Borrar" }) {
   return new Promise(resolve => {
     document.getElementById("confirm-title").textContent = title;
     document.getElementById("confirm-text").textContent = text;
     const ok = document.getElementById("confirm-ok");
     ok.textContent = okLabel;
-    const done = v => { closeMo("confirm-mo"); ok.onclick = null; resolve(v); };
+    const cancel = document.getElementById("confirm-cancel");
+    // "Cancelar" TIENE que resolver la promesa: antes solo cerraba el modal y
+    // quien esperaba el confirm quedaba colgado para siempre.
+    const done = v => { closeMo("confirm-mo"); ok.onclick = null; cancel.onclick = null; resolve(v); };
     ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
     document.getElementById("confirm-mo").onclick = e => { if (e.target.id === "confirm-mo") done(false); };
     openMo("confirm-mo");
   });
@@ -235,9 +277,50 @@ function copyHandle(h) {
   navigator.clipboard?.writeText("@" + h).then(() => toast("@" + h + " copiado", "ok")).catch(() => {});
 }
 
+// Snapshot del formulario al abrir: sirve para avisar si se cierra con cambios
+// sin guardar (perder un prompt largo por un Esc de más es lo peor que puede
+// pasar en esta pantalla).
+let clientSnapshot = "";
+
+function _clientFormState() {
+  const v = (id) => document.getElementById(id).value;
+  return JSON.stringify([
+    v("client-ig"), v("client-name"), v("client-status"), v("client-gender"), v("client-prompt"),
+    ...["likes", "views", "shares"].flatMap(k => [v(`range-${k}-min`), v(`range-${k}-max`)]),
+  ]);
+}
+
+function clientIsDirty() { return _clientFormState() !== clientSnapshot; }
+
 function updatePromptCount() {
+  const txt = document.getElementById("client-prompt").value;
+  const palabras = txt.trim() ? txt.trim().split(/\s+/).length : 0;
   document.getElementById("client-prompt-count").textContent =
-    document.getElementById("client-prompt").value.length + " caracteres";
+    `${txt.length} caracteres · ${palabras} palabra${palabras === 1 ? "" : "s"}`;
+  document.getElementById("client-dirty").classList.toggle("ax-on", clientIsDirty());
+}
+
+// Pantalla completa del editor: esconde la columna de datos y deja el textarea
+// a toda la ventana, para prompts largos.
+function togglePromptFull() {
+  const modal = document.querySelector("#client-mo .ax-modal");
+  const full = modal.classList.toggle("ax-modal--full");
+  document.getElementById("client-prompt-expand").textContent = full ? "⤡" : "⤢";
+  document.getElementById("client-prompt").focus();
+}
+
+// Cierre con guarda: si hay cambios, se pregunta antes de descartar.
+async function closeClientModal() {
+  if (clientIsDirty()) {
+    const ok = await confirmDialog({
+      title: "¿Descartar los cambios?",
+      text: "Editaste el cliente y todavía no guardaste. Si cerrás, se pierde lo que escribiste.",
+      okLabel: "Descartar",
+    });
+    if (!ok) return;
+  }
+  document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
+  closeMo("client-mo");
 }
 
 function openClientModal(id) {
@@ -259,9 +342,13 @@ function openClientModal(id) {
     document.getElementById(`range-${k}-max`).value = rg[k] && rg[k].max != null ? rg[k].max : "";
   }
   document.getElementById("client-prompt").value = c ? c.prompt : "";
+  document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
+  document.getElementById("client-prompt-expand").textContent = "⤢";
+  clientSnapshot = _clientFormState();
   updatePromptCount();
   openMo("client-mo");
-  setTimeout(() => document.getElementById("client-ig").focus(), 50);
+  // Editando un cliente que ya existe, lo que se viene a tocar es el prompt.
+  setTimeout(() => document.getElementById(c ? "client-prompt" : "client-ig").focus(), 50);
 }
 
 async function saveClient() {
@@ -284,6 +371,8 @@ async function saveClient() {
   try {
     if (id) await api("PATCH", cliUrl(`/${id}`), payload);
     else await api("POST", cliUrl(), payload);
+    clientSnapshot = _clientFormState();   // guardado ⇒ ya no hay cambios pendientes
+    document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
     closeMo("client-mo");
     toast(id ? "Cliente actualizado" : "Cliente creado", "ok");
     loadClients();
