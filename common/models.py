@@ -103,6 +103,11 @@ class Client(Base):
     # Rangos min-max de cantidades por producto (TAREA 6). Ej:
     # {"likes": {"min": 800, "max": 1200}, "views": {...}, "shares": {...}}
     ranges = Column(JSON, nullable=True)
+    # Venta del CRM de la que salen los FONDOS de este cliente. Sin esto, todo el
+    # tráfico se descontaba del idventa del .env (una sola venta para todos).
+    # El idvendedor va aparte porque el CRM imputa la orden a ese par.
+    crm_idventa = Column(String(50), nullable=True)
+    crm_idvendedor = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 

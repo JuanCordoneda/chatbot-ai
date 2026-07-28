@@ -355,8 +355,10 @@ function mostrarScrape(data) {
   // likes/views/shares con un valor random dentro del rango configurado.
   if (data.ranges !== undefined) window._clientRanges = data.ranges || {};
   // @usuario del cliente: se usa para consultar qué cantidades ya se le enviaron
-  // y no repetirlas en la tirada automática.
-  if (data.owner_username) window._clientIg = data.owner_username;
+  // y, sobre todo, para saber de qué campaña sale la plata al enviar tráfico.
+  // Se pisa SIEMPRE, incluso vacío: antes, si un scrape no resolvía el dueño,
+  // quedaba el del post anterior y el tráfico se le cobraba a ese otro cliente.
+  window._clientIg = data.owner_username || "";
 
   hide("loading-overlay");
 

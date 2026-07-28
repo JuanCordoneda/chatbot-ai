@@ -111,7 +111,13 @@ document.addEventListener("keydown", e => {
 // "cambios sin guardar".
 ["input", "change"].forEach(ev =>
   document.addEventListener(ev, e => {
-    if (e.target.closest && e.target.closest("#client-mo")) updatePromptCount();
+    if (!e.target.closest || !e.target.closest("#client-mo")) return;
+    // Al cambiar el @usuario cambian las campañas del cliente: se repuebla la lista.
+    if (e.target.id === "client-ig") {
+      renderVentaSelect(e.target.value);
+      actualizarVentaHint();
+    }
+    updatePromptCount();
   })
 );
 
@@ -180,7 +186,9 @@ async function loadClients() {
   list.innerHTML =
     '<div class="ax-skeleton"></div><div class="ax-skeleton"></div><div class="ax-skeleton"></div>';
   try {
-    const { clients } = await api("GET", cliUrl());
+    // Las ventas del CRM se piden en paralelo: la tarjeta de cada cliente muestra
+    // el nombre y el saldo de la suya, no solo el id.
+    const [{ clients }] = await Promise.all([api("GET", cliUrl()), loadVentas()]);
     clientsCache = clients;
     renderClients(); renderKpis();
   } catch (e) { toast(e.message, "bad"); }
@@ -218,6 +226,197 @@ const GENDER_ICON = {
   none: '<svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="6" r="2.4" stroke="currentColor" stroke-width="1.3"/><path d="M2 13c0-2.2 1.8-3.5 4-3.5s4 1.3 4 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M11 4.2a2.4 2.4 0 010 4.6M13 13c0-2-1-3.2-2.5-3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
 };
 
+// ── Ventas del CRM: de dónde salen los fondos de cada cliente ────────────────
+// Hasta ahora TODO el tráfico se descontaba del idventa del .env (una sola venta
+// para todos los clientes). Cada cliente apunta ahora a la suya.
+let ventasCache = [];
+let ventasError = "";
+
+async function loadVentas() {
+  try {
+    const r = await api("GET", "/api/ventas");
+    ventasCache = r.ventas || [];
+    ventasError = "";
+  } catch (e) {
+    ventasCache = [];
+    ventasError = e.message || "No se pudieron leer las ventas del CRM";
+  }
+  renderVentaSelect();
+}
+
+// Saldo por debajo del cual la campaña ya no alcanza para mandar tráfico: es el
+// aviso que faltaba (la del .env venía descontando hasta quedar en $7).
+const VENTA_SALDO_BAJO = 5;
+
+function ventaById(id) {
+  return ventasCache.find(v => String(v.idventa) === String(id)) || null;
+}
+
+function saldoDe(v) { return parseFloat((v && v.disponible) || 0) || 0; }
+
+// Campañas de un cliente: se agrupan por el PERFIL de IG que trae el CRM, no por
+// el nombre — el mismo cliente figura como "Peter J Fouernier", "Peter Fournier"
+// y "Peter Fouernier" según quién la cargó.
+function ventasDe(igUsername) {
+  const ig = (igUsername || "").trim().toLowerCase();
+  if (!ig) return [];
+  return ventasCache.filter(v => v.ig_username === ig);
+}
+
+function fmtSaldo(n) { return `$${n.toFixed(2)}`; }
+
+// Lo que elige el backend cuando el cliente no tiene campaña asignada a mano:
+// la ÚLTIMA campaña de su perfil (activa si tiene alguna). Se replica acá para
+// que la pantalla muestre exactamente lo que se va a cobrar.
+function ultimaCampana(igUsername) {
+  const propias = ventasDe(igUsername);
+  if (!propias.length) return null;
+  const activas = propias.filter(v => v.activa);
+  const pool = activas.length ? activas : propias;
+  return pool.reduce((a, b) => ((b.fecha || "") > (a.fecha || "") ? b : a));
+}
+
+// La campaña que conviene proponer: activa, con más saldo, del propio cliente.
+function ventaSugerida(igUsername) {
+  const propias = ventasDe(igUsername).filter(v => v.activa && saldoDe(v) >= VENTA_SALDO_BAJO);
+  return propias.length ? propias.reduce((a, b) => saldoDe(b) > saldoDe(a) ? b : a) : null;
+}
+
+// Estado de fondos de un cliente, en un solo lugar: lo usan la tarjeta, el
+// modal y el contador de "faltan asignar".
+function estadoFondos(c) {
+  const propias = ventasDe(c.ig_username);
+  const total = propias.reduce((a, v) => a + saldoDe(v), 0);
+  const id = (c.crm_idventa || "").trim();
+  let v = id ? ventaById(id) : null;
+  let auto = false;
+  if (!v) {
+    // Sin asignación manual (o con una que ya no existe) se usa la última
+    // campaña del propio cliente. La por defecto es el último recurso.
+    v = ultimaCampana(c.ig_username);
+    auto = !!v;
+  }
+  const base = { propias, total, venta: v, auto };
+  if (!v) return { ...base, nivel: "warn", texto: "Sin campaña propia",
+    detalle: "Este perfil no tiene campañas en el CRM: paga la campaña por defecto de la cuenta." };
+  const saldo = saldoDe(v);
+  const suf = auto ? " · auto" : "";
+  if (saldo < VENTA_SALDO_BAJO) return { ...base, nivel: "bad", texto: `Queda ${fmtSaldo(saldo)}`,
+    detalle: "Casi sin saldo: pasalo a otra campaña de este cliente." };
+  if (!v.activa) return { ...base, nivel: "warn", texto: `${fmtSaldo(saldo)} · campaña vieja`,
+    detalle: "Ya no figura entre las campañas activas del CRM." };
+  return { ...base, nivel: "ok", texto: fmtSaldo(saldo) + suf, detalle: "" };
+}
+
+// Chip de fondos en la tarjeta del cliente. Dice de dónde sale la plata en
+// castellano, no un id suelto.
+function ventaBadge(c) {
+  const f = estadoFondos(c);
+  const icono = f.nivel === "ok" ? "💰" : "⚠";
+  const resumen = f.propias.length > 1
+    ? `<span class="ax-venta-extra" title="Este cliente tiene ${f.propias.length} campañas en el CRM, sumando ${fmtSaldo(f.total)}">+${f.propias.length - 1} camp. · ${fmtSaldo(f.total)} en total</span>`
+    : "";
+  const cls = f.nivel === "ok" ? "" : ` ax-venta--${f.nivel}`;
+  const title = `Paga con: ${f.venta ? `#${f.venta.idventa} ${f.venta.nombre}` : "—"}${f.detalle ? ". " + f.detalle : ""}`;
+  return `<span class="ax-venta${cls}" title="${esc(title)}">${icono} ${esc(f.texto)}</span>${resumen}`;
+}
+
+function _ventaOption(v) {
+  const marca = v.activa ? "" : " · vieja";
+  return `<option value="${esc(v.idventa)}">#${esc(v.idventa)} · ${fmtSaldo(saldoDe(v))} · ${esc(v.nombre)}${marca}</option>`;
+}
+
+// Repuebla el <select> del modal. Primero las campañas DEL cliente (que es entre
+// las que se va a querer ir moviendo), después el resto.
+function renderVentaSelect(igUsername) {
+  const sel = document.getElementById("client-venta");
+  if (!sel) return;
+  const actual = sel.value;
+  const ig = (igUsername || "").trim().toLowerCase();
+  const propias = ventasDe(ig);
+  const otras = ventasCache.filter(v => v.ig_username !== ig);
+
+  const ult = ultimaCampana(ig);
+  let html = `<option value="">Automático — ${ult ? `última campaña (#${esc(ult.idventa)} · ${fmtSaldo(saldoDe(ult))})` : "campaña por defecto de la cuenta"}</option>`;
+  if (propias.length) {
+    const total = propias.reduce((a, v) => a + saldoDe(v), 0);
+    html += `<optgroup label="Campañas de @${esc(ig)} — ${fmtSaldo(total)} disponibles">${propias.map(_ventaOption).join("")}</optgroup>`;
+  }
+  if (otras.length) {
+    html += `<optgroup label="${propias.length ? "Otras campañas" : "Todas las campañas"}">${otras.map(_ventaOption).join("")}</optgroup>`;
+  }
+  sel.innerHTML = html;
+  sel.value = actual;
+  actualizarVentaHint();
+}
+
+// Ficha de la campaña elegida, debajo del select: saldo grande, a nombre de
+// quién está y desde cuándo. Es lo que responde "¿de dónde sale la plata?".
+function actualizarVentaHint() {
+  const hint = document.getElementById("client-venta-hint");
+  const box = document.getElementById("client-venta-detalle");
+  if (!hint || !box) return;
+
+  const ig = (document.getElementById("client-ig").value || "").trim().toLowerCase();
+  const propias = ventasDe(ig);
+  hint.textContent = ventasError
+    ? ventasError
+    : (propias.length
+        ? `${propias.length} campaña${propias.length === 1 ? "" : "s"} de @${ig} · ${fmtSaldo(propias.reduce((a, v) => a + saldoDe(v), 0))} en total`
+        : `${ventasCache.length} campañas en el CRM`);
+
+  const v = ventaById(document.getElementById("client-venta").value);
+  if (!v) {
+    // Sin elección manual manda el automático: la última campaña del cliente.
+    const ult = ultimaCampana(ig);
+    if (ult) {
+      box.className = "ax-venta-detalle";
+      box.innerHTML = `
+        <div class="ax-vd-main">
+          <div class="ax-vd-title">Automático · ${fmtSaldo(saldoDe(ult))}
+            <span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Última campaña</span>
+          </div>
+          <div class="ax-vd-sub">Va a cobrar de la #${esc(ult.idventa)} · ${esc(ult.nombre)}${ult.fecha ? ` · del ${esc(ult.fecha.slice(0, 10))}` : ""}. Cuando cargue una campaña nueva, pasa sola a esa.</div>
+        </div>`;
+      return;
+    }
+    box.className = "ax-venta-detalle ax-venta-detalle--warn";
+    box.innerHTML = `
+      <div class="ax-vd-main">
+        <div class="ax-vd-title">Sin campañas propias</div>
+        <div class="ax-vd-sub">Este perfil no tiene ninguna campaña en el CRM, así que el tráfico se descuenta de la campaña por defecto de la cuenta.</div>
+      </div>`;
+    return;
+  }
+
+  const saldo = saldoDe(v);
+  const bajo = saldo < VENTA_SALDO_BAJO;
+  const sug = ventaSugerida(ig);
+  const mejor = sug && sug.idventa !== v.idventa && saldoDe(sug) > saldo;
+  box.className = "ax-venta-detalle" + (bajo ? " ax-venta-detalle--bad" : (!v.activa ? " ax-venta-detalle--warn" : ""));
+  box.innerHTML = `
+    <div class="ax-vd-main">
+      <div class="ax-vd-title">${fmtSaldo(saldo)} disponibles
+        ${v.activa ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Activa</span>'
+                   : '<span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Vieja</span>'}
+      </div>
+      <div class="ax-vd-sub">Campaña #${esc(v.idventa)} · ${esc(v.nombre)}${v.fecha ? ` · desde el ${esc(v.fecha.slice(0, 10))}` : ""}</div>
+      ${bajo ? '<div class="ax-vd-alert">Casi sin saldo: el tráfico va a fallar. Pasalo a otra campaña.</div>' : ""}
+      ${!bajo && !v.activa ? '<div class="ax-vd-alert">Ya no está entre las campañas activas del CRM.</div>' : ""}
+    </div>
+    ${mejor ? `<button type="button" class="ax-btn ax-btn--sm" onclick="usarVentaSugerida()">Pasar a #${esc(sug.idventa)} · ${fmtSaldo(saldoDe(sug))}</button>` : ""}`;
+}
+
+// Botón "usar la de más saldo": evita tener que leer toda la lista.
+function usarVentaSugerida() {
+  const ig = (document.getElementById("client-ig").value || "").trim().toLowerCase();
+  const sug = ventaSugerida(ig);
+  if (!sug) return;
+  document.getElementById("client-venta").value = sug.idventa;
+  actualizarVentaHint();
+  updatePromptCount();   // refresca el aviso de cambios sin guardar
+}
+
 function clientCard(c) {
   return `
     <div class="ax-card ${c.status === "paused" ? "ax-dimmed" : ""}">
@@ -229,7 +428,8 @@ function clientCard(c) {
             : '<span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pausado</span>'}
         </div>
         <div class="ax-sub"><span class="ax-handle" title="Copiar" onclick="copyHandle('${esc(c.ig_username)}')">@${esc(c.ig_username)}</span>
-          · ${(c.prompt || "").length} car. de prompt</div>
+          · ${(c.prompt || "").length} car. de prompt
+          · ${ventaBadge(c)}</div>
       </div>
       <div class="ax-acts">
         <button class="ax-btn ax-btn--sm" onclick="openClientModal(${c.id})">Editar</button>
@@ -241,7 +441,24 @@ function clientCard(c) {
     </div>`;
 }
 
+// Resumen arriba de la lista: qué falta para que cada cliente pague lo suyo.
+function renderFondosAlert() {
+  const box = document.getElementById("fondos-alert");
+  if (!box) return;
+  const activos = clientsCache.filter(c => c.status === "active");
+  const estados = activos.map(estadoFondos);
+  const sinPropia = estados.filter(f => !f.venta).length;   // caen en la por defecto
+  const flojos = estados.filter(f => f.venta && f.nivel !== "ok").length;
+  if (!ventasCache.length || (!sinPropia && !flojos)) { box.classList.remove("ax-on"); return; }
+  const partes = [];
+  if (sinPropia) partes.push(`<b>${sinPropia}</b> sin campañas en el CRM: pagan de la campaña por defecto`);
+  if (flojos) partes.push(`<b>${flojos}</b> con la campaña casi sin saldo o vencida`);
+  box.innerHTML = `💰 ${partes.join(" · ")}.`;
+  box.classList.add("ax-on");
+}
+
 function renderClients() {
+  renderFondosAlert();
   const q = (document.getElementById("cli-search").value || "").trim().toLowerCase();
   const list = document.getElementById("clientes-list");
   const items = clientsCache.filter(c =>
@@ -285,7 +502,8 @@ let clientSnapshot = "";
 function _clientFormState() {
   const v = (id) => document.getElementById(id).value;
   return JSON.stringify([
-    v("client-ig"), v("client-name"), v("client-status"), v("client-gender"), v("client-prompt"),
+    v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
+    v("client-venta"), v("client-prompt"),
     ...["likes", "views", "shares"].flatMap(k => [v(`range-${k}-min`), v(`range-${k}-max`)]),
   ]);
 }
@@ -295,8 +513,10 @@ function clientIsDirty() { return _clientFormState() !== clientSnapshot; }
 function updatePromptCount() {
   const txt = document.getElementById("client-prompt").value;
   const palabras = txt.trim() ? txt.trim().split(/\s+/).length : 0;
-  document.getElementById("client-prompt-count").textContent =
-    `${txt.length} caracteres · ${palabras} palabra${palabras === 1 ? "" : "s"}`;
+  const resumen = `${txt.length} caracteres · ${palabras} palabra${palabras === 1 ? "" : "s"}`;
+  document.getElementById("client-prompt-count").textContent = resumen;
+  document.getElementById("client-prompt-teaser-count").textContent =
+    txt.trim() ? resumen : "Todavía sin instrucciones";
   document.getElementById("client-dirty").classList.toggle("ax-on", clientIsDirty());
 }
 
@@ -306,8 +526,8 @@ function togglePromptFull() {
   const modal = document.querySelector("#client-mo .ax-modal");
   const full = modal.classList.toggle("ax-modal--full");
   modal.querySelector(".ax-editor-btn-ico").textContent = full ? "⤡" : "⤢";
-  document.getElementById("client-prompt-expand-txt").textContent = full ? "Achicar prompt" : "Agrandar prompt";
-  document.getElementById("client-prompt").focus();
+  document.getElementById("client-prompt-expand-txt").textContent = full ? "Volver a los datos" : "Agrandar prompt";
+  if (full) document.getElementById("client-prompt").focus();
 }
 
 // Cierre con guarda: si hay cambios, se pregunta antes de descartar.
@@ -338,6 +558,9 @@ function openClientModal(id) {
   document.getElementById("client-name").value = c ? c.display_name : "";
   document.getElementById("client-status").value = c ? c.status : "active";
   document.getElementById("client-gender").value = c && c.gender ? c.gender : "";
+  renderVentaSelect(c ? c.ig_username : document.getElementById("client-ig").value);
+  document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
+  actualizarVentaHint();
   const rg = (c && c.ranges) || {};
   for (const k of ["likes", "views", "shares"]) {
     document.getElementById(`range-${k}-min`).value = rg[k] && rg[k].min != null ? rg[k].min : "";
@@ -350,8 +573,8 @@ function openClientModal(id) {
   clientSnapshot = _clientFormState();
   updatePromptCount();
   openMo("client-mo");
-  // Editando un cliente que ya existe, lo que se viene a tocar es el prompt.
-  setTimeout(() => document.getElementById(c ? "client-prompt" : "client-ig").focus(), 50);
+  // El prompt arranca oculto, así que el foco va siempre al primer dato.
+  setTimeout(() => document.getElementById("client-ig").focus(), 50);
 }
 
 async function saveClient() {
@@ -369,6 +592,10 @@ async function saveClient() {
     gender: document.getElementById("client-gender").value,
     ranges,
     prompt: document.getElementById("client-prompt").value,
+    // El idvendedor viaja junto al idventa: el CRM imputa la orden a ese par, y
+    // mezclar la venta de uno con el vendedor de otro la rechaza o la imputa mal.
+    crm_idventa: document.getElementById("client-venta").value,
+    crm_idvendedor: (ventaById(document.getElementById("client-venta").value) || {}).idvendedor || "",
   };
   const btn = document.getElementById("client-save"); btn.disabled = true;
   try {

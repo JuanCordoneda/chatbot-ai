@@ -314,7 +314,7 @@ def procesar_post_web():
     def run():
         from modules.post_processor import scrape_post
         from modules.ai_generator import generar_comentarios_stream
-        from modules.engagement_flow import detectar_cliente
+        from modules.engagement_flow import detectar_cliente, alias_owner
 
         job = _jobs[job_id]
         try:
@@ -329,7 +329,9 @@ def procesar_post_web():
                     fast_preview = _fetch_fast(shortcode)
                     if fast_preview.get("caption") or fast_preview.get("owner_username"):
                         url_is_video = is_video_url(post_url)
-                        preview_owner = fast_preview.get("owner_username", "")
+                        # Mismo alias de collab que abajo: el preview también
+                        # alimenta el _clientIg del front.
+                        preview_owner = alias_owner(fast_preview.get("owner_username", "")) or ""
                         preview_client_id = detectar_cliente(preview_owner) if preview_owner else None
                         preview_meta = {
                             "caption": fast_preview.get("caption", ""),
@@ -370,14 +372,23 @@ def procesar_post_web():
             elif post_data.photo_description:
                 job["progreso"].append("Imagen analizada.")
 
-            client_id = detectar_cliente(post_data.owner_username) if post_data.owner_username else None
-            print(f"[client] owner_username={post_data.owner_username!r} → client_id={client_id!r}", flush=True)
+            # Collabs: un post publicado desde la cuenta partner es del cliente
+            # principal. Resolvemos el alias UNA vez, acá, y de ahí en adelante
+            # todo (prompt, rangos, género y la CAMPAÑA de la que sale la plata)
+            # usa el @usuario del cliente real. Antes el alias solo lo aplicaba
+            # detectar_cliente por dentro: el resto del flujo veía la cuenta de
+            # la collab, no encontraba campaña y el tráfico se le descontaba a
+            # la venta por defecto del .env.
+            owner_ig = alias_owner(post_data.owner_username) if post_data.owner_username else None
+            client_id = detectar_cliente(owner_ig) if owner_ig else None
+            print(f"[client] owner_username={post_data.owner_username!r} → owner_ig={owner_ig!r} "
+                  f"→ client_id={client_id!r}", flush=True)
             if client_id:
                 job["progreso"].append(f"Cliente detectado: {client_id}")
 
-            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_username);
+            # Prompt: si hay cliente mapeado usamos su propio prompt (owner_ig);
             # si no hay cliente asignado, usamos igual el prompt de Peter Fournier.
-            prompt_client_id = post_data.owner_username.lower() if client_id else "peterjfournier"
+            prompt_client_id = owner_ig.lower() if client_id else "peterjfournier"
 
             # Rangos de cantidades del cliente (TAREA 6): el front los usa para
             # autocompletar likes/views/shares con un valor random dentro del rango.
@@ -385,7 +396,7 @@ def procesar_post_web():
             client_gender = None
             try:
                 from common import repository as _repo
-                row = _repo.get_client_by_ig_username(post_data.owner_username) if post_data.owner_username else None
+                row = _repo.get_client_by_ig_username(owner_ig) if owner_ig else None
                 if row:
                     ranges = row.get("ranges") or {}
                     client_gender = row.get("gender")  # male/female/None -> formato de salida
@@ -394,7 +405,9 @@ def procesar_post_web():
 
             job["meta"] = {
                 "client_id": client_id or post_data.owner_full_name or post_data.owner_username,
-                "owner_username": post_data.owner_username,
+                # Ya con el alias resuelto: es el @usuario con el que el front
+                # pide la campaña al enviar tráfico.
+                "owner_username": owner_ig or post_data.owner_username,
                 "transcription": post_data.transcription,
                 "photo_description": post_data.photo_description,
                 "caption": post_data.caption,

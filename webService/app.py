@@ -3,6 +3,7 @@ from functools import wraps
 import requests
 import os
 import json
+import re
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "growi-secret-2026")
@@ -106,8 +107,27 @@ def _account_crm_cfg(account_id):
     return _env_crm_cfg()
 
 
-def _growi_login_with(cfg):
-    """Abre una sesión autenticada contra el CRM con las credenciales dadas."""
+class GrowiAuthError(RuntimeError):
+    """El CRM no nos dejó entrar. Existe para que el front muestre el motivo:
+    antes un login rechazado se veía como un `401 Unauthorized` pelado sobre
+    enviar_trafico.php, que no dice nada de lo que realmente pasó."""
+
+
+def _growi_session_ok(s, url):
+    """True/False si la sesión quedó autenticada; None si no se pudo comprobar
+    (timeout, red). El None importa: un problema de red no es un login rechazado."""
+    try:
+        return s.get(f"{url}/paginas/trafico.php", allow_redirects=False,
+                     timeout=15).status_code == 200
+    except Exception as e:
+        print(f"[growi-web] no pude verificar la sesión ({e!r})", flush=True)
+        return None
+
+
+def _growi_login_with(cfg, verify=True):
+    """Abre una sesión autenticada contra el CRM con las credenciales dadas.
+    Con verify, comprueba que el login haya funcionado de verdad (mismo patrón
+    que openAIService/growi_client) y falla fuerte si no."""
     s = requests.Session()
     s.headers.update({"user-agent": _GROWI_USER_AGENT})
     proxy = cfg.get("crm_proxy")
@@ -124,6 +144,11 @@ def _growi_login_with(cfg):
         },
         timeout=15,
     )
+    if verify and _growi_session_ok(s, url) is False:
+        raise GrowiAuthError(
+            f"El CRM rechazó el login de {cfg.get('crm_email') or '(sin email)'}. "
+            "Revisá el usuario y la contraseña de Growi en la ficha del vendedor."
+        )
     return s
 
 
@@ -133,7 +158,9 @@ def _growi_validate_credentials(cfg):
     al login = credenciales inválidas. Mismo patrón que openAIService/growi_client."""
     url = cfg.get("crm_url") or GROWI_CRM_URL
     try:
-        s = _growi_login_with(cfg)
+        # verify=False: acá el chequeo lo hacemos nosotros y queremos un bool,
+        # no una excepción (esto valida credenciales que el usuario está cargando).
+        s = _growi_login_with(cfg, verify=False)
         check = s.get(f"{url}/paginas/trafico.php", allow_redirects=False, timeout=15)
         return check.status_code == 200
     except Exception as e:
@@ -179,10 +206,16 @@ def _growi_request(method, path, account_id=None, **kwargs):
         if resp.status_code != 401:
             return resp
         print(f"[growi-web] 401 en intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
+        _growi_sessions.pop(account_id, None)
         cfg = _account_crm_cfg(account_id)
         entry = {"session": _growi_login_with(cfg), "cfg": cfg}
         _growi_sessions[account_id] = entry
-    return resp
+    # Cuatro logins frescos y el CRM sigue diciendo 401: no es mala suerte de IP,
+    # es que no estamos entrando. Lo decimos con todas las letras.
+    raise GrowiAuthError(
+        f"El CRM devolvió 401 en {path} después de 4 logins. La sesión de Growi "
+        "no se está abriendo: revisá las credenciales del vendedor y el proxy."
+    )
 
 
 def _authenticate_db_user(identifier, password):
@@ -549,15 +582,23 @@ def enviar_trafico():
         _log_uso("enviar_trafico", post_url=data.get("url"), client_ig_username=cliente_ig,
                  qty=qty, product_type=_tipo_producto(o.get("prod") or ""))
 
-    # Credenciales del CRM del vendedor logueado (idvendedor/idventa/disponible
-    # propios). Cae al .env global si la cuenta no los tiene cargados.
+    # De qué campaña salen los FONDOS: la asignada al cliente, si no la última
+    # campaña de su propio perfil, y recién si no hay ninguna la de por defecto.
+    # Antes iba fija la del .env y todo el tráfico se descontaba de la misma.
     cfg = _account_crm_cfg(session.get("account_id"))
-    idvendedor = cfg.get("crm_idvendedor") or GROWI_IDVENDEDOR
-    idventa    = cfg.get("crm_idventa") or GROWI_IDVENTA
-    try:
-        disponible_default = float(cfg.get("crm_disponible") or DISPONIBLE)
-    except (TypeError, ValueError):
-        disponible_default = DISPONIBLE
+    fondos = resolver_venta(session.get("account_id"), cliente_ig)
+    idventa, idvendedor = fondos["idventa"], fondos["idvendedor"]
+    print(f"[fondos] @{cliente_ig or '—'} → idventa {idventa} "
+          f"({fondos['origen']}: {fondos['detalle']}, saldo {fondos['saldo']})", flush=True)
+    # El disponible que informamos al CRM es el saldo REAL de esa campaña; el
+    # valor de config queda como respaldo si no se pudo leer.
+    if fondos["saldo"] is not None:
+        disponible_default = fondos["saldo"]
+    else:
+        try:
+            disponible_default = float(cfg.get("crm_disponible") or DISPONIBLE)
+        except (TypeError, ValueError):
+            disponible_default = DISPONIBLE
     crm_base = _crm_base()
 
     # Obtener fecha/hora del servidor en AR
@@ -751,6 +792,227 @@ def admin_usuarios_update(user_id):
 
 
 # --- Clientes (scoped al vendedor elegido: ?vendedor=<account_id>) ---
+# ── Campañas / ventas del CRM (de dónde salen los fondos) ───────────────────────
+# El CRM no expone un JSON: la grilla del paso 1 de trafico.php se puebla con
+# POST /paginas/traer_campanas.php (antiguas=0 activas, =1 también las viejas) y
+# devuelve HTML con un botón por campaña que trae todo en data-attributes.
+# Ya viene acotado al vendedor logueado, así que cada cuenta ve solo las suyas.
+# OJO: el CRM mezcla comillas simples y dobles en esos atributos.
+_VENTA_BTN_RE = re.compile(
+    r"""<button[^>]*seleccionar-cliente[^>]*>""", re.I)
+_VENTA_ATTR_RE = re.compile(r"""(data-[\w-]+)\s*=\s*["']([^"']*)["']""")
+
+
+def _parse_ventas(html):
+    ventas, vistos = [], set()
+    for btn in _VENTA_BTN_RE.findall(html):
+        a = dict(_VENTA_ATTR_RE.findall(btn))
+        idventa = (a.get("data-id") or "").strip()
+        if not idventa or idventa in vistos:
+            continue
+        vistos.add(idventa)
+        ventas.append({
+            "idventa": idventa,
+            "idvendedor": (a.get("data-idvendedor") or "").strip(),
+            "nombre": (a.get("data-nombre") or "").strip(),
+            "correo": (a.get("data-correo") or "").strip(),
+            "vendedor": (a.get("data-vendedor") or "").strip(),
+            "estado": (a.get("data-estadoventa") or "").strip(),
+            "disponible": (a.get("data-cantidad-disponible") or "").strip(),
+            "monto": (a.get("data-monto") or "").strip(),
+            "fecha": (a.get("data-fecha") or "").strip(),
+        })
+    # Más saldo primero: es lo que se mira al elegir de dónde sacar los fondos.
+    ventas.sort(key=_venta_saldo, reverse=True)
+    return ventas
+
+
+def _venta_saldo(v):
+    try:
+        return float(v.get("disponible") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# A qué perfil de IG pertenece cada campaña. El nombre del CRM no sirve para
+# agrupar ("Peter J Fouernier" / "Peter Fournier" / "Peter Fouernier" son la misma
+# persona), pero editarv.php trae el cliente_url, que es el perfil real. Una
+# campaña no cambia de perfil, así que se cachea sin vencimiento.
+_VENTA_IG_CACHE = {}
+_IG_URL_RE = re.compile(r"instagram\.com/+([^/?#\s]+)", re.I)
+
+
+def _venta_ig_username(account_id, idventa):
+    key = (account_id, str(idventa))
+    if key in _VENTA_IG_CACHE:
+        return _VENTA_IG_CACHE[key]
+    ig = ""
+    try:
+        resp = _growi_request(
+            "GET", f"/paginas/editarv.php?idv={idventa}", account_id=account_id, timeout=20,
+            headers={
+                "referer": f"{_crm_base(account_id)}/paginas/ventas.php",
+                "x-requested-with": "XMLHttpRequest",
+            },
+        )
+        if resp.status_code == 200:
+            m = _IG_URL_RE.search((resp.json() or {}).get("cliente_url") or "")
+            if m:
+                ig = m.group(1).strip().lower()
+    except Exception as e:
+        print(f"[ventas] no pude resolver el perfil de la campaña {idventa}: {e!r}", flush=True)
+    _VENTA_IG_CACHE[key] = ig
+    return ig
+
+
+def _agregar_ig_a_ventas(account_id, ventas):
+    """Completa el @usuario de cada campaña. En paralelo porque son 20-120
+    pedidos y en serie la pantalla tardaba demasiado en abrir."""
+    from concurrent.futures import ThreadPoolExecutor
+    pendientes = [v for v in ventas if (account_id, v["idventa"]) not in _VENTA_IG_CACHE]
+    if pendientes:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            list(pool.map(lambda v: _venta_ig_username(account_id, v["idventa"]), pendientes))
+    for v in ventas:
+        v["ig_username"] = _VENTA_IG_CACHE.get((account_id, v["idventa"]), "")
+    return ventas
+
+
+# Listado de campañas por cuenta. TTL corto: el saldo cambia con cada envío, pero
+# pedirlo en cada request costaría los ~120 pedidos de resolución de perfil.
+_VENTAS_CACHE = {}
+_VENTAS_TTL = 300
+
+
+def _traer_ventas(account_id, usar_cache=True):
+    import time
+    entry = _VENTAS_CACHE.get(account_id)
+    if usar_cache and entry and (time.time() - entry[0]) < _VENTAS_TTL:
+        return entry[1]
+
+    def _post(antiguas):
+        resp = _growi_request(
+            "POST", "/paginas/traer_campanas.php", account_id=account_id, timeout=60,
+            data={"antiguas": antiguas},
+            headers={
+                "referer": f"{_crm_base(account_id)}/paginas/trafico.php",
+                "x-requested-with": "XMLHttpRequest",
+            },
+        )
+        resp.raise_for_status()
+        return _parse_ventas(resp.text)
+
+    activas = _post("0")
+    ids_activas = {v["idventa"] for v in activas}
+    por_id = {v["idventa"]: v for v in _post("1")}
+    for v in activas:
+        por_id.setdefault(v["idventa"], v)
+    ventas = list(por_id.values())
+    for v in ventas:
+        v["activa"] = v["idventa"] in ids_activas
+    _agregar_ig_a_ventas(account_id, ventas)
+    ventas.sort(key=lambda v: (not v["activa"], -_venta_saldo(v)))
+    _VENTAS_CACHE[account_id] = (time.time(), ventas)
+    return ventas
+
+
+def _ultima_campana(ventas, ig_username):
+    """La campaña MÁS RECIENTE del perfil. Se prefiere entre las activas; si el
+    cliente no tiene ninguna activa, se cae a la última histórica."""
+    ig = (ig_username or "").strip().lstrip("@").lower()
+    if not ig:
+        return None
+    propias = [v for v in ventas if v.get("ig_username") == ig]
+    if not propias:
+        return None
+    activas = [v for v in propias if v.get("activa")]
+    pool = activas or propias
+    return max(pool, key=lambda v: (v.get("fecha") or "", _venta_saldo(v)))
+
+
+def resolver_venta(account_id, ig_username):
+    """De dónde sale la plata para este cliente, en orden:
+       1) la campaña asignada a mano en Mis clientes,
+       2) la ÚLTIMA campaña de su propio perfil de IG (lo normal),
+       3) la campaña por defecto de la cuenta / .env — solo si no hay match.
+    Devuelve dict con idventa, idvendedor, origen, detalle y saldo (None si no
+    se pudo leer la campaña)."""
+    ig = (ig_username or "").strip().lstrip("@").lower()
+    cfg = _account_crm_cfg(account_id)
+    default = {
+        "idventa": cfg.get("crm_idventa") or GROWI_IDVENTA,
+        "idvendedor": cfg.get("crm_idvendedor") or GROWI_IDVENDEDOR,
+        "origen": "default",
+        "detalle": "campaña por defecto de la cuenta",
+        "saldo": None,
+    }
+
+    ventas = []
+    try:
+        ventas = _traer_ventas(account_id)
+    except Exception as e:
+        print(f"[fondos] no pude leer las campañas ({e!r}); uso la de por defecto", flush=True)
+
+    # 1) Asignación manual: manda siempre, pero solo si la campaña sigue existiendo.
+    if _repo is not None and ig:
+        try:
+            cli = _repo.get_client_by_ig_username(ig, account_id)
+        except Exception:
+            cli = None
+        manual = (cli or {}).get("crm_idventa") or ""
+        if manual:
+            v = next((x for x in ventas if x["idventa"] == manual), None)
+            if v or not ventas:
+                return {
+                    "idventa": manual,
+                    "idvendedor": (v or {}).get("idvendedor") or (cli or {}).get("crm_idvendedor") or default["idvendedor"],
+                    "origen": "manual",
+                    "detalle": f"campaña #{manual} asignada al cliente",
+                    "saldo": _venta_saldo(v) if v else None,
+                }
+            print(f"[fondos] la campaña #{manual} de @{ig} ya no existe; busco la última", flush=True)
+
+    # 2) Última campaña del propio perfil.
+    v = _ultima_campana(ventas, ig)
+    if v:
+        return {
+            "idventa": v["idventa"],
+            "idvendedor": v["idvendedor"] or default["idvendedor"],
+            "origen": "auto",
+            "detalle": f"última campaña de @{ig} (#{v['idventa']}, {v['nombre']})",
+            "saldo": _venta_saldo(v),
+        }
+
+    # 3) Sin similitudes: la de por defecto.
+    return default
+
+
+@app.route("/api/ventas", methods=["GET"])
+@require_login
+def ventas_crm():
+    """Campañas del CRM de la cuenta logueada, con su saldo disponible y el perfil
+    de IG al que pertenecen. El front las usa para asignarle a cada cliente de qué
+    campaña salen sus fondos, y para poder ir cambiando entre las suyas.
+
+    Trae SIEMPRE activas + antiguas: cada campaña viene marcada con "activa", para
+    que se vea el saldo remanente de las viejas sin perder de vista cuál es la
+    vigente. ?ig=<usuario> filtra las de un perfil."""
+    try:
+        account_id = _target_account_id() if session.get("is_admin") else session.get("account_id")
+    except Exception:
+        account_id = session.get("account_id")
+
+    try:
+        ventas = _traer_ventas(account_id, usar_cache=request.args.get("fresh") != "1")
+        ig = (request.args.get("ig") or "").strip().lstrip("@").lower()
+        if ig:
+            ventas = [v for v in ventas if v["ig_username"] == ig]
+        return jsonify({"ventas": ventas})
+    except Exception as e:
+        print(f"[ventas] error leyendo traer_campanas.php: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e), "ventas": []}), 502
+
+
 @app.route("/api/admin/clients", methods=["GET"])
 @require_login
 @_repo_error_response
@@ -771,6 +1033,8 @@ def admin_clients_create():
         status=d.get("status", "active"),
         gender=d.get("gender"),
         ranges=d.get("ranges"),
+        crm_idventa=d.get("crm_idventa"),
+        crm_idvendedor=d.get("crm_idvendedor"),
     )
     return jsonify({"client": c}), 201
 
@@ -790,6 +1054,8 @@ def admin_clients_update(client_id):
         gender_set=("gender" in d),
         ranges=d.get("ranges"),
         ranges_set=("ranges" in d),
+        crm_idventa=d.get("crm_idventa"),
+        crm_idvendedor=d.get("crm_idvendedor"),
     )
     return jsonify({"client": c})
 

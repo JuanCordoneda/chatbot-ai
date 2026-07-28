@@ -68,6 +68,8 @@ def _client_to_dict(c: Client) -> dict:
         "status": c.status,
         "gender": c.gender,
         "ranges": c.ranges or {},
+        "crm_idventa": c.crm_idventa or "",
+        "crm_idvendedor": c.crm_idvendedor or "",
     }
 
 
@@ -127,7 +129,8 @@ def _norm_ig(ig_username: str) -> str:
 
 
 def create_client(account_id: int, ig_username: str, display_name: str, prompt: str,
-                  status: str = "active", gender=None, ranges=None) -> dict:
+                  status: str = "active", gender=None, ranges=None,
+                  crm_idventa=None, crm_idvendedor=None) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     key = _norm_ig(ig_username)
@@ -147,6 +150,8 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
             status=status if status in ("active", "paused") else "active",
             gender=_norm_gender(gender),
             ranges=_norm_ranges(ranges),
+            crm_idventa=(crm_idventa or "").strip() or None,
+            crm_idvendedor=(crm_idvendedor or "").strip() or None,
         )
         s.add(c)
         s.flush()
@@ -155,7 +160,8 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
 
 def update_client(account_id: int, client_id: int, *, display_name=None,
                   prompt=None, status=None, ig_username=None, gender=None,
-                  gender_set=False, ranges=None, ranges_set=False) -> dict:
+                  gender_set=False, ranges=None, ranges_set=False,
+                  crm_idventa=None, crm_idvendedor=None) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     with session_scope() as s:
@@ -188,6 +194,11 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
             c.gender = _norm_gender(gender)
         if ranges_set:
             c.ranges = _norm_ranges(ranges)
+        # Vaciar el campo = desasignar la venta (vuelve al fallback de la cuenta).
+        if crm_idventa is not None:
+            c.crm_idventa = crm_idventa.strip() or None
+        if crm_idvendedor is not None:
+            c.crm_idvendedor = crm_idvendedor.strip() or None
         s.flush()
         return _client_to_dict(c)
 

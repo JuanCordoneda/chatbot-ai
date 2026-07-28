@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785300026" />
+  <link rel="stylesheet" href="/static/style.css?v=1785300030" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -100,6 +100,34 @@
     body:not(.light) .ax-pill--admin { color: var(--yellow); }
     .ax-pill--vend { background: var(--surface3); color: var(--muted); }
 
+    /* Campaña del CRM asociada al cliente (de dónde sale la plata). */
+    .ax-venta { font-weight: 700; color: var(--muted2); background: var(--surface3);
+      border-radius: 20px; padding: 2px 9px; white-space: nowrap; }
+    .ax-venta--warn { color: #d9903a; background: var(--yellow-lo); }
+    body:not(.light) .ax-venta--warn { color: var(--yellow); }
+    .ax-venta--bad { color: #ff6b6b; background: rgba(255,90,90,.14); }
+    .ax-venta-extra { color: var(--faint); }
+
+    /* Ficha de la campaña elegida, dentro del modal. */
+    .ax-venta-detalle { display: flex; align-items: center; gap: 14px; margin-top: 10px;
+      padding: 13px 15px; border-radius: 12px; background: var(--surface2);
+      border: 1px solid var(--border); }
+    .ax-venta-detalle--warn { border-color: var(--yellow-md); background: var(--yellow-lo); }
+    .ax-venta-detalle--bad { border-color: rgba(255,90,90,.4); background: rgba(255,90,90,.10); }
+    .ax-vd-main { flex: 1; min-width: 0; }
+    .ax-vd-title { font-weight: 800; font-size: 1.05rem; display: flex; align-items: center; gap: 9px; }
+    .ax-vd-sub { color: var(--faint); font-size: .84rem; margin-top: 3px; }
+    .ax-vd-alert { color: #ff6b6b; font-size: .82rem; font-weight: 600; margin-top: 6px; }
+    .ax-venta-detalle--warn .ax-vd-alert { color: var(--yellow-dk); }
+    body:not(.light) .ax-venta-detalle--warn .ax-vd-alert { color: var(--yellow); }
+
+    /* Aviso en la barra: cuántos clientes siguen sin campaña propia. */
+    .ax-fondos-alert { display: none; align-items: center; gap: 10px; margin: 0 0 14px;
+      padding: 12px 15px; border-radius: 12px; font-size: .87rem;
+      background: var(--yellow-lo); border: 1px solid var(--yellow-md); }
+    .ax-fondos-alert.ax-on { display: flex; }
+    .ax-fondos-alert b { font-weight: 800; }
+
     .ax-empty { text-align: center; padding: 54px 20px; color: var(--faint); }
     .ax-empty svg { opacity: .4; margin-bottom: 12px; }
     .ax-empty .ax-et { font-weight: 600; color: var(--muted); margin-bottom: 4px; }
@@ -134,7 +162,27 @@
     .ax-modal--lg .ax-grid2 { gap: 18px; }
     .ax-modal--lg .ax-range-row { grid-template-columns: 110px 1fr 16px 1fr; }
     .ax-modal--lg .ax-range-row input { padding: 10px 12px; font-size: .92rem; }
-    .ax-modal--lg .ax-help { font-size: .82rem; }
+    .ax-modal--lg .ax-help { font-size: .84rem; }
+
+    /* ── Legibilidad del modal de cliente ──────────────────────────────────
+       Es la pantalla donde más se lee y se escribe: los grises apagados y las
+       tipografías chicas de las tarjetas acá cansaban. Todo un escalón más
+       grande y más claro, sin tocar el resto del panel. */
+    .ax-modal--lg h3 { letter-spacing: -0.025em; }
+    .ax-modal--lg .ax-msub { color: var(--muted); }
+    .ax-modal--lg .ax-field label { color: var(--text); font-weight: 700; letter-spacing: -0.01em; margin-bottom: 8px; }
+    .ax-modal--lg .ax-field label .ax-hint { color: var(--muted); font-weight: 500; font-size: .82rem; }
+    .ax-modal--lg .ax-field input::placeholder,
+    .ax-modal--lg .ax-field textarea::placeholder { color: var(--muted); opacity: .55; }
+    .ax-modal--lg .ax-help { color: var(--muted); line-height: 1.55; }
+    .ax-modal--lg .ax-help b { color: var(--text); }
+    .ax-modal--lg .ax-range-name { font-size: .9rem; color: var(--text); }
+    .ax-modal--lg .ax-venta-detalle { font-size: .84rem; color: var(--muted); }
+    /* El foco se nota: anillo amarillo, no sólo el borde. */
+    .ax-modal--lg .ax-field input:focus, .ax-modal--lg .ax-field select:focus,
+    .ax-modal--lg .ax-field textarea:focus, .ax-modal--lg .ax-range-row input:focus {
+      box-shadow: 0 0 0 3px var(--yellow-lo); }
+    .ax-modal--lg .ax-editor-btn { font-size: .84rem; color: var(--text); }
 
     /* ── Editor de prompt ──────────────────────────────────────────────────
        Es la tarea principal del modal, así que se lleva su propia columna y
@@ -143,6 +191,20 @@
     /* El prompt va DEBAJO de los datos, a todo el ancho del modal (no en una
        columna al costado): se lee y se edita mejor con líneas largas. */
     .ax-split { display: block; }
+    /* El editor vive escondido y sólo aparece en pantalla completa. */
+    .ax-split-prompt { display: none; }
+    .ax-prompt-teaser { display: flex; align-items: center; gap: 13px; width: 100%; text-align: left;
+      background: var(--surface2); border: 1px solid var(--border2); border-radius: 13px;
+      padding: 15px 17px; cursor: pointer; font-family: var(--font); color: var(--text);
+      transition: border-color .13s, background .13s; }
+    .ax-prompt-teaser:hover { border-color: var(--yellow); background: var(--yellow-lo); }
+    .ax-prompt-teaser:hover .ax-prompt-teaser-go { color: var(--yellow); }
+    .ax-prompt-teaser-ico { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0;
+      border-radius: 10px; background: var(--yellow-lo); color: var(--yellow); font-size: 1.05rem; line-height: 1; }
+    .ax-prompt-teaser-txt { display: flex; flex-direction: column; gap: 3px; margin-right: auto; }
+    .ax-prompt-teaser-txt b { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+    .ax-prompt-teaser-txt .ax-hint { font-size: .82rem; color: var(--muted); font-weight: 500; }
+    .ax-prompt-teaser-go { color: var(--muted); font-size: 1rem; transition: color .13s; }
     .ax-field--editor { display: flex; flex-direction: column; margin-bottom: 0; }
     .ax-editor-meta { display: inline-flex; align-items: center; gap: 8px; }
     /* Botón visible y con texto: el ícono solo no se entendía. */
@@ -153,8 +215,8 @@
     .ax-editor-btn-ico { font-size: .9rem; line-height: 1; }
     .ax-editor-btn:hover { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
     /* Prosa, no código: el monoespaciado chico hacía pesada la lectura. */
-    .ax-field--editor textarea { flex: 1; min-height: 240px; resize: vertical;
-      font-family: var(--font); font-size: .92rem; line-height: 1.65; padding: 14px 16px; }
+    .ax-field--editor textarea { flex: 1; min-height: 240px; resize: vertical; color: var(--text);
+      font-family: var(--font); font-size: .98rem; line-height: 1.7; padding: 16px 18px; }
     .ax-field--editor textarea::placeholder { color: var(--faint); }
 
     /* Pantalla completa: el editor se come el modal entero. */
@@ -162,9 +224,12 @@
     .ax-modal--full { max-width: calc(96vw / 1.1); height: calc(92vh / 1.1); max-height: none; display: flex; flex-direction: column; }
     .ax-modal--full .ax-split { flex: 1; min-height: 0; }
     .ax-modal--full .ax-split-datos { display: none; }
-    .ax-modal--full .ax-split-prompt { height: 100%; }
+    .ax-modal--full .ax-split-prompt { display: block; height: 100%; }
     .ax-modal--full .ax-field--editor { height: 100%; }
-    .ax-modal--full .ax-field--editor textarea { min-height: 0; height: 100%; resize: none; font-size: .98rem; }
+    /* En grande se lee como un documento: columna acotada y línea más aireada. */
+    .ax-modal--full .ax-field--editor textarea { min-height: 0; height: 100%; resize: none;
+      font-size: 1.04rem; line-height: 1.75; padding: 20px 24px; }
+    .ax-modal--full .ax-field--editor label { font-size: 1rem; }
 
     /* Guardar siempre a mano, aunque el prompt sea larguísimo. */
     .ax-modal-actions--sticky { position: sticky; bottom: -34px; align-items: center;
@@ -333,6 +398,7 @@
           Nuevo cliente
         </button>
       </div>
+      <div class="ax-fondos-alert" id="fondos-alert"></div>
       <div class="ax-list" id="clientes-list"></div>
     </section>
 
@@ -411,6 +477,24 @@
             <option value="female">Mujer</option>
           </select>
         </div>
+      </div>
+      <div class="ax-field">
+        <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
+        <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
+        <div id="client-venta-detalle" class="ax-venta-detalle"></div>
+      </div>
+      <!-- El prompt no se muestra acá: ocupa media pantalla y casi nunca se
+           toca de entrada. Se abre a pantalla completa con este botón. -->
+      <div class="ax-field">
+        <label>Instrucciones para la IA</label>
+        <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
+          <span class="ax-prompt-teaser-ico">✎</span>
+          <span class="ax-prompt-teaser-txt">
+            <b>Ver prompt</b>
+            <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
+          </span>
+          <span class="ax-prompt-teaser-go">⤢</span>
+        </button>
       </div>
       <div class="ax-field">
         <label>Cantidades por rango <span class="ax-hint">likes · views · shares</span></label>
@@ -555,6 +639,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785300026"></script>
+  <script src="/static/admin.js?v=1785300030"></script>
 </body>
 </html>
