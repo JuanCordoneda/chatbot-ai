@@ -6,6 +6,7 @@ import json
 import re
 import time
 import threading
+from datetime import timedelta
 
 app = Flask(__name__)
 
@@ -33,12 +34,18 @@ def _is_production() -> bool:
 # variable de entorno; si falta, cae a una clave fija para no bloquear el arranque.
 app.secret_key = os.environ.get("SECRET_KEY", "").strip() or "growi-secret-2026"
 
-# Cookies de sesión: HttpOnly (no accesible por JS), SameSite=Lax (corta el CSRF
-# cross-site) y Secure solo en prod (local es http y Secure la rompería).
+# Cookies de sesión: HttpOnly (default de Flask) y SameSite=Lax (corta el CSRF
+# cross-site). El flag Secure quedó OPT-IN por env: detrás del proxy de Railway,
+# forzarlo en prod fue el sospechoso de que la sesión se perdiera y hubiera que
+# re-loguear. Se prende sólo con SESSION_COOKIE_SECURE=1 cuando esté confirmado.
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=_is_production(),
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").strip() in ("1", "true", "yes"),
+    # La sesión dura (login persistente): antes era cookie de sesión "a secas" y
+    # moría al cerrar/reciclar la pestaña, obligando a re-loguear seguido.
+    PERMANENT_SESSION_LIFETIME=timedelta(
+        days=int(os.environ.get("SESSION_DAYS", "14"))),
 )
 
 # Recargar templates ante cambios sin reiniciar el proceso (dev / edición en caliente).
@@ -266,9 +273,24 @@ def _crm_base(account_id=None):
     return GROWI_CRM_URL
 
 
+def _growi_sesion_caida(resp) -> bool:
+    """¿La respuesta indica que la sesión del CRM murió? Growi NO devuelve 401
+    cuando se vence la sesión (su timeout de inactividad, ~20 min): redirige al
+    login. Como seguimos el redirect, terminamos en login.php con status 200, y
+    antes eso se colaba como si fuera contenido válido — y nadie re-logueaba.
+    Detectamos ambos casos: el 401 y el redirect/página de login."""
+    if resp.status_code == 401:
+        return True
+    # Tras seguir redirects, resp.url apunta a login.php si la sesión venció.
+    if "login" in (resp.url or "").lower():
+        return True
+    return False
+
+
 def _growi_request(method, path, account_id=None, **kwargs):
     """GET/POST autenticado contra el CRM de la cuenta logueada, reintentando con
-    login fresco ante 401. account_id explícito o el de la sesión."""
+    login fresco si la sesión murió (401 o redirect al login). account_id
+    explícito o el de la sesión."""
     if account_id is None:
         account_id = session.get("account_id")
     timeout = kwargs.pop("timeout", 15)
@@ -278,18 +300,19 @@ def _growi_request(method, path, account_id=None, **kwargs):
         resp = entry["session"].request(
             method, f"{url}{path}", timeout=timeout, **kwargs
         )
-        if resp.status_code != 401:
+        if not _growi_sesion_caida(resp):
             return resp
-        print(f"[growi-web] 401 en intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
+        print(f"[growi-web] sesión caída ({resp.status_code}, url={resp.url}) en "
+              f"intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
         _growi_sessions.pop(account_id, None)
         cfg = _account_crm_cfg(account_id)
         entry = {"session": _growi_login_with(cfg), "cfg": cfg}
         _growi_sessions[account_id] = entry
-    # Cuatro logins frescos y el CRM sigue diciendo 401: no es mala suerte de IP,
+    # Cuatro logins frescos y la sesión sigue sin abrir: no es mala suerte de IP,
     # es que no estamos entrando. Lo decimos con todas las letras.
     raise GrowiAuthError(
-        f"El CRM devolvió 401 en {path} después de 4 logins. La sesión de Growi "
-        "no se está abriendo: revisá las credenciales del vendedor y el proxy."
+        f"El CRM rebotó al login en {path} después de 4 intentos. La sesión de "
+        "Growi no se está abriendo: revisá las credenciales del vendedor y el proxy."
     )
 
 
@@ -537,6 +560,7 @@ def login():
             user, auth_error = _authenticate(username, password)
             if user:
                 _login_reset(rate_key)   # login OK: no arrastra intentos fallidos
+                session.permanent = True  # dura PERMANENT_SESSION_LIFETIME, no muere al cerrar
                 session["logged_in"] = True
                 session["user_id"] = user["user_id"]
                 session["account_id"] = user["account_id"]
