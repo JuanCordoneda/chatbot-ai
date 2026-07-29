@@ -1659,6 +1659,50 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   background: linear-gradient(90deg, var(--yellow), transparent);
 }
 
+/* ── Selector de campaña (posts sin cliente) ──────────────────────────────
+   Solo aparece cuando el post no es de ningún cliente: ahí no hay de dónde
+   deducir la campaña, así que la elige la persona antes de mandar. */
+.venta-picker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--yellow-md);
+  border-radius: var(--radius);
+}
+.venta-picker-ico {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: var(--yellow-lo);
+  font-size: 1.1rem;
+}
+.venta-picker-body { margin-right: auto; }
+.venta-picker-title { font-size: .95rem; font-weight: 700; color: var(--text); }
+.venta-picker-sub { font-size: .84rem; color: var(--muted); margin-top: 2px; }
+.venta-picker-select {
+  min-width: 300px;
+  max-width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: 11px;
+  padding: 11px 13px;
+  font-family: var(--font);
+  font-size: .9rem;
+  cursor: pointer;
+}
+.venta-picker-select:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+.venta-picker--falta { border-color: #ff6b6b; }
+@media (max-width: 768px) {
+  .venta-picker { flex-wrap: wrap; }
+  .venta-picker-select { min-width: 0; width: 100%; }
+}
+
 .ordenes-hero-left {
   display: flex;
   align-items: center;

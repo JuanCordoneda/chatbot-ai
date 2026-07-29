@@ -359,6 +359,10 @@ function mostrarScrape(data) {
   // Se pisa SIEMPRE, incluso vacío: antes, si un scrape no resolvía el dueño,
   // quedaba el del post anterior y el tráfico se le cobraba a ese otro cliente.
   window._clientIg = data.owner_username || "";
+  // ¿El post es de un cliente cargado? Si no, no hay de dónde deducir la
+  // campaña y se la pedimos a mano en el paso de órdenes.
+  window._clienteAsignado = !!data.cliente_asignado;
+  window._ventaElegida = "";
 
   hide("loading-overlay");
 
@@ -1073,6 +1077,7 @@ async function irAOrdenes() {
 
   await actualizarProductos();
   renderOrdenes();
+  prepararVentaPicker();
 
   // Ocultar panel de seleccionados y counter al pasar al form
   document.getElementById("panel-seleccionados").classList.add("hidden");
@@ -1262,6 +1267,50 @@ function _rangoDelProducto() {
   const btn = document.getElementById("btn-roll-cantidad");
   if (btn) btn.style.display = r ? "" : "none";
   return r;
+}
+
+// ── Campaña de la que sale la plata cuando el post no es de ningún cliente ──
+// Con cliente, el backend la resuelve solo (asignada > última del perfil). Sin
+// cliente no hay nada que deducir: antes caía en la campaña por defecto de la
+// cuenta sin avisar, ahora se elige acá y viaja en el envío.
+function prepararVentaPicker() {
+  const box = document.getElementById("venta-picker");
+  if (!box) return;
+  const sel = document.getElementById("venta-picker-select");
+  box.classList.remove("venta-picker--falta");
+
+  if (window._clienteAsignado) {
+    box.classList.add("hidden");
+    window._ventaElegida = "";
+    return;
+  }
+
+  box.classList.remove("hidden");
+  sel.innerHTML = `<option value="">Cargando campañas…</option>`;
+  fetch("/api/ventas")
+    .then(r => r.json())
+    .then(d => {
+      const ventas = d.ventas || [];
+      if (!ventas.length) {
+        sel.innerHTML = `<option value="">No hay campañas disponibles</option>`;
+        return;
+      }
+      const saldo = (v) => `$${(parseFloat(v.disponible) || 0).toFixed(2)}`;
+      sel.innerHTML = `<option value="">— Elegí una campaña —</option>` +
+        ventas.map(v => `<option value="${escapeHtml(v.idventa)}">` +
+          `#${escapeHtml(v.idventa)} · ${saldo(v)} · ${escapeHtml(v.nombre)}` +
+          `${v.activa ? "" : " (vieja)"}</option>`).join("");
+      // Si ya había una elegida en este post, la mantenemos.
+      if (window._ventaElegida) sel.value = window._ventaElegida;
+    })
+    .catch(() => { sel.innerHTML = `<option value="">No pude leer las campañas</option>`; });
+}
+
+function onVentaElegida() {
+  window._ventaElegida = document.getElementById("venta-picker-select").value || "";
+  if (window._ventaElegida) {
+    document.getElementById("venta-picker").classList.remove("venta-picker--falta");
+  }
 }
 
 // Tipo de producto actualmente elegido (likes/views/shares) o null.
@@ -1736,6 +1785,18 @@ function volverAComentarios() {
 async function solicitarOrdenes() {
   if (ordenes.length === 0) return;
 
+  // Post sin cliente: no mandamos nada hasta saber de qué campaña se descuenta.
+  // Solo aplica si hay órdenes de tráfico (los comentarios no tocan el saldo).
+  const hayTrafico = ordenes.some(o => o.tipo !== "comentarios");
+  if (hayTrafico && !window._clienteAsignado && !window._ventaElegida) {
+    const box = document.getElementById("venta-picker");
+    box.classList.remove("hidden");
+    box.classList.add("venta-picker--falta");
+    box.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.getElementById("venta-picker-select").focus();
+    return;
+  }
+
   const btn = document.getElementById("btn-solicitar");
   btn.disabled = true;
   btn.textContent = "Solicitando...";
@@ -1808,6 +1869,9 @@ async function solicitarOrdenes() {
           ordenes: crmOrdenes,
           costo_total: costoTotal,
           client: window._clientIg || "",
+          // Solo va cuando el post no es de un cliente: el backend la valida
+          // contra las campañas de la cuenta antes de usarla.
+          idventa: window._ventaElegida || "",
           url: currentUrl,
         }),
       });
@@ -1872,6 +1936,11 @@ function reiniciar() {
   document.getElementById("status-listo").classList.add("hidden");
   document.getElementById("scrape-owner").textContent = "—";
   document.getElementById("client-badge").textContent = "—";
+  // Nada del post anterior sobrevive: ni el cliente ni la campaña elegida.
+  window._clientIg = "";
+  window._clienteAsignado = false;
+  window._ventaElegida = "";
+  document.getElementById("venta-picker")?.classList.add("hidden");
   document.getElementById("scrape-caption-block").classList.add("hidden");
   document.getElementById("photo-description-block").classList.add("hidden");
   document.getElementById("transcription-block").classList.add("hidden");
@@ -1944,6 +2013,7 @@ async function simularOrdenes() {
 
   await actualizarProductos();
   renderOrdenes();
+  prepararVentaPicker();
 
   hide("step-input");
   hide("step-comentarios");

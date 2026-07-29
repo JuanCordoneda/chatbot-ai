@@ -337,6 +337,9 @@ def procesar_post_web():
                             "caption": fast_preview.get("caption", ""),
                             "owner_username": preview_owner,
                             "client_id": preview_client_id or preview_owner,
+                            # Sin cliente detrás del post, el front pide elegir
+                            # a mano de qué campaña sale la plata.
+                            "cliente_asignado": bool(preview_client_id),
                             "photo_description": "",
                             "transcription": "",
                             "is_video": url_is_video or fast_preview.get("is_video", False),
@@ -405,6 +408,7 @@ def procesar_post_web():
 
             job["meta"] = {
                 "client_id": client_id or post_data.owner_full_name or post_data.owner_username,
+                "cliente_asignado": bool(client_id),
                 # Ya con el alias resuelto: es el @usuario con el que el front
                 # pide la campaña al enviar tráfico.
                 "owner_username": owner_ig or post_data.owner_username,

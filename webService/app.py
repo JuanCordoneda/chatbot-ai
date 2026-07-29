@@ -585,8 +585,11 @@ def enviar_trafico():
     # De qué campaña salen los FONDOS: la asignada al cliente, si no la última
     # campaña de su propio perfil, y recién si no hay ninguna la de por defecto.
     # Antes iba fija la del .env y todo el tráfico se descontaba de la misma.
+    # idventa: cuando el post no es de ningún cliente, el front deja elegir a
+    # mano de cuál de las campañas propias sale la plata; esa elección manda.
     cfg = _account_crm_cfg(session.get("account_id"))
-    fondos = resolver_venta(session.get("account_id"), cliente_ig)
+    fondos = resolver_venta(session.get("account_id"), cliente_ig,
+                            idventa_elegida=data.get("idventa"))
     idventa, idvendedor = fondos["idventa"], fondos["idvendedor"]
     print(f"[fondos] @{cliente_ig or '—'} → idventa {idventa} "
           f"({fondos['origen']}: {fondos['detalle']}, saldo {fondos['saldo']})", flush=True)
@@ -930,8 +933,9 @@ def _ultima_campana(ventas, ig_username):
     return max(pool, key=lambda v: (v.get("fecha") or "", _venta_saldo(v)))
 
 
-def resolver_venta(account_id, ig_username):
+def resolver_venta(account_id, ig_username, idventa_elegida=None):
     """De dónde sale la plata para este cliente, en orden:
+       0) la campaña elegida a mano en el envío (posts sin cliente),
        1) la campaña asignada a mano en Mis clientes,
        2) la ÚLTIMA campaña de su propio perfil de IG (lo normal),
        3) la campaña por defecto de la cuenta / .env — solo si no hay match.
@@ -952,6 +956,21 @@ def resolver_venta(account_id, ig_username):
         ventas = _traer_ventas(account_id)
     except Exception as e:
         print(f"[fondos] no pude leer las campañas ({e!r}); uso la de por defecto", flush=True)
+
+    # 0) Elegida a mano en este envío. Se valida contra las campañas de la cuenta
+    #    para que nadie pueda descontarle a una venta que no es suya.
+    elegida = str(idventa_elegida or "").strip()
+    if elegida:
+        v = next((x for x in ventas if x["idventa"] == elegida), None)
+        if v:
+            return {
+                "idventa": v["idventa"],
+                "idvendedor": v["idvendedor"] or default["idvendedor"],
+                "origen": "elegida",
+                "detalle": f"campaña #{v['idventa']} ({v['nombre']}) elegida en el envío",
+                "saldo": _venta_saldo(v),
+            }
+        print(f"[fondos] la campaña elegida #{elegida} no es de esta cuenta; sigo con la resolución normal", flush=True)
 
     # 1) Asignación manual: manda siempre, pero solo si la campaña sigue existiendo.
     if _repo is not None and ig:

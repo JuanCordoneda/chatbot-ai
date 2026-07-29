@@ -230,6 +230,19 @@
           </div>
         </div>
 
+        <!-- Post sin cliente: hay que decir de qué campaña propia sale la plata,
+             si no el tráfico se descuenta de la campaña por defecto de la cuenta. -->
+        <div id="venta-picker" class="venta-picker hidden">
+          <div class="venta-picker-ico">💳</div>
+          <div class="venta-picker-body">
+            <p class="venta-picker-title">Esta publicación no es de ningún cliente tuyo</p>
+            <p class="venta-picker-sub">Elegí de cuál de tus campañas se descuenta este envío.</p>
+          </div>
+          <select id="venta-picker-select" class="venta-picker-select" onchange="onVentaElegida()">
+            <option value="">Cargando campañas…</option>
+          </select>
+        </div>
+
         <!-- Formulario -->
         <div class="orden-form-card">
 
