@@ -311,6 +311,10 @@ def procesar_post_web():
             "done": False,
             "error": None,
             "resets": 0,
+            # Se prende cuando el vendedor ya eligió sus comentarios y apretó
+            # "Publicar seleccionados": no tiene sentido seguir quemando tokens
+            # generando comentarios que nadie va a mirar.
+            "cancelado": False,
         }
 
     def run():
@@ -426,6 +430,12 @@ def procesar_post_web():
             job["scrape_ready"] = True
             job["transcription_ready"] = True
 
+            # Cancelaron durante el scrape: ni arrancamos la generación.
+            if job["cancelado"]:
+                print(f"[jobs] {job_id} cancelado antes de generar", flush=True)
+                job["done"] = True
+                return
+
             t1 = time.time()
             job["progreso"].append("Generando comentarios con IA...")
             for tipo, data in generar_comentarios_stream(
@@ -436,6 +446,12 @@ def procesar_post_web():
                 image_media_type=post_data.image_media_type,
                 client_gender=client_gender,
             ):
+                # Cortar acá deja de consumir el stream de la API: la conexión
+                # se cierra al salir del for y no se generan más comentarios.
+                if job["cancelado"]:
+                    print(f"[jobs] {job_id} cancelado por el usuario: corto la generación", flush=True)
+                    job["progreso"].append("Generación cortada: ya publicaste los seleccionados.")
+                    break
                 if tipo == "chunk":
                     job["current_chunk"] += data
                 elif tipo == "comentario":
@@ -458,6 +474,19 @@ def procesar_post_web():
 
     threading.Thread(target=run, daemon=True).start()
     return jsonify({"job_id": job_id})
+
+
+@app.route("/procesar_post/cancelar/<job_id>", methods=["POST"])
+def procesar_post_cancelar(job_id):
+    """Corta la generación en curso. La llama el front cuando el vendedor aprieta
+    "Publicar seleccionados": ya eligió, generar más es gastar tokens al pedo."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return jsonify({"cancelado": False, "motivo": "job no encontrado"}), 404
+        ya_estaba = job["done"]
+        job["cancelado"] = True
+    return jsonify({"cancelado": True, "ya_terminado": ya_estaba})
 
 
 @app.route("/procesar_post/stream/<job_id>", methods=["GET"])
@@ -486,6 +515,12 @@ def procesar_post_stream(job_id):
         seen_resets = resets_seen
 
         while True:
+            # Cancelado: se cierra el stream sin más eventos (el front ya está
+            # en la pantalla de órdenes y no quiere ver comentarios nuevos).
+            if job.get("cancelado"):
+                yield evento("cancelado")
+                break
+
             while op < len(job["progreso"]):
                 yield evento("progreso", mensaje=job["progreso"][op])
                 op += 1
@@ -548,16 +583,29 @@ def publicar_web():
 
     try:
         from modules.reporter import generar_informe
+        resultado = None
+        error = None
         try:
             from modules.growi_client import ejecutar_campana
             resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
             informe = generar_informe(post_url, comentarios, resultado)
         except NotImplementedError as e:
-            informe = generar_informe(post_url, comentarios, None, error=str(e))
+            error = str(e)
+            informe = generar_informe(post_url, comentarios, None, error=error)
         except Exception as e:
-            informe = generar_informe(post_url, comentarios, None, error=f"Error en Growi: {e}")
+            error = f"Error en Growi: {e}"
+            informe = generar_informe(post_url, comentarios, None, error=error)
 
-        return jsonify({"informe": informe})
+        # `informe` es el texto plano de siempre (queda como detalle técnico);
+        # `resultado` es lo mismo pero en campos, para que el front arme la
+        # pantalla de resultado en vez de imprimir un bloque de texto.
+        return jsonify({"informe": informe, "resultado": {
+            "ok": bool(resultado and resultado.success) and not error,
+            "insertadas": resultado.insertadas if resultado else 0,
+            "messages": (resultado.messages if resultado else []) or [],
+            "warnings": (resultado.warnings if resultado else []) or [],
+            "errors": ([error] if error else []) + ((resultado.errors if resultado else []) or []),
+        }})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

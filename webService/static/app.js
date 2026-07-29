@@ -11,6 +11,10 @@ let streamOffset = 0;
 let streamProgresoOffset = 0;
 let streamResets = 0;   // cuántos "reset" ya aplicó el front (para no re-aplicarlos al reconectar)
 let streamMeta = {};
+// Corte manual de la generación (al publicar): aborta el fetch del stream y
+// frena el reintento automático de reconexión.
+let streamAbort = null;
+let streamCancelado = false;
 let esperandoTranscripcion = false;
 let pendingComentarios = [];
 
@@ -127,6 +131,7 @@ async function generarComentarios() {
   setError("");
   currentUrl = url;
   currentJobId = null;
+  streamCancelado = false;   // post nuevo: vuelve a habilitarse el stream
   streamOffset = 0;
   streamProgresoOffset = 0;
   streamResets = 0;
@@ -192,10 +197,11 @@ async function generarComentarios() {
 }
 
 function conectarStream() {
-  if (!currentJobId) return;
+  if (!currentJobId || streamCancelado) return;
 
+  streamAbort = new AbortController();
   const url = `/api/stream/${currentJobId}?offset=${streamOffset}&progreso_offset=${streamProgresoOffset}&resets=${streamResets}`;
-  const reader = fetch(url).then((r) => r.body.getReader());
+  const reader = fetch(url, { signal: streamAbort.signal }).then((r) => r.body.getReader());
 
   reader.then(async (r) => {
     const decoder = new TextDecoder();
@@ -223,15 +229,37 @@ function conectarStream() {
         }
       }
     } catch (e) {
+      if (streamCancelado) return;   // lo cortamos nosotros: no reconectar
       console.error("[stream] catch error:", e);
       setProgreso("Reconectando...");
       setTimeout(conectarStream, 1500);
     }
   }).catch((e) => {
+    if (streamCancelado) return;
     console.error("[stream] fetch catch:", e);
     setProgreso("Reconectando...");
     setTimeout(conectarStream, 1500);
   });
+}
+
+// Corta la generación en curso: se llama al apretar "Publicar seleccionados".
+// Aborta el stream (para que el navegador no siga leyendo ni reconecte) y avisa
+// al backend, que deja de consumir la IA. Es idempotente.
+function cancelarGeneracion() {
+  if (streamCancelado) return;
+  streamCancelado = true;
+  generando = false;
+  try { streamAbort && streamAbort.abort(); } catch { /* ya cerrado */ }
+  streamAbort = null;
+  const jobId = currentJobId;
+  if (jobId) {
+    fetch(`/api/cancelar/${jobId}`, { method: "POST", keepalive: true })
+      .catch(() => { /* si falla, el job igual muere solo por TTL */ });
+  }
+  setProgreso("");
+  const barra = document.getElementById("stream-status");
+  if (barra) barra.textContent = "";
+  ocultarChunk();
 }
 
 function manejarEvento(evento) {
@@ -284,6 +312,10 @@ function manejarEvento(evento) {
     // El reset borró el DOM: si es mixto, re-armamos las 2 columnas vacías.
     if (esMixto) { _seccionItems("hombres"); _seccionItems("mujeres"); _refrescarSecciones(); }
     actualizarConteo();
+  } else if (evento.tipo === "cancelado") {
+    // El backend confirma que cortó: no reconectamos ni mostramos nada más.
+    streamCancelado = true;
+    generando = false;
   } else if (evento.tipo === "listo") {
     streamMeta = evento;
     finalizarStream(evento);
@@ -750,12 +782,17 @@ async function cargarMas() {
     const vistos = comentariosGenerados.filter(c => c && !generoDeHeader(c)).map(infoComentario);
 
     const url = `/api/stream/${currentJobId}?offset=0&progreso_offset=0`;
-    const resp2 = await fetch(url);
+    // Misma señal que el stream principal: si el vendedor publica mientras esto
+    // corre, cancelarGeneracion() lo corta también.
+    streamCancelado = false;
+    streamAbort = new AbortController();
+    const resp2 = await fetch(url, { signal: streamAbort.signal });
     const reader = resp2.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
     while (true) {
+      if (streamCancelado) break;
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -783,7 +820,7 @@ async function cargarMas() {
       }
     }
   } catch (e) {
-    console.error("cargarMas error:", e);
+    if (!streamCancelado) console.error("cargarMas error:", e);
   }
 
   actualizarConteo();
@@ -928,6 +965,8 @@ function deseleccionarTodos() {
 }
 
 function publicar() {
+  // Ya eligió los comentarios: la IA no tiene que seguir generando.
+  cancelarGeneracion();
   irAOrdenes();
 }
 
@@ -1920,6 +1959,187 @@ function volverAComentarios() {
   document.getElementById("comments-counter").classList.remove("hidden");
 }
 
+// ── Pantalla de resultado ────────────────────────────────────────────────────
+// Antes se imprimía el informe crudo del CRM (un bloque de texto con códigos
+// tipo BUCKET_COM_INMED repetidos). Ahora ese texto queda como "detalle
+// técnico" y arriba se muestra qué pasó realmente con cada orden.
+
+// Traduce un mensaje del CRM a algo legible. Devuelve {icono, texto, cod}.
+function _leerMensajeCRM(m) {
+  const txt = String(m || "").trim();
+  const cod = (txt.match(/\(c[óo]d\.?\s*([A-Z0-9_]+)\)/) || [])[1] || "";
+  // Se saca el código y el dominio: no aportan nada al vendedor.
+  let limpio = txt.replace(/\(c[óo]d\.?\s*[A-Z0-9_]+\)/, "")
+                  .replace(/\((?:www\.)?[a-z0-9.-]+\.[a-z]{2,}\)/gi, "")
+                  .replace(/^[ℹ️✅⚠️❌\s]+/, "")
+                  .replace(/\s{2,}/g, " ")
+                  .trim();
+  const fecha = (limpio.match(/(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)/) || [])[1];
+  const esProg = /programad/i.test(limpio) || /_PROG/.test(cod);
+  const esError = /^❌/.test(txt) || /error|rechaz|falló|fallo/i.test(limpio);
+  const esOk = /^✅/.test(txt) || /registramos/i.test(limpio);
+
+  const tipo = /coment/i.test(limpio) ? "Comentarios"
+             : /tr[áa]fico/i.test(limpio) ? "Tráfico" : "";
+  if (esError) return { icono: "❌", clase: "bad", texto: limpio, cod };
+  // "Registramos N ordenes" ya está en el contador del bloque: no se repite.
+  if (esOk)    return { icono: "✅", clase: "ok", texto: "", cod };
+  if (esProg)  return { icono: "⏰", clase: "prog",
+                        texto: `${tipo || "Orden"}: programada${fecha ? " para el " + fecha.replace(" ", " a las ") : ""}`, cod };
+  if (/inmediat/i.test(limpio))
+    return { icono: "⚡", clase: "now", texto: `${tipo || "Orden"}: envío inmediato`, cod };
+  return { icono: "ℹ️", clase: "info", texto: limpio, cod };
+}
+
+// Los mensajes vienen repetidos (uno por orden). Se agrupan y se cuentan.
+function _agruparMensajes(msgs) {
+  const out = [];
+  for (const m of msgs || []) {
+    const l = _leerMensajeCRM(m);
+    if (!l.texto) continue;
+    const prev = out.find(x => x.texto === l.texto && x.cod === l.cod);
+    if (prev) prev.n++; else out.push({ ...l, n: 1 });
+  }
+  return out;
+}
+
+function _bloqueMensajes(titulo, insertadas, msgs) {
+  const items = _agruparMensajes(msgs);
+  if (!items.length && !insertadas) return "";
+  return `
+    <div class="res-bloque">
+      <div class="res-bloque-t">${escapeHtml(titulo)}
+        <span class="res-chip">${insertadas} ${insertadas === 1 ? "orden" : "órdenes"}</span>
+      </div>
+      ${items.map(i => `
+        <div class="res-msg res-msg--${i.clase}">
+          <span class="res-msg-ico">${i.icono}</span>
+          <span class="res-msg-txt">${escapeHtml(i.texto)}</span>
+          ${i.n > 1 ? `<span class="res-msg-n">×${i.n}</span>` : ""}
+        </div>`).join("")}
+    </div>`;
+}
+
+function renderResultado(data, nComentarios, nTrafico) {
+  const box = document.getElementById("resultado-content");
+  const rc = data.resultado || null;                 // órdenes de comentarios
+  const rt = data.trafico || null;                   // órdenes de tráfico
+  const errores = [
+    ...(data.error ? [data.error] : []),
+    ...((rc && rc.errors) || []),
+  ];
+  const insCom = rc ? (rc.insertadas || 0) : 0;
+  const insTra = rt ? (rt.insertadas || 0) : 0;
+  // Los encabezados hombres:/mujeres: no son comentarios: no se cuentan ni se listan.
+  const publicados = comentariosParaPublicar.filter(c => !generoDeHeader(c));
+
+  const enviadas = nComentarios + nTrafico;
+  const insertadas = insCom + insTra;
+  const gastado = ordenes.reduce((s, o) => s + (o.costo || 0), 0);
+  // Programadas: las que no salen ya. Es lo primero que pregunta el vendedor.
+  const programadas = ordenes.filter(o => o.cuando !== "ahora").length;
+
+  const fallo = errores.length > 0;
+  // Que el CRM acepte MENOS órdenes de las que mandamos es el caso peligroso:
+  // antes se perdía entre los mensajes y el vendedor creía que salió todo.
+  const faltan = !fallo && insertadas > 0 && insertadas < enviadas;
+  const estado = fallo ? { clase: "bad", ico: "✕", txt: "No se pudo enviar" }
+    : faltan ? { clase: "warn", ico: "!", txt: `Se enviaron ${insertadas} de ${enviadas}` }
+    : { clase: "ok", ico: "✓", txt: "Enviado correctamente" };
+
+  box.innerHTML = `
+    <div class="res-head">
+      <span class="res-estado res-estado--${estado.clase}">${estado.ico} ${escapeHtml(estado.txt)}</span>
+      <span class="res-head-r">
+        <span class="res-fecha">${new Date().toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}</span>
+        <button class="res-copy" onclick="copiarInforme(this)">Copiar informe</button>
+      </span>
+    </div>
+
+    ${currentUrl ? `<a class="res-post" href="${escapeHtml(currentUrl)}" target="_blank" rel="noopener">
+      ↗ Ver el post en Instagram</a>` : ""}
+
+    <div class="res-stats">
+      <div class="res-stat"><b>${insertadas}</b><span>órdenes en el CRM</span></div>
+      ${nComentarios ? `<div class="res-stat"><b>${publicados.length}</b><span>comentarios publicados</span></div>` : ""}
+      ${programadas ? `<div class="res-stat"><b>${programadas}</b><span>quedan programadas</span></div>` : ""}
+      ${gastado > 0 ? `<div class="res-stat"><b>$${gastado.toFixed(2)}</b><span>costo de la campaña</span></div>` : ""}
+    </div>
+
+    ${errores.length ? `<div class="res-bloque res-bloque--err">
+      <div class="res-bloque-t">No se pudo completar</div>
+      ${errores.map(e => `<div class="res-msg res-msg--bad"><span class="res-msg-ico">❌</span><span class="res-msg-txt">${escapeHtml(e)}</span></div>`).join("")}
+    </div>` : ""}
+
+    ${faltan ? `<div class="res-bloque res-bloque--err">
+      <div class="res-bloque-t">Revisá en el CRM</div>
+      <div class="res-msg res-msg--bad"><span class="res-msg-ico">⚠️</span><span class="res-msg-txt">
+        Mandamos ${enviadas} órdenes y el CRM registró ${insertadas}. Fijate cuál falta antes de rearmarla.
+      </span></div>
+    </div>` : ""}
+
+    ${_bloqueOrdenes()}
+
+    ${nComentarios ? _bloqueMensajes("Confirmación del CRM · comentarios", insCom, (rc && rc.messages) || []) : ""}
+    ${nTrafico ? _bloqueMensajes("Confirmación del CRM · tráfico", insTra, [...((rt && rt.messages) || []), ...((rt && rt.warnings) || [])]) : ""}
+
+    ${data.informe ? `<details class="res-detalle">
+      <summary>Ver informe técnico</summary>
+      <pre id="res-informe-raw">${escapeHtml(data.informe)}</pre>
+    </details>` : ""}
+  `;
+
+  const card = document.getElementById("resultado-comments-card");
+  if (nComentarios && publicados.length) {
+    card.classList.remove("hidden");
+    const t = card.querySelector(".card-title");
+    if (t) t.textContent = `Comentarios publicados (${publicados.length})`;
+    document.getElementById("resultado-comments").innerHTML = publicados.map((c, i) =>
+      `<div class="resultado-comment-item"><span class="resultado-comment-num">${i + 1}</span><span class="resultado-comment-texto">${escapeHtml(c)}</span></div>`
+    ).join("");
+  } else if (card) {
+    card.classList.add("hidden");
+  }
+}
+
+// Qué se mandó, en los términos del vendedor (producto, cantidad, cuándo), no
+// en los del CRM. Es la parte que de verdad se lee.
+function _bloqueOrdenes() {
+  if (!ordenes.length) return "";
+  const filas = ordenes.map(o => {
+    const rs = (typeof RS_META !== "undefined" && RS_META[o.redsocialId]) || { icon: "🌐", label: o.redsocial || "", color: "#a0a0a0" };
+    const prog = o.cuando !== "ahora";
+    const cant = o.tipo === "comentarios"
+      ? `${o.cantidad} comentarios`
+      : `${Number(o.cantidad || 0).toLocaleString("es-AR")} uds`;
+    return `
+      <div class="res-orden">
+        <span class="res-orden-dot" style="background:${rs.color}"></span>
+        <span class="res-orden-prod">${escapeHtml(o.productoNombre || "")}</span>
+        <span class="res-orden-cant">${escapeHtml(cant)}</span>
+        <span class="res-orden-when res-orden-when--${prog ? "prog" : "now"}">
+          ${prog ? "⏰" : "⚡"} ${escapeHtml(o.cuandoLabel || (prog ? "programada" : "ahora"))}
+        </span>
+        ${o.costo > 0 ? `<span class="res-orden-costo">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
+      </div>`;
+  }).join("");
+  return `<div class="res-bloque">
+    <div class="res-bloque-t">Qué se mandó <span class="res-chip">${ordenes.length} ${ordenes.length === 1 ? "orden" : "órdenes"}</span></div>
+    ${filas}
+  </div>`;
+}
+
+// Copia el informe crudo: sirve para pegarlo en el grupo o pasárselo al cliente.
+function copiarInforme(btn) {
+  const pre = document.getElementById("res-informe-raw");
+  const txt = pre ? pre.textContent : document.getElementById("resultado-content").innerText;
+  navigator.clipboard?.writeText(txt).then(() => {
+    const antes = btn.textContent;
+    btn.textContent = "✓ Copiado";
+    setTimeout(() => { btn.textContent = antes; }, 1600);
+  }).catch(() => {});
+}
+
 async function solicitarOrdenes() {
   if (ordenes.length === 0) return;
 
@@ -2026,29 +2246,11 @@ async function solicitarOrdenes() {
         ];
         data.informe = (data.informe ? data.informe + "\n\n" : "") + lineas.join("\n");
       }
+      data.trafico = traficoData;
     }
 
     hide("step-ordenes");
-
-    const box = document.getElementById("resultado-content");
-    if (data.error) {
-      box.innerHTML = `<span style="color:#e55;">Error: ${escapeHtml(data.error)}</span>`;
-    } else {
-      box.innerHTML = `
-        <div style="margin-bottom:10px;white-space:pre-line;">${escapeHtml(data.informe || "Órdenes enviadas correctamente.")}</div>
-        <div style="color:var(--muted2);font-size:0.82rem;">
-          ${ordenes.length} orden${ordenes.length > 1 ? "es" : ""} procesada${ordenes.length > 1 ? "s" : ""}
-        </div>
-      `;
-    }
-
-    if (ordenesComentarios.length > 0) {
-      const resultadoComments = document.getElementById("resultado-comments");
-      resultadoComments.innerHTML = comentariosParaPublicar.map((c, i) =>
-        `<div class="resultado-comment-item"><span class="resultado-comment-num">${i + 1}</span><span class="resultado-comment-texto">${escapeHtml(c)}</span></div>`
-      ).join("");
-    }
-
+    renderResultado(data, ordenesComentarios.length, ordenesNormales.length);
     show("step-resultado");
   } catch (e) {
     // Sin alert() nativo: congela la pestaña. Mostramos el error en pantalla.

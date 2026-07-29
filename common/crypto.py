@@ -14,11 +14,23 @@ import hashlib
 from cryptography.fernet import Fernet, InvalidToken
 
 
+def _is_production() -> bool:
+    if os.environ.get("APP_ENV", "").strip().lower() in ("prod", "production"):
+        return True
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"))
+
+
 def _get_fernet() -> Fernet:
     key = os.environ.get("DB_ENCRYPTION_KEY", "").strip()
     if not key:
-        # Fallback derivado del SECRET_KEY para entornos de dev sin clave dedicada.
-        # En producción SIEMPRE debe setearse DB_ENCRYPTION_KEY explícita.
+        # En producción NO se cifra con una clave adivinable: cortamos. El fallback
+        # derivado del SECRET_KEY es solo para dev/local sin clave dedicada.
+        if _is_production():
+            raise RuntimeError(
+                "DB_ENCRYPTION_KEY no está seteada en producción. Sin ella las "
+                "passwords del CRM se cifrarían con una clave pública. Generá una "
+                "con `python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\"`.")
         seed = os.environ.get("SECRET_KEY", "growi-secret-2026")
         key = base64.urlsafe_b64encode(hashlib.sha256(seed.encode()).digest())
     elif isinstance(key, str):

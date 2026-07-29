@@ -1486,9 +1486,112 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   padding: 18px;
   font-size: 0.88rem;
   color: var(--muted2);
-  white-space: pre-wrap;
-  line-height: 1.75;
+  line-height: 1.6;
   margin-top: 14px;
+}
+
+/* Encabezado: estado + cuándo se envió */
+.res-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.res-estado {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-weight: 700; font-size: 0.9rem;
+  padding: 6px 12px; border-radius: 999px;
+}
+.res-estado--ok   { color: #2ecc71; background: rgba(46,204,113,0.13); }
+.res-estado--bad  { color: #ff6b6b; background: rgba(255,107,107,0.13); }
+.res-estado--warn { color: var(--yellow); background: var(--yellow-lo); }
+.res-head-r { display: inline-flex; align-items: center; gap: 10px; }
+.res-fecha { color: var(--faint); font-size: 0.8rem; }
+.res-copy {
+  font: inherit; font-size: 0.78rem; cursor: pointer;
+  color: var(--muted); background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+}
+.res-copy:hover { border-color: var(--border2); color: var(--text); }
+
+.res-post {
+  display: inline-block; margin-bottom: 14px;
+  font-size: 0.82rem; color: var(--faint); text-decoration: none;
+  word-break: break-all;
+}
+.res-post:hover { color: var(--yellow); }
+
+/* Los números de un vistazo */
+.res-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.res-stat {
+  flex: 1 1 120px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+}
+.res-stat b { font-size: 1.5rem; line-height: 1.1; color: var(--text); }
+.res-stat span { font-size: 0.76rem; color: var(--faint); }
+
+/* Un bloque por tipo de orden (Comentarios / Tráfico) */
+.res-bloque { margin-bottom: 14px; }
+.res-bloque-t {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 8px;
+}
+.res-chip {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--muted); background: var(--surface3);
+  border-radius: 999px; padding: 2px 9px;
+}
+.res-bloque--err .res-bloque-t { color: #ff6b6b; }
+
+.res-msg {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; margin-bottom: 5px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-left: 3px solid var(--border2); border-radius: 10px;
+  font-size: 0.86rem; color: var(--muted2);
+}
+.res-msg--now  { border-left-color: var(--yellow); }
+.res-msg--prog { border-left-color: #5aa9e6; }
+.res-msg--ok   { border-left-color: #2ecc71; }
+.res-msg--bad  { border-left-color: #ff6b6b; color: #ff9d9d; }
+.res-msg-ico { flex-shrink: 0; }
+.res-msg-txt { flex: 1; }
+.res-msg-n {
+  flex-shrink: 0; font-size: 0.76rem; font-weight: 700; color: var(--faint);
+  background: var(--surface3); border-radius: 999px; padding: 2px 8px;
+}
+
+/* Una fila por orden mandada: producto, cantidad, cuándo, costo */
+.res-orden {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; margin-bottom: 5px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; font-size: 0.86rem;
+}
+.res-orden-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.res-orden-prod { flex: 1 1 140px; color: var(--text); font-weight: 600; }
+.res-orden-cant {
+  font-size: 0.78rem; color: var(--muted); background: var(--surface3);
+  border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+}
+.res-orden-when {
+  font-size: 0.78rem; border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+}
+.res-orden-when--now  { color: var(--yellow); background: var(--yellow-lo); }
+.res-orden-when--prog { color: #5aa9e6; background: rgba(90,169,230,0.14); }
+.res-orden-costo { font-size: 0.78rem; color: var(--faint); white-space: nowrap; }
+
+/* El informe crudo del CRM: plegado, para cuando algo no cierra */
+.res-detalle { margin-top: 6px; }
+.res-detalle summary {
+  cursor: pointer; font-size: 0.8rem; color: var(--faint);
+  padding: 6px 0; user-select: none;
+}
+.res-detalle summary:hover { color: var(--muted); }
+.res-detalle pre {
+  margin: 8px 0 0; padding: 12px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: 0.76rem; line-height: 1.6; color: var(--faint);
+  white-space: pre-wrap; overflow-x: auto;
 }
 
 /* ── Copy toast ── */

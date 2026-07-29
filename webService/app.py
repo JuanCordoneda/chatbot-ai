@@ -4,12 +4,103 @@ import requests
 import os
 import json
 import re
+import time
+import threading
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "growi-secret-2026")
+
+# El dev-server de Werkzeug escribe su propio header `Server:` (con versión de
+# Werkzeug+Python) a nivel socket, después de la respuesta de la app: no se puede
+# pisar desde after_request. Se parchea el handler para no filtrar la pila. En
+# prod bajo gunicorn esto no aplica (gunicorn setea su propio Server).
+try:
+    from werkzeug.serving import WSGIRequestHandler as _WSGIHandler
+    _WSGIHandler.server_version = "GROWI"
+    _WSGIHandler.sys_version = ""
+except Exception:
+    pass
+
+
+def _is_production() -> bool:
+    """Producción = Railway (setea RAILWAY_ENVIRONMENT solo) o APP_ENV explícito.
+    En dev/local no hay ninguna, así que los fallbacks de abajo siguen andando."""
+    if os.environ.get("APP_ENV", "").strip().lower() in ("prod", "production"):
+        return True
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"))
+
+
+# ── SECRET_KEY: firma las cookies de sesión ──────────────────────────────────
+# Con la clave por default (que está en el repo) cualquiera forja una cookie de
+# admin y entra sin credenciales. En prod NO arrancamos sin una clave propia; en
+# dev caemos a una fija y avisamos.
+_DEV_SECRET = "growi-secret-2026"
+_secret = os.environ.get("SECRET_KEY", "").strip()
+if not _secret:
+    if _is_production():
+        raise RuntimeError(
+            "SECRET_KEY no está seteada en producción. Generá una con "
+            "`python -c \"import secrets; print(secrets.token_hex(32))\"` y ponela "
+            "en la variable de entorno SECRET_KEY. La app no arranca sin ella "
+            "porque el default es público y permite forjar sesiones de admin.")
+    _secret = _DEV_SECRET
+    print("[seguridad] AVISO: SECRET_KEY sin setear, uso clave de DEV. "
+          "NUNCA en producción.", flush=True)
+app.secret_key = _secret
+
+# DB_ENCRYPTION_KEY cifra las passwords del CRM en la DB. Si falta en prod, el
+# cifrado cae a una clave derivada del SECRET_KEY público (ver common/crypto.py):
+# equivaldría a guardarlas casi en claro. Cortamos temprano con un mensaje claro.
+if _is_production() and not os.environ.get("DB_ENCRYPTION_KEY", "").strip():
+    raise RuntimeError(
+        "DB_ENCRYPTION_KEY no está seteada en producción. Sin ella, las passwords "
+        "del CRM se cifran con una clave pública. Generá una con "
+        "`python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"`.")
+
+# Cookies de sesión: HttpOnly (no accesible por JS), SameSite=Lax (corta el CSRF
+# cross-site) y Secure solo en prod (local es http y Secure la rompería).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=_is_production(),
+)
+
 # Recargar templates ante cambios sin reiniciar el proceso (dev / edición en caliente).
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.jinja_env.auto_reload = True
+
+
+# ── Headers de seguridad ─────────────────────────────────────────────────────
+# El CSP permite 'unsafe-inline' en script/style porque las plantillas usan
+# onclick=/style= inline en todos lados (sacarlos es un refactor aparte). Aun
+# así suma: frame-ancestors corta clickjacking, y se acota de dónde pueden
+# venir scripts, fuentes y conexiones. La defensa anti-XSS real sigue siendo el
+# autoescape de Jinja (ya verificado).
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    # imágenes: thumbnails de IG (CDNs impredecibles) + data: (avatares/preview).
+    "img-src 'self' data: https:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+])
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers["Content-Security-Policy"] = _CSP
+    resp.headers["X-Frame-Options"] = "DENY"            # clickjacking (compat viejos)
+    resp.headers["X-Content-Type-Options"] = "nosniff"  # anti MIME-sniffing
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # El `Server` genérico lo fija el parche del dev-server de arriba (no se puede
+    # pisar acá porque lo escribe el WSGI server tras la respuesta).
+    # HSTS solo en prod (local es http; en http el browser la ignora igual).
+    if _is_production():
+        resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return resp
 
 OPENAI_SERVICE_URL = os.environ.get("OPENAI_SERVICE_URL", "http://openai-service:8000")
 
@@ -254,6 +345,51 @@ def _authenticate_admin_fallback(identifier, password):
     return None
 
 
+# ── Rate limiting del login ──────────────────────────────────────────────────
+# En memoria (el web-service es un proceso único). Frena la fuerza bruta / el
+# credential stuffing: sin esto, cada intento además golpea EN VIVO al CRM de
+# Growi (_authenticate_vendedor valida la password contra el CRM real).
+LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "8"))
+LOGIN_WINDOW_SEC = int(os.environ.get("LOGIN_WINDOW_SEC", "300"))   # 5 min
+_login_attempts: dict[str, list[float]] = {}
+_login_lock = threading.Lock()
+
+MSG_DEMASIADOS = ("Demasiados intentos fallidos. Esperá unos minutos antes de "
+                  "volver a probar.")
+
+
+def _login_rate_key() -> str:
+    """Clave por IP + email: no bloquea a toda la oficina por un solo atacante,
+    pero sí frena el barrido contra una cuenta o desde una IP."""
+    fwd = request.headers.get("X-Forwarded-For", "")
+    ip = (fwd.split(",")[0].strip() if fwd else "") or (request.remote_addr or "?")
+    email = (request.form.get("username", "") or "").strip().lower()
+    return f"{ip}|{email}"
+
+
+def _login_throttled(key: str) -> bool:
+    now = time.time()
+    with _login_lock:
+        # Purga oportunista para que el dict no crezca sin fin.
+        if len(_login_attempts) > 5000:
+            for k in [k for k, v in _login_attempts.items()
+                      if not v or now - v[-1] > LOGIN_WINDOW_SEC]:
+                _login_attempts.pop(k, None)
+        hist = [t for t in _login_attempts.get(key, []) if now - t < LOGIN_WINDOW_SEC]
+        _login_attempts[key] = hist
+        return len(hist) >= LOGIN_MAX_ATTEMPTS
+
+
+def _login_register_fail(key: str) -> None:
+    with _login_lock:
+        _login_attempts.setdefault(key, []).append(time.time())
+
+
+def _login_reset(key: str) -> None:
+    with _login_lock:
+        _login_attempts.pop(key, None)
+
+
 MSG_CREDENCIALES = "Usuario o contraseña incorrectos"
 MSG_PENDIENTE = ("Tus credenciales de Growi son correctas, pero tu acceso todavía no "
                  "está habilitado. Enviamos tu solicitud al administrador para que la "
@@ -411,24 +547,37 @@ def login():
     error = None
     error_kind = "error"
     username = ""
+    status = 200
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        user, auth_error = _authenticate(username, password)
-        if user:
-            session["logged_in"] = True
-            session["user_id"] = user["user_id"]
-            session["account_id"] = user["account_id"]
-            session["username"] = user["username"]
-            session["is_admin"] = user["is_admin"]
-            return redirect(url_for("index"))
-        # auth_error explica el caso (pendiente de habilitación / acceso
-        # restringido); sin él es un login fallido común.
-        error = auth_error or MSG_CREDENCIALES
-        # "Pendiente" no es un error del usuario: se muestra como aviso.
-        error_kind = "info" if error == MSG_PENDIENTE else "error"
+        rate_key = _login_rate_key()
+        if _login_throttled(rate_key):
+            # Ni intentamos autenticar: no gastamos un request contra el CRM.
+            username = request.form.get("username", "").strip()
+            error, error_kind, status = MSG_DEMASIADOS, "error", 429
+        else:
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            user, auth_error = _authenticate(username, password)
+            if user:
+                _login_reset(rate_key)   # login OK: no arrastra intentos fallidos
+                session["logged_in"] = True
+                session["user_id"] = user["user_id"]
+                session["account_id"] = user["account_id"]
+                session["username"] = user["username"]
+                session["is_admin"] = user["is_admin"]
+                return redirect(url_for("index"))
+            # Solo cuenta como intento de fuerza bruta la credencial equivocada.
+            # Pendiente / restringido / CRM caído son credenciales válidas o un
+            # problema nuestro: no penalizan al usuario.
+            if auth_error is None:
+                _login_register_fail(rate_key)
+            # auth_error explica el caso (pendiente de habilitación / acceso
+            # restringido); sin él es un login fallido común.
+            error = auth_error or MSG_CREDENCIALES
+            # "Pendiente" no es un error del usuario: se muestra como aviso.
+            error_kind = "info" if error == MSG_PENDIENTE else "error"
     resp = make_response(render_template("login.html", error=error,
-                                         error_kind=error_kind, username=username))
+                                         error_kind=error_kind, username=username), status)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -505,6 +654,20 @@ def stream(job_id):
             yield f"data: {json.dumps({'tipo': 'error', 'mensaje': _mensaje_amigable(e)})}\n\n".encode()
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+
+@app.route("/api/cancelar/<job_id>", methods=["POST"])
+@require_login
+def cancelar(job_id):
+    """El vendedor ya apretó "Publicar seleccionados": cortamos la generación
+    que siga en curso para no gastar tokens de más."""
+    try:
+        resp = requests.post(
+            f"{OPENAI_SERVICE_URL}/procesar_post/cancelar/{job_id}", timeout=10)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        print(f"[cancelar] error: {e!r}", flush=True)
+        return jsonify({"cancelado": False}), 502
 
 
 @app.route("/api/publicar", methods=["POST"])
