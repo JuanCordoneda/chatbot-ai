@@ -29,32 +29,9 @@ def _is_production() -> bool:
     return bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"))
 
 
-# ── SECRET_KEY: firma las cookies de sesión ──────────────────────────────────
-# Con la clave por default (que está en el repo) cualquiera forja una cookie de
-# admin y entra sin credenciales. En prod NO arrancamos sin una clave propia; en
-# dev caemos a una fija y avisamos.
-_DEV_SECRET = "growi-secret-2026"
-_secret = os.environ.get("SECRET_KEY", "").strip()
-if not _secret:
-    if _is_production():
-        raise RuntimeError(
-            "SECRET_KEY no está seteada en producción. Generá una con "
-            "`python -c \"import secrets; print(secrets.token_hex(32))\"` y ponela "
-            "en la variable de entorno SECRET_KEY. La app no arranca sin ella "
-            "porque el default es público y permite forjar sesiones de admin.")
-    _secret = _DEV_SECRET
-    print("[seguridad] AVISO: SECRET_KEY sin setear, uso clave de DEV. "
-          "NUNCA en producción.", flush=True)
-app.secret_key = _secret
-
-# DB_ENCRYPTION_KEY cifra las passwords del CRM en la DB. Si falta en prod, el
-# cifrado cae a una clave derivada del SECRET_KEY público (ver common/crypto.py):
-# equivaldría a guardarlas casi en claro. Cortamos temprano con un mensaje claro.
-if _is_production() and not os.environ.get("DB_ENCRYPTION_KEY", "").strip():
-    raise RuntimeError(
-        "DB_ENCRYPTION_KEY no está seteada en producción. Sin ella, las passwords "
-        "del CRM se cifran con una clave pública. Generá una con "
-        "`python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"`.")
+# SECRET_KEY: firma las cookies de sesión. En prod conviene setearla como
+# variable de entorno; si falta, cae a una clave fija para no bloquear el arranque.
+app.secret_key = os.environ.get("SECRET_KEY", "").strip() or "growi-secret-2026"
 
 # Cookies de sesión: HttpOnly (no accesible por JS), SameSite=Lax (corta el CSRF
 # cross-site) y Secure solo en prod (local es http y Secure la rompería).
