@@ -170,6 +170,8 @@ function renderKpis() {
 
 // ── Clientes ──
 let clientsCache = [];
+// Cliente genérico del sistema (solo lo recibe el admin). Ver genericCard().
+let genericCache = null;
 
 // Los endpoints de clientes están scoped al vendedor elegido (?vendedor=<id>).
 function cliUrl(path = "") {
@@ -192,7 +194,10 @@ async function loadClients() {
     // Las ventas del CRM se piden en paralelo: la tarjeta de cada cliente muestra
     // el nombre y el saldo de la suya, no solo el id.
     const [{ clients }] = await Promise.all([api("GET", cliUrl()), loadVentas()]);
-    clientsCache = clients;
+    // El genérico viaja en la misma respuesta (solo para el admin) pero se
+    // guarda aparte: no es un cliente del vendedor y no cuenta en los KPIs.
+    genericCache = clients.find(c => c.reserved) || null;
+    clientsCache = clients.filter(c => !c.reserved);
     renderClients(); renderKpis();
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -427,7 +432,27 @@ function usarVentaSugerida() {
   updatePromptCount();   // refresca el aviso de cambios sin guardar
 }
 
+// El genérico es del sistema: se muestra solo al admin, siempre activo, sin
+// borrar ni pausar ni renombrar. Lo único editable es el prompt (y género/rangos).
+function genericCard(c) {
+  return `
+    <div class="ax-card">
+      <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">🌐</div>
+      <div class="ax-main">
+        <div class="ax-name">Genéricos (posts sin cliente)
+          <span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Siempre activo</span>
+        </div>
+        <div class="ax-sub">Se aplica a todo post que no sea de un cliente cargado, en todos los vendedores
+          · ${(c.prompt || "").length} car. de prompt</div>
+      </div>
+      <div class="ax-acts">
+        <button class="ax-btn ax-btn--sm" onclick="openClientModal(${c.id})">Editar prompt</button>
+      </div>
+    </div>`;
+}
+
 function clientCard(c) {
+  if (c.reserved) return genericCard(c);
   return `
     <div class="ax-card ${c.status === "paused" ? "ax-dimmed" : ""}">
       <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">${esc(initials(c.display_name, c.ig_username))}</div>
@@ -473,8 +498,13 @@ function renderClients() {
   const list = document.getElementById("clientes-list");
   const items = clientsCache.filter(c =>
     !q || c.ig_username.includes(q) || (c.display_name || "").toLowerCase().includes(q));
-  if (!clientsCache.length) { list.innerHTML = emptyState("Todavía no hay clientes", "Creá el primero con su @usuario y su prompt."); return; }
-  if (!items.length) { list.innerHTML = emptyState("Sin resultados", "Probá con otro nombre o @usuario."); return; }
+  // El genérico va siempre al final, en su propia sección y sin filtrar por el
+  // buscador (es del sistema, no uno más de la lista).
+  const sistema = genericCache
+    ? `<div class="ax-group">🌐<span class="ax-group-t">Del sistema</span><span class="ax-group-c">1</span><span class="ax-group-line"></span></div>${genericCard(genericCache)}`
+    : "";
+  if (!clientsCache.length) { list.innerHTML = emptyState("Todavía no hay clientes", "Creá el primero con su @usuario y su prompt.") + sistema; return; }
+  if (!items.length) { list.innerHTML = emptyState("Sin resultados", "Probá con otro nombre o @usuario.") + sistema; return; }
 
   // Agrupación por género del cliente: Hombres, Mujeres, Sin especificar.
   const GROUPS = [
@@ -491,7 +521,7 @@ function renderClients() {
     html += `<div class="ax-group">${GENDER_ICON[g.key]}<span class="ax-group-t">${g.label}</span><span class="ax-group-c">${gi.length}</span><span class="ax-group-line"></span></div>`;
     html += gi.map(clientCard).join("");
   }
-  list.innerHTML = html;
+  list.innerHTML = html + sistema;
 }
 
 function emptyState(t, s) {
@@ -554,15 +584,24 @@ async function closeClientModal() {
   closeMo("client-mo");
 }
 
+function findClient(id) {
+  if (genericCache && genericCache.id === id) return genericCache;
+  return clientsCache.find(x => x.id === id) || null;
+}
+
 function openClientModal(id) {
   if (!selectedVendedor) { toast("Elegí un vendedor primero", "bad"); return; }
   hideErr("client-err");
-  const c = id ? clientsCache.find(x => x.id === id) : null;
-  document.getElementById("client-title").textContent = c ? "Editar cliente" : "Nuevo cliente";
+  const c = id ? findClient(id) : null;
+  const gen = !!(c && c.reserved);
+  document.getElementById("client-title").textContent =
+    gen ? "Prompt de los posts sin cliente" : (c ? "Editar cliente" : "Nuevo cliente");
   // Editando no hace falta bajada: el título ya dice todo.
   const sub = document.getElementById("client-subtitle");
-  sub.textContent = c ? "" : "Se guarda en la base y el motor lo usa al instante, sin deploy.";
-  sub.style.display = c ? "none" : "";
+  sub.textContent = gen
+    ? "Es el prompt que se usa en TODOS los vendedores cuando el post no es de un cliente cargado. Se edita solo desde acá."
+    : (c ? "" : "Se guarda en la base y el motor lo usa al instante, sin deploy.");
+  sub.style.display = (c && !gen) ? "none" : "";
   document.getElementById("client-id").value = c ? c.id : "";
   document.getElementById("client-ig").value = c ? c.ig_username : "";
   document.getElementById("client-name").value = c ? c.display_name : "";
@@ -580,11 +619,16 @@ function openClientModal(id) {
   document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
   document.querySelector("#client-mo .ax-editor-btn-ico").textContent = "⤢";
   document.getElementById("client-prompt-expand-txt").textContent = "Agrandar prompt";
+  // Del genérico solo se toca el prompt (y género/rangos): @usuario, nombre,
+  // estado y campaña son del sistema y quedan bloqueados.
+  for (const f of ["client-ig", "client-name", "client-status", "client-venta"]) {
+    document.getElementById(f).disabled = gen;
+  }
   clientSnapshot = _clientFormState();
   updatePromptCount();
   openMo("client-mo");
   // El prompt arranca oculto, así que el foco va siempre al primer dato.
-  setTimeout(() => document.getElementById("client-ig").focus(), 50);
+  setTimeout(() => document.getElementById(gen ? "client-prompt" : "client-ig").focus(), 50);
 }
 
 async function saveClient() {

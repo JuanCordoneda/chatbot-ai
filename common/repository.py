@@ -17,6 +17,17 @@ from common import crypto
 
 # ── Clientes ──────────────────────────────────────────────────────────────────
 
+# Cliente reservado del sistema: el que se aplica a TODO post que no es de un
+# cliente cargado, en cualquier cuenta. Es UNO SOLO global (la fila vive en una
+# cuenta cualquiera, pero se busca sin filtrar por cuenta) y no se gestiona con
+# el CRUD normal: los vendedores ni lo ven, y solo el admin le edita el prompt.
+GENERIC_IG = "__generico__"
+
+
+def is_generic(ig_username) -> bool:
+    return (ig_username or "").strip().lstrip("@").lower() == GENERIC_IG
+
+
 _GENDERS = ("male", "female")
 
 
@@ -91,6 +102,28 @@ def get_client_by_ig_username(ig_username: str, account_id: Optional[int] = None
         return _client_to_dict(c) if c else None
 
 
+def get_generic_client() -> Optional[dict]:
+    """El cliente genérico global. No filtra por cuenta ni por estado: es del
+    sistema y se aplica siempre, sin importar de qué vendedor sea el post."""
+    if not db_available():
+        return None
+    with session_scope() as s:
+        c = (s.query(Client)
+             .filter(Client.ig_username == GENERIC_IG)
+             .order_by(Client.id)
+             .first())
+        return _client_to_dict(c) if c else None
+
+
+def get_generic_prompt() -> Optional[str]:
+    """Prompt del genérico global. None si no hay DB o está vacío (el llamador
+    cae al prompts/generico.txt de la imagen)."""
+    c = get_generic_client()
+    if c and c["prompt"] and c["prompt"].strip():
+        return c["prompt"]
+    return None
+
+
 def get_client_display_name(ig_username: str, account_id: Optional[int] = None) -> Optional[str]:
     """Equivalente en DB a clients_map.json (owner_username -> nombre)."""
     c = get_client_by_ig_username(ig_username, account_id)
@@ -117,8 +150,11 @@ def list_clients(account_id: int) -> list[dict]:
     if not db_available():
         return []
     with session_scope() as s:
+        # El genérico es del sistema: nunca sale en la lista de clientes (el
+        # panel del admin lo agrega aparte, marcado como reservado).
         cs = (s.query(Client)
-              .filter(Client.account_id == account_id)
+              .filter(Client.account_id == account_id,
+                      Client.ig_username != GENERIC_IG)
               .order_by(Client.display_name, Client.ig_username)
               .all())
         return [_client_to_dict(c) for c in cs]
@@ -136,6 +172,8 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
     key = _norm_ig(ig_username)
     if not key:
         raise RepoError("El @usuario es obligatorio")
+    if key == GENERIC_IG:
+        raise RepoError("@__generico__ es un cliente reservado del sistema")
     with session_scope() as s:
         dup = s.query(Client).filter(
             Client.account_id == account_id, Client.ig_username == key
@@ -170,10 +208,15 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
         ).first()
         if not c:
             raise RepoError("Cliente no encontrado")
+        if c.ig_username == GENERIC_IG:
+            raise RepoError("El cliente genérico es del sistema y se edita "
+                            "desde su propia ficha (solo el admin)")
         if ig_username is not None:
             key = _norm_ig(ig_username)
             if not key:
                 raise RepoError("El @usuario no puede quedar vacío")
+            if key == GENERIC_IG:
+                raise RepoError("@__generico__ es un cliente reservado del sistema")
             if key != c.ig_username:
                 dup = s.query(Client).filter(
                     Client.account_id == account_id, Client.ig_username == key,
@@ -212,8 +255,37 @@ def delete_client(account_id: int, client_id: int) -> bool:
         ).first()
         if not c:
             return False
+        if c.ig_username == GENERIC_IG:
+            raise RepoError("El cliente genérico no se puede borrar: es el que "
+                            "se aplica a los posts sin cliente")
         s.delete(c)
         return True
+
+
+def update_generic_client(*, prompt=None, gender=None, gender_set=False,
+                          ranges=None, ranges_set=False) -> dict:
+    """Edición del genérico global (solo admin). Deliberadamente NO deja tocar
+    @usuario, nombre ni estado: siempre activo y siempre el mismo, porque es el
+    fallback de todos los vendedores."""
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    with session_scope() as s:
+        c = (s.query(Client)
+             .filter(Client.ig_username == GENERIC_IG)
+             .order_by(Client.id)
+             .first())
+        if not c:
+            raise RepoError("El cliente genérico no existe todavía "
+                            "(falta correr la migración 0008)")
+        if prompt is not None:
+            c.prompt = prompt
+        if gender_set:
+            c.gender = _norm_gender(gender)
+        if ranges_set:
+            c.ranges = _norm_ranges(ranges)
+        c.status = "active"
+        s.flush()
+        return _client_to_dict(c)
 
 
 # ── CRUD de vendedores (admin self-serve, TAREA 3) ──────────────────────────────

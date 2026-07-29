@@ -17,8 +17,9 @@ except Exception:
 # Cliente reservado para los posts que NO son de ningún cliente cargado. Antes
 # esos posts usaban el prompt de Peter Fournier, que arrastra sus personajes,
 # sus inside jokes y sus @menciones a un post que no tiene nada que ver. Este
-# "cliente" tiene el mismo calibre pero sin nada personal, y se puede editar
-# desde el panel como cualquier otro (creándolo con este @usuario).
+# "cliente" tiene el mismo calibre pero sin nada personal. Es del sistema: uno
+# solo para todas las cuentas, invisible para los vendedores, y solo el admin le
+# edita el prompt desde el panel.
 GENERIC_CLIENT_ID = "__generico__"
 
 
@@ -27,11 +28,11 @@ def _load_template(client_id: str | None, account_id: int | None = None) -> str:
     si no hay, cae al .txt del cliente, y si tampoco, al default.txt.
     Para el cliente genérico el archivo es prompts/generico.txt."""
     if client_id == GENERIC_CLIENT_ID:
-        # Si el vendedor creó el cliente "__generico__" en su cuenta, su prompt
-        # manda; si no, el archivo genérico del repo.
+        # El genérico es UNO SOLO global: el mismo prompt para los posts sin
+        # cliente de todos los vendedores (por eso no se filtra por cuenta).
         if _repo is not None:
             try:
-                db_prompt = _repo.get_client_prompt(GENERIC_CLIENT_ID, account_id)
+                db_prompt = _repo.get_generic_prompt()
                 if db_prompt:
                     return db_prompt
             except Exception as e:

@@ -36,15 +36,14 @@ _JOB_TTL = int(os.environ.get("JOB_TTL", "1800"))    # 30 min
 
 def _datos_cliente(ig_username: str, es_cliente: bool):
     """(ranges, gender) del cliente del post. Si el post NO es de un cliente
-    cargado, salen del cliente GENÉRICO: es donde el vendedor configura los
-    rangos de cantidades y el género para estos casos. Antes quedaban vacíos y
-    el modal de órdenes no ofrecía la cantidad random."""
+    cargado, salen del cliente GENÉRICO global (lo configura el admin, es el
+    mismo para todos los vendedores). Antes quedaban vacíos y el modal de
+    órdenes no ofrecía la cantidad random."""
     try:
         from common import repository as _repo
-        from modules.ai_generator import GENERIC_CLIENT_ID
         row = _repo.get_client_by_ig_username(ig_username) if (ig_username and es_cliente) else None
         if row is None:
-            row = _repo.get_client_by_ig_username(GENERIC_CLIENT_ID)
+            row = _repo.get_generic_client()
         return (row or {}).get("ranges") or {}, (row or {}).get("gender")
     except Exception as e:
         print(f"[cliente] datos no disponibles ({e})", flush=True)

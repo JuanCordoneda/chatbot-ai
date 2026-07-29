@@ -1103,7 +1103,17 @@ def ventas_crm():
 @require_login
 @_repo_error_response
 def admin_clients_list():
-    return jsonify({"clients": _repo.list_clients(_target_account_id())})
+    clients = _repo.list_clients(_target_account_id())
+    # El genérico no pertenece a ninguna cuenta a los fines del panel: es del
+    # sistema, se aplica a los posts sin cliente de TODOS los vendedores y solo
+    # el admin lo ve (marcado como reservado, sin borrar/pausar/renombrar).
+    if session.get("is_admin"):
+        g = _repo.get_generic_client()
+        if g:
+            g = {**g, "reserved": True,
+                 "display_name": "Genéricos (posts sin cliente)"}
+            clients = clients + [g]
+    return jsonify({"clients": clients})
 
 
 @app.route("/api/admin/clients", methods=["POST"])
@@ -1130,6 +1140,16 @@ def admin_clients_create():
 @_repo_error_response
 def admin_clients_update(client_id):
     d = request.get_json(silent=True) or {}
+    g = _repo.get_generic_client()
+    if g and g["id"] == client_id:
+        if not session.get("is_admin"):
+            return jsonify({"error": "Requiere permisos de administrador"}), 403
+        c = _repo.update_generic_client(
+            prompt=d.get("prompt"),
+            gender=d.get("gender"), gender_set=("gender" in d),
+            ranges=d.get("ranges"), ranges_set=("ranges" in d),
+        )
+        return jsonify({"client": {**c, "reserved": True}})
     c = _repo.update_client(
         _target_account_id(), client_id,
         display_name=d.get("display_name"),
@@ -1150,6 +1170,10 @@ def admin_clients_update(client_id):
 @require_login
 @_repo_error_response
 def admin_clients_delete(client_id):
+    g = _repo.get_generic_client()
+    if g and g["id"] == client_id:
+        return jsonify({"error": "El cliente genérico no se puede borrar: es el "
+                                 "que se aplica a los posts sin cliente"}), 400
     ok = _repo.delete_client(_target_account_id(), client_id)
     return jsonify({"deleted": ok})
 
