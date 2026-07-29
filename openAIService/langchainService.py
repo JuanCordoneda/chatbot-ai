@@ -27,6 +27,30 @@ _sessions_lock = threading.Lock()
 _calendar_service = None
 _calendar_lock = threading.Lock()
 
+def _clasificar_error_ia(err: str) -> dict:
+    """Traduce el error crudo de la API de Claude a algo que el vendedor entienda,
+    y dice si conviene reintentar. Devuelve {mensaje, motivo, reintentable}."""
+    e = (err or "").lower()
+    if "overloaded" in e or "529" in e:
+        return {"motivo": "saturada", "reintentable": True,
+                "mensaje": "La IA está saturada en este momento. "
+                           "Esperá unos segundos y reintentá."}
+    if "rate_limit" in e or "429" in e:
+        return {"motivo": "rate_limit", "reintentable": True,
+                "mensaje": "Demasiadas generaciones seguidas. "
+                           "Esperá un momento y reintentá."}
+    if "credit balance" in e or "billing" in e or "insufficient" in e:
+        return {"motivo": "sin_credito", "reintentable": False,
+                "mensaje": "El servicio de IA se quedó sin crédito. "
+                           "Avisá al administrador para recargarlo."}
+    if "timeout" in e or "timed out" in e:
+        return {"motivo": "timeout", "reintentable": True,
+                "mensaje": "La IA tardó demasiado en responder. Reintentá."}
+    return {"motivo": "desconocido", "reintentable": True,
+            "mensaje": "No se pudieron generar los comentarios (error de la IA). "
+                       "Reintentá en un momento."}
+
+
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 # Cuánto vive un job en memoria después de creado (el front ya terminó de leerlo
@@ -470,6 +494,7 @@ def procesar_post_web():
         except Exception as e:
             print(f"[ERROR] job failed: {e}", flush=True)
             job["error"] = str(e)
+            job["error_info"] = _clasificar_error_ia(str(e))
             job["done"] = True
 
     threading.Thread(target=run, daemon=True).start()
@@ -560,7 +585,13 @@ def procesar_post_stream(job_id):
 
             if job["done"]:
                 if job["error"]:
-                    yield evento("error", mensaje=job["error"])
+                    info = job.get("error_info") or _clasificar_error_ia(job["error"])
+                    # parcial = ya scrapeamos el post (hay transcripción/descripción
+                    # que mostrar). El front, en ese caso, no borra la pantalla:
+                    # deja lo que salió y avisa que la IA falló, con opción a reintentar.
+                    yield evento("error", mensaje=info["mensaje"],
+                                 motivo=info["motivo"], reintentable=info["reintentable"],
+                                 parcial=bool(job.get("scrape_ready")))
                 else:
                     yield evento("listo", **job["meta"], total=len(job["comentarios"]))
                 break

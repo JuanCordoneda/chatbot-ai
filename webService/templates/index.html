@@ -170,6 +170,15 @@
             <p id="stream-status" class="stream-status"></p>
           </div>
 
+          <!-- Aviso cuando la IA falla (saturada / sin crédito) pero el post ya
+               se scrapeó: no perdemos la transcripción/descripción y ofrecemos
+               reintentar en el lugar. -->
+          <div id="ia-error-banner" class="ia-error-banner hidden">
+            <span class="ia-error-ico">⚠️</span>
+            <span id="ia-error-msg" class="ia-error-msg"></span>
+            <button id="ia-error-retry" class="btn-sm" onclick="reintentarGeneracion()">↻ Reintentar</button>
+          </div>
+
           <div id="skeleton-list" class="skeleton-list">
             <div class="skeleton-item"></div>
             <div class="skeleton-item"></div>

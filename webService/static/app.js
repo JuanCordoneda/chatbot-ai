@@ -129,6 +129,7 @@ async function generarComentarios() {
 
   generando = true;
   setError("");
+  ocultarIaError();
   currentUrl = url;
   currentJobId = null;
   streamCancelado = false;   // post nuevo: vuelve a habilitarse el stream
@@ -322,10 +323,44 @@ function manejarEvento(evento) {
   } else if (evento.tipo === "error") {
     generando = false;
     hide("loading-overlay");
-    hide("step-comentarios");
-    show("step-input");
-    setError(evento.mensaje);
+    // Si el post ya se scrapeó (parcial), NO tiramos abajo la pantalla: dejamos
+    // la transcripción/descripción que sí salieron y avisamos en el lugar, con
+    // opción a reintentar. Solo volvemos al inicio si no hay nada que mostrar.
+    if (evento.parcial) {
+      const sk = document.getElementById("skeleton-list");
+      if (sk) sk.remove();
+      document.getElementById("stream-status").textContent = "";
+      mostrarIaError(evento.mensaje, evento.reintentable !== false);
+    } else {
+      hide("step-comentarios");
+      show("step-input");
+      setError(evento.mensaje);
+    }
   }
+}
+
+// Cartel de error de IA dentro de la pantalla de comentarios (post ya scrapeado).
+function mostrarIaError(msg, reintentable) {
+  const banner = document.getElementById("ia-error-banner");
+  if (!banner) return;
+  document.getElementById("ia-error-msg").textContent =
+    msg || "No se pudieron generar los comentarios. Reintentá en un momento.";
+  document.getElementById("ia-error-retry").classList.toggle("hidden", !reintentable);
+  banner.classList.remove("hidden");
+}
+
+function ocultarIaError() {
+  const banner = document.getElementById("ia-error-banner");
+  if (banner) banner.classList.add("hidden");
+}
+
+// Reintenta SOLO la generación, reusando el post ya scrapeado (el backend cachea
+// el scrape/transcripción por shortcode, así que no re-baja ni re-transcribe).
+function reintentarGeneracion() {
+  if (!currentUrl || generando) return;
+  ocultarIaError();
+  document.getElementById("ig-link").value = currentUrl;
+  generarComentarios();
 }
 
 const STEP_LABELS = {

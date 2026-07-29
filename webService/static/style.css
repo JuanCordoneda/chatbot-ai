@@ -944,6 +944,36 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
    arrastre un hueco (evita el salto durante el stream porque ahí no está vacío). */
 .stream-status:empty { min-height: 0; padding: 0; }
 
+/* Aviso de IA caída (saturada / sin crédito) sin perder el resto de la pantalla */
+.ia-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  background: var(--yellow-lo);
+  border: 1px solid var(--yellow-md);
+  border-left: 3px solid var(--yellow);
+  border-radius: 12px;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.ia-error-banner.hidden { display: none; }
+.ia-error-ico { flex-shrink: 0; font-size: 1.1rem; }
+.ia-error-msg { flex: 1; line-height: 1.45; }
+.ia-error-banner .btn-sm {
+  flex-shrink: 0;
+  cursor: pointer;
+  background: var(--yellow);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+.ia-error-banner .btn-sm:hover { background: var(--yellow-br); }
+
 .stream-status:not(:empty)::before {
   content: "";
   width: 7px; height: 7px;
