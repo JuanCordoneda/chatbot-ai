@@ -232,15 +232,33 @@
 
         <!-- Post sin cliente: hay que decir de qué campaña propia sale la plata,
              si no el tráfico se descuenta de la campaña por defecto de la cuenta. -->
-        <div id="venta-picker" class="venta-picker hidden">
-          <div class="venta-picker-ico">💳</div>
-          <div class="venta-picker-body">
-            <p class="venta-picker-title">Esta publicación no es de ningún cliente tuyo</p>
-            <p class="venta-picker-sub">Elegí de cuál de tus campañas se descuenta este envío.</p>
+        <div id="venta-picker" class="venta-picker hidden" role="group" aria-labelledby="venta-picker-title">
+          <div class="venta-picker-head">
+            <div class="venta-picker-ico" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 20 20" fill="none">
+                <rect x="1.6" y="4" width="16.8" height="12" rx="2.6" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M1.6 8.2h16.8" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M5 12.4h3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="venta-picker-body">
+              <p class="venta-picker-title" id="venta-picker-title">
+                Esta publicación no es de ningún cliente tuyo
+                <span id="venta-picker-owner" class="venta-picker-owner hidden"></span>
+              </p>
+              <p class="venta-picker-sub">Elegí de cuál de tus campañas se descuenta este envío. Los comentarios no consumen saldo.</p>
+            </div>
           </div>
-          <select id="venta-picker-select" class="venta-picker-select" onchange="onVentaElegida()">
-            <option value="">Cargando campañas…</option>
-          </select>
+          <div class="venta-picker-pick">
+            <div class="venta-picker-selwrap">
+              <select id="venta-picker-select" class="venta-picker-select" onchange="onVentaElegida()" aria-describedby="venta-picker-msg">
+                <option value="">Cargando campañas…</option>
+              </select>
+              <button type="button" id="venta-picker-retry" class="venta-picker-retry hidden" onclick="prepararVentaPicker()">Reintentar</button>
+            </div>
+            <span id="venta-picker-saldo" class="venta-picker-saldo hidden"></span>
+          </div>
+          <p id="venta-picker-msg" class="venta-picker-msg hidden" role="status" aria-live="polite"></p>
         </div>
 
         <!-- Formulario -->

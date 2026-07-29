@@ -794,6 +794,14 @@ body.light .orden-btn-agregar {
 
 .scrape-value--accent { color: var(--yellow); }
 
+/* Post que no pertenece a ningún cliente: se muestra apagado para que no se
+   confunda con un cliente cargado (antes se pintaba el @cuenta en amarillo). */
+.scrape-value--none {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: .92rem;
+}
+
 .scrape-details-row { display: flex; flex-direction: column; gap: 2px; }
 
 .scrape-details { color: var(--muted); }
@@ -1662,15 +1670,32 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 /* ── Selector de campaña (posts sin cliente) ──────────────────────────────
    Solo aparece cuando el post no es de ningún cliente: ahí no hay de dónde
    deducir la campaña, así que la elige la persona antes de mandar. */
+/* Aviso "esta publicación no es de ningún cliente tuyo": es un paso obligatorio
+   antes de enviar tráfico, así que se lee como una tarjeta con su propio bloque
+   de elección (cabecera + selector + saldo + mensaje de validación). */
 .venta-picker {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-top: 12px;
-  padding: 14px 18px;
-  background: var(--surface);
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  /* Tarjeta propia entre el hero y el formulario: necesita aire de los dos
+     lados, si no se lee como parte de la card de abajo. */
+  margin: 14px 0 16px;
+  padding: 15px 18px;
+  background:
+    linear-gradient(90deg, var(--yellow-lo), transparent 42%),
+    var(--surface);
   border: 1px solid var(--yellow-md);
+  border-left: 3px solid var(--yellow);
   border-radius: var(--radius);
+}
+.venta-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-right: auto;
+  min-width: 240px;
+  flex: 1 1 260px;
 }
 .venta-picker-ico {
   display: grid;
@@ -1679,11 +1704,31 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   flex-shrink: 0;
   border-radius: 11px;
   background: var(--yellow-lo);
-  font-size: 1.1rem;
+  color: var(--yellow);
 }
-.venta-picker-body { margin-right: auto; }
-.venta-picker-title { font-size: .95rem; font-weight: 700; color: var(--text); }
-.venta-picker-sub { font-size: .84rem; color: var(--muted); margin-top: 2px; }
+.venta-picker-body { min-width: 0; }
+.venta-picker-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: .95rem; font-weight: 700; color: var(--text);
+}
+/* @cuenta del post: dice de quién ES la publicación, que es la pregunta que se
+   hace el vendedor al leer el aviso. */
+.venta-picker-owner {
+  font-size: .76rem; font-weight: 600;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 1px 9px;
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.venta-picker-sub { font-size: .84rem; color: var(--muted); margin-top: 3px; }
+.venta-picker-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.venta-picker-selwrap { display: flex; align-items: center; gap: 8px; }
 .venta-picker-select {
   min-width: 300px;
   max-width: 100%;
@@ -1697,10 +1742,50 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   cursor: pointer;
 }
 .venta-picker-select:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
-.venta-picker--falta { border-color: #ff6b6b; }
+.venta-picker-select:disabled { cursor: progress; opacity: .7; }
+.venta-picker-retry {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-family: var(--font);
+  font-size: .82rem; font-weight: 600;
+  cursor: pointer;
+}
+.venta-picker-retry:hover { border-color: var(--yellow); color: var(--yellow); }
+/* Saldo de la campaña elegida: confirma la elección y evita mandar tráfico
+   contra una campaña sin plata. */
+.venta-picker-saldo {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .82rem; font-weight: 700;
+  color: #4ade80;
+  background: rgba(74, 222, 128, .10);
+  border: 1px solid rgba(74, 222, 128, .28);
+  border-radius: 20px;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+.venta-picker-saldo--bajo {
+  color: #ff6b6b;
+  background: rgba(220, 53, 69, .10);
+  border-color: rgba(220, 53, 69, .30);
+}
+.venta-picker-msg {
+  flex: 1 1 100%;
+  font-size: .82rem; font-weight: 600;
+  color: var(--muted);
+}
+/* Intentó enviar sin elegir campaña: el borde solo no alcanzaba, ahora además
+   se dice qué falta. */
+.venta-picker--falta { border-color: #ff6b6b; border-left-color: #ff6b6b; }
+.venta-picker--falta .venta-picker-ico { background: rgba(220, 53, 69, .12); color: #ff6b6b; }
+.venta-picker--falta .venta-picker-msg { color: #ff6b6b; }
 @media (max-width: 768px) {
-  .venta-picker { flex-wrap: wrap; }
-  .venta-picker-select { min-width: 0; width: 100%; }
+  .venta-picker-head { flex: 1 1 100%; }
+  .venta-picker-pick, .venta-picker-selwrap { width: 100%; }
+  .venta-picker-selwrap { flex: 1 1 100%; }
+  .venta-picker-select { min-width: 0; width: 100%; flex: 1; }
 }
 
 .ordenes-hero-left {
@@ -2149,6 +2234,13 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   color: #7fe8b8;
 }
 
+/* Orden armada sola a partir del rango del cliente (o del genérico). */
+.orden-card-pill--auto {
+  background: var(--yellow-lo);
+  border: 1px solid var(--yellow-md);
+  color: var(--yellow);
+}
+
 .orden-card-pill--split {
   background: var(--yellow-lo);
   border: 1px solid var(--yellow-md);
@@ -2473,7 +2565,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
 .login-error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  line-height: 1.45;
   gap: 0.6rem;
   background: rgba(220, 53, 69, 0.10);
   border: 1px solid rgba(220, 53, 69, 0.30);
@@ -2484,6 +2577,16 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   font-weight: 500;
   animation: fadeUp 0.25s ease;
 }
+
+.login-error svg { flex: 0 0 auto; margin-top: 2px; }
+
+/* Aviso (no es un error del usuario): acceso pendiente de habilitación. */
+.login-error--info {
+  background: rgba(240, 185, 11, 0.10);
+  border-color: rgba(240, 185, 11, 0.32);
+  color: #f0c040;
+}
+.login-error--info svg circle, .login-error--info svg path { stroke: #f0c040; }
 
 .login-form {
   display: flex;

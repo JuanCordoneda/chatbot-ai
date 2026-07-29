@@ -433,6 +433,7 @@ def _account_to_dict(a: Account, *, with_secrets: bool = False) -> dict:
         "name": a.name,
         "slug": a.slug,
         "active": a.active,
+        "status": a.status or "approved",
         "crm_url": a.crm_url,
         "crm_email": a.crm_email,
         "crm_idvendedor": a.crm_idvendedor,
@@ -453,16 +454,17 @@ def _slugify(text: str) -> str:
 
 
 def get_account_by_crm_email(email: str) -> Optional[dict]:
-    """Busca una cuenta ACTIVA por su email de Growi (case-insensitive). Devuelve
-    el dict con la password descifrada para poder validar el login en vivo. None
-    si no hay DB o no existe."""
+    """Busca una cuenta por su email de Growi (case-insensitive), sin filtrar por
+    estado: el login necesita distinguir "no existe" de "pendiente/restringida"
+    para darle al vendedor el mensaje correcto. Devuelve el dict con la password
+    descifrada para poder validar el login en vivo. None si no hay DB o no existe."""
     if not db_available() or not email:
         return None
     key = email.strip().lower()
     with session_scope() as s:
         from sqlalchemy import func
         a = (s.query(Account)
-             .filter(func.lower(Account.crm_email) == key, Account.active.is_(True))
+             .filter(func.lower(Account.crm_email) == key)
              .first())
         if not a:
             return None
@@ -530,6 +532,7 @@ def create_vendedor(*, name: str, crm_email: str, crm_password: str, crm_url: st
             name=name,
             slug=_unique_slug(s, _slugify(name)),
             active=True,
+            status="approved",   # alta manual del admin: nace habilitado
             crm_url=(crm_url or "").strip() or "https://crm.growiagency.com",
             crm_email=email,
             crm_password_enc=crypto.encrypt(crm_password),
@@ -539,6 +542,55 @@ def create_vendedor(*, name: str, crm_email: str, crm_password: str, crm_url: st
             crm_disponible=(str(crm_disponible).strip() or None),
         )
         s.add(a)
+        s.flush()
+        return _account_to_dict(a)
+
+
+def create_pending_vendedor(*, crm_email: str, crm_password: str, crm_url: str = "",
+                            crm_proxy: str = "") -> dict:
+    """Autoregistro: alguien se logueó con credenciales de Growi VÁLIDAS pero no
+    tiene cuenta todavía. Se crea en estado "pending" e inactiva; no puede operar
+    hasta que el admin la apruebe. El nombre provisorio sale del email."""
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    email = (crm_email or "").strip().lower()
+    if not email:
+        raise RepoError("El email de Growi es obligatorio")
+    name = email.split("@")[0] or email
+    with session_scope() as s:
+        from sqlalchemy import func
+        dup = s.query(Account).filter(func.lower(Account.crm_email) == email).first()
+        if dup:
+            return _account_to_dict(dup)
+        a = Account(
+            name=name,
+            slug=_unique_slug(s, _slugify(name)),
+            active=False,
+            status="pending",
+            crm_url=(crm_url or "").strip() or "https://crm.growiagency.com",
+            crm_email=email,
+            crm_password_enc=crypto.encrypt(crm_password) if crm_password else None,
+            crm_proxy=(crm_proxy or "").strip() or None,
+        )
+        s.add(a)
+        s.flush()
+        return _account_to_dict(a)
+
+
+def set_vendedor_status(account_id: int, status: str) -> dict:
+    """Resolución del admin sobre una solicitud: "approved" habilita la cuenta,
+    "rejected" le niega el acceso. `active` acompaña al estado para que el resto
+    del sistema (que mira active) no necesite cambios."""
+    if status not in ("pending", "approved", "rejected"):
+        raise RepoError(f"Estado inválido: {status}")
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    with session_scope() as s:
+        a = s.query(Account).filter(Account.id == account_id).first()
+        if not a:
+            raise RepoError("Vendedor no encontrado")
+        a.status = status
+        a.active = (status == "approved")
         s.flush()
         return _account_to_dict(a)
 
@@ -584,6 +636,9 @@ def update_vendedor(account_id: int, *, name=None, active=None, crm_email=None,
             a.crm_disponible = str(crm_disponible).strip() or None
         if active is not None:
             a.active = bool(active)
+            # Activar/desactivar a mano también resuelve la solicitud, así no
+            # queda una cuenta activa pero en estado "pendiente".
+            a.status = "approved" if a.active else "rejected"
         s.flush()
         return _account_to_dict(a)
 

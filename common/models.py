@@ -33,6 +33,11 @@ class Account(Base):
     name = Column(String(200), nullable=False)
     slug = Column(String(100), nullable=False, unique=True)
     active = Column(Boolean, nullable=False, default=True)
+    # Habilitación del vendedor. Cuando alguien entra por primera vez con sus
+    # credenciales de Growi se autoregistra como "pending" y NO puede operar
+    # hasta que el admin lo apruebe desde el panel ("approved") o le niegue el
+    # acceso ("rejected"). Las cuentas que da de alta el admin nacen aprobadas.
+    status = Column(String(20), nullable=False, default="approved")  # pending|approved|rejected
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     # Credenciales del CRM Growi, propias de cada cuenta. Reemplazan al .env global.

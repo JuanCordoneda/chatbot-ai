@@ -153,19 +153,26 @@ def _growi_login_with(cfg, verify=True):
 
 
 def _growi_validate_credentials(cfg):
-    """True si las credenciales loguean correctamente en el CRM. Se comprueba
-    pidiendo una página que exige sesión (trafico.php): 200 = adentro; un redirect
-    al login = credenciales inválidas. Mismo patrón que openAIService/growi_client."""
+    """Chequea las credenciales contra el CRM y distingue los dos "no" posibles:
+
+      "ok"          → el login en Growi es posible (adentro);
+      "invalid"     → el CRM nos rebotó: usuario o contraseña incorrectos;
+      "unreachable" → no pudimos hablar con el CRM (caído, proxy, timeout). NO es
+                      culpa del usuario, así que no lo tratamos como pass errónea.
+
+    Se comprueba pidiendo una página que exige sesión (trafico.php): 200 = adentro;
+    un redirect al login = credenciales inválidas. Mismo patrón que
+    openAIService/growi_client."""
     url = cfg.get("crm_url") or GROWI_CRM_URL
     try:
-        # verify=False: acá el chequeo lo hacemos nosotros y queremos un bool,
+        # verify=False: acá el chequeo lo hacemos nosotros y queremos un resultado,
         # no una excepción (esto valida credenciales que el usuario está cargando).
         s = _growi_login_with(cfg, verify=False)
         check = s.get(f"{url}/paginas/trafico.php", allow_redirects=False, timeout=15)
-        return check.status_code == 200
+        return "ok" if check.status_code == 200 else "invalid"
     except Exception as e:
-        print(f"[auth] error validando credenciales de Growi ({e})", flush=True)
-        return False
+        print(f"[auth] no pude hablar con el CRM al validar credenciales ({e!r})", flush=True)
+        return "unreachable"
 
 
 def _get_growi_session(account_id):
@@ -247,49 +254,91 @@ def _authenticate_admin_fallback(identifier, password):
     return None
 
 
+MSG_CREDENCIALES = "Usuario o contraseña incorrectos"
+MSG_PENDIENTE = ("Tus credenciales de Growi son correctas, pero tu acceso todavía no "
+                 "está habilitado. Enviamos tu solicitud al administrador para que la "
+                 "verifique; vas a poder entrar en cuanto la apruebe.")
+MSG_RECHAZADO = ("Tu acceso a la plataforma está restringido por el administrador. "
+                 "Contactate con él si creés que es un error.")
+MSG_CRM_CAIDO = ("No pudimos verificar tus credenciales con Growi en este momento. "
+                 "Probá de nuevo en unos minutos.")
+
+
 def _authenticate_vendedor(email, password):
-    """Login del vendedor por credenciales de Growi. Busca la cuenta por su email
-    de Growi y valida la password EN VIVO contra el CRM. Si es válida, refresca la
-    password guardada (cifrada) y devuelve el dict de sesión. None si no aplica."""
+    """Login del vendedor por credenciales de Growi. Valida la password EN VIVO
+    contra el CRM y después mira la habilitación de su cuenta. Devuelve
+    (dict_de_sesión|None, mensaje_de_error|None):
+
+      - cuenta aprobada + credenciales válidas → entra;
+      - cuenta pendiente o restringida        → no entra, con el mensaje del caso;
+      - sin cuenta + credenciales válidas     → se autoregistra como PENDIENTE y
+        queda a la espera de que el admin la apruebe desde el panel.
+    """
     if _repo is None:
-        return None
+        return None, None
     try:
         acc = _repo.get_account_by_crm_email(email)
     except Exception as e:
         print(f"[auth] no pude buscar la cuenta por email ({e})", flush=True)
-        return None
-    if not acc:
-        return None
+        return None, None
+
     cfg = {
-        "crm_url": acc.get("crm_url") or GROWI_CRM_URL,
+        "crm_url": (acc.get("crm_url") if acc else None) or GROWI_CRM_URL,
         "crm_email": email,
         "crm_password": password,
-        "crm_proxy": acc.get("crm_proxy"),
+        "crm_proxy": (acc.get("crm_proxy") if acc else None) or _GROWI_PROXY_URL or None,
     }
-    if not _growi_validate_credentials(cfg):
-        return None
-    # Credenciales válidas: refrescamos la password guardada y limpiamos cualquier
-    # sesión cacheada vieja de esta cuenta para que las próximas operaciones usen
-    # la password recién validada.
+    # La solicitud de acceso se manda SOLO si el login en Growi es posible. Si el
+    # CRM rebota las credenciales, es contraseña incorrecta y no se registra nada.
+    check = _growi_validate_credentials(cfg)
+    if check == "unreachable":
+        return None, MSG_CRM_CAIDO
+    if check != "ok":
+        # Credenciales inválidas: no revelamos si la cuenta existe ni en qué estado
+        # está; es el mismo mensaje que cualquier login fallido.
+        return None, None
+
+    if acc is None:
+        # Primer ingreso: se autoregistra y espera la verificación del admin.
+        try:
+            nueva = _repo.create_pending_vendedor(
+                crm_email=email, crm_password=password,
+                crm_url=GROWI_CRM_URL, crm_proxy=_GROWI_PROXY_URL or "")
+            print(f"[auth] solicitud de acceso creada para {email} (cuenta {nueva['id']})", flush=True)
+        except Exception as e:
+            print(f"[auth] no pude registrar la solicitud de {email} ({e})", flush=True)
+        return None, MSG_PENDIENTE
+
+    estado = acc.get("status") or "approved"
+    if estado == "pending":
+        return None, MSG_PENDIENTE
+    if estado == "rejected" or not acc.get("active"):
+        return None, MSG_RECHAZADO
+
+    # Credenciales válidas y cuenta habilitada: refrescamos la password guardada y
+    # limpiamos cualquier sesión cacheada vieja de esta cuenta para que las
+    # próximas operaciones usen la password recién validada.
     try:
         _repo.update_account_crm_password(acc["id"], password)
     except Exception as e:
         print(f"[auth] no pude refrescar la password del CRM ({e})", flush=True)
     _growi_sessions.pop(acc["id"], None)
     return {"user_id": None, "account_id": acc["id"],
-            "username": acc.get("crm_email") or email, "is_admin": False}
+            "username": acc.get("crm_email") or email, "is_admin": False}, None
 
 
 def _authenticate(identifier, password):
-    """Devuelve un dict de sesión o None. Orden: usuario de la DB (admin o
-    vendedor) → fallback anti-lockout del .env → vendedor por credenciales de Growi."""
+    """Devuelve (dict de sesión|None, mensaje de error|None). Orden: usuario de la
+    DB (admin o vendedor) → fallback anti-lockout del .env → vendedor por
+    credenciales de Growi (que además resuelve el alta pendiente)."""
     user = _authenticate_db_user(identifier, password)
     if user:
-        return user
+        return user, None
     admin = _authenticate_admin_fallback(identifier, password)
     if admin:
-        return admin
-    return _authenticate_vendedor(identifier.strip().lower(), password)
+        return admin, None
+    user, error = _authenticate_vendedor(identifier.strip().lower(), password)
+    return user, error
 
 
 def _current_user():
@@ -360,11 +409,12 @@ def login():
     if session.get("logged_in"):
         return redirect(url_for("index"))
     error = None
+    error_kind = "error"
     username = ""
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        user = _authenticate(username, password)
+        user, auth_error = _authenticate(username, password)
         if user:
             session["logged_in"] = True
             session["user_id"] = user["user_id"]
@@ -372,8 +422,13 @@ def login():
             session["username"] = user["username"]
             session["is_admin"] = user["is_admin"]
             return redirect(url_for("index"))
-        error = "Usuario o contraseña incorrectos"
-    resp = make_response(render_template("login.html", error=error, username=username))
+        # auth_error explica el caso (pendiente de habilitación / acceso
+        # restringido); sin él es un login fallido común.
+        error = auth_error or MSG_CREDENCIALES
+        # "Pendiente" no es un error del usuario: se muestra como aviso.
+        error_kind = "info" if error == MSG_PENDIENTE else "error"
+    resp = make_response(render_template("login.html", error=error,
+                                         error_kind=error_kind, username=username))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -752,6 +807,18 @@ def admin_vendedores_update(account_id):
     ) if k in d}
     v = _repo.update_vendedor(account_id, **kwargs)
     # Si cambiaron credenciales, la sesión CRM cacheada de esa cuenta quedó vieja.
+    _growi_sessions.pop(account_id, None)
+    return jsonify({"vendedor": v})
+
+
+@app.route("/api/admin/vendedores/<int:account_id>/estado", methods=["PATCH"])
+@require_admin
+@_repo_error_response
+def admin_vendedores_estado(account_id):
+    """Resuelve una solicitud de acceso: {"status": "approved"|"rejected"}. Es lo
+    que el admin toca en el panel cuando le llega un vendedor nuevo."""
+    d = request.get_json(silent=True) or {}
+    v = _repo.set_vendedor_status(account_id, (d.get("status") or "").strip())
     _growi_sessions.pop(account_id, None)
     return jsonify({"vendedor": v})
 

@@ -347,7 +347,14 @@ function _ordenarBloquesContexto(esVideo) {
 
 function mostrarScrape(data) {
   document.getElementById("scrape-owner").textContent = data.owner_username || "—";
-  document.getElementById("client-badge").textContent = data.client_id || data.owner_username || "Sin cliente asignado";
+  // Si el post no es de un cliente cargado no mostramos el @cuenta acá: se veía
+  // igual que un cliente y hacía creer que el envío ya tenía a quién cobrarle.
+  const badge = document.getElementById("client-badge");
+  badge.textContent = data.cliente_asignado
+    ? (data.client_id || data.owner_username || "—")
+    : "Sin cliente asignado";
+  badge.classList.toggle("scrape-value--accent", !!data.cliente_asignado);
+  badge.classList.toggle("scrape-value--none", !data.cliente_asignado);
   ultimoEsVideo = !!data.is_video;
   _ordenarBloquesContexto(ultimoEsVideo);
 
@@ -1076,6 +1083,10 @@ async function irAOrdenes() {
   document.getElementById("orden-link").value = currentUrl;
 
   await actualizarProductos();
+  // Órdenes de tráfico precreadas con los rangos configurados (del cliente si el
+  // post es de uno, del genérico si no). Va después de actualizarProductos
+  // porque necesita el catálogo para resolver el producto de cada tipo.
+  await _precrearOrdenesDeRangos();
   renderOrdenes();
   prepararVentaPicker();
 
@@ -1273,11 +1284,26 @@ function _rangoDelProducto() {
 // Con cliente, el backend la resuelve solo (asignada > última del perfil). Sin
 // cliente no hay nada que deducir: antes caía en la campaña por defecto de la
 // cuenta sin avisar, ahora se elige acá y viaja en el envío.
+// Saldo de cada campaña (idventa -> disponible), para mostrarlo al elegirla.
+let _ventasSaldo = {};
+
+function _ventaPickerMsg(texto, falta) {
+  const msg = document.getElementById("venta-picker-msg");
+  if (!msg) return;
+  msg.textContent = texto || "";
+  msg.classList.toggle("hidden", !texto);
+  if (!falta) document.getElementById("venta-picker").classList.remove("venta-picker--falta");
+}
+
 function prepararVentaPicker() {
   const box = document.getElementById("venta-picker");
   if (!box) return;
   const sel = document.getElementById("venta-picker-select");
+  const retry = document.getElementById("venta-picker-retry");
+  const owner = document.getElementById("venta-picker-owner");
   box.classList.remove("venta-picker--falta");
+  _ventaPickerMsg("");
+  _mostrarSaldoVenta("");
 
   if (window._clienteAsignado) {
     box.classList.add("hidden");
@@ -1286,13 +1312,26 @@ function prepararVentaPicker() {
   }
 
   box.classList.remove("hidden");
+  // De qué cuenta es el post: lo primero que uno mira para entender el aviso.
+  if (owner) {
+    owner.textContent = window._clientIg ? `@${window._clientIg}` : "";
+    owner.classList.toggle("hidden", !window._clientIg);
+  }
+  retry.classList.add("hidden");
+  sel.disabled = true;
   sel.innerHTML = `<option value="">Cargando campañas…</option>`;
   fetch("/api/ventas")
     .then(r => r.json())
     .then(d => {
       const ventas = d.ventas || [];
+      sel.disabled = false;
+      _ventasSaldo = {};
+      ventas.forEach(v => { _ventasSaldo[String(v.idventa)] = parseFloat(v.disponible) || 0; });
       if (!ventas.length) {
         sel.innerHTML = `<option value="">No hay campañas disponibles</option>`;
+        sel.disabled = true;
+        retry.classList.remove("hidden");
+        _ventaPickerMsg("No encontramos campañas en tu cuenta del CRM. Creá una o pedile al admin que te asigne el cliente.", true);
         return;
       }
       const saldo = (v) => `$${(parseFloat(v.disponible) || 0).toFixed(2)}`;
@@ -1301,15 +1340,40 @@ function prepararVentaPicker() {
           `#${escapeHtml(v.idventa)} · ${saldo(v)} · ${escapeHtml(v.nombre)}` +
           `${v.activa ? "" : " (vieja)"}</option>`).join("");
       // Si ya había una elegida en este post, la mantenemos.
-      if (window._ventaElegida) sel.value = window._ventaElegida;
+      if (window._ventaElegida) { sel.value = window._ventaElegida; _mostrarSaldoVenta(window._ventaElegida); }
     })
-    .catch(() => { sel.innerHTML = `<option value="">No pude leer las campañas</option>`; });
+    .catch(() => {
+      sel.innerHTML = `<option value="">No pude leer las campañas</option>`;
+      sel.disabled = true;
+      retry.classList.remove("hidden");
+      _ventaPickerMsg("No pudimos leer tus campañas del CRM.", true);
+    });
+}
+
+// Chip con el saldo de la campaña elegida: en rojo si está en cero, que es el
+// caso en el que el envío se va a rebotar.
+function _mostrarSaldoVenta(idventa) {
+  const chip = document.getElementById("venta-picker-saldo");
+  if (!chip) return;
+  if (!idventa || !(String(idventa) in _ventasSaldo)) {
+    chip.classList.add("hidden");
+    return;
+  }
+  const disp = _ventasSaldo[String(idventa)];
+  chip.textContent = `Disponible $${disp.toFixed(2)}`;
+  chip.classList.toggle("venta-picker-saldo--bajo", disp <= 0);
+  chip.classList.remove("hidden");
 }
 
 function onVentaElegida() {
   window._ventaElegida = document.getElementById("venta-picker-select").value || "";
+  _mostrarSaldoVenta(window._ventaElegida);
   if (window._ventaElegida) {
     document.getElementById("venta-picker").classList.remove("venta-picker--falta");
+    const disp = _ventasSaldo[String(window._ventaElegida)];
+    _ventaPickerMsg(disp <= 0 ? "Esta campaña no tiene saldo disponible: el envío va a fallar." : "");
+  } else {
+    _ventaPickerMsg("");
   }
 }
 
@@ -1348,33 +1412,106 @@ function _marcarUsada(tipo, val) {
 // Tira una cantidad al azar dentro del rango SIN repetir una ya enviada a este
 // cliente (Facu: "que nunca repita la cantidad"). Si ya se usaron todas las del
 // rango, avisa y permite repetir para no bloquear la operación.
+// Tira un número del rango sin repetir uno ya enviado a este cliente. Devuelve
+// {val, agotado}: agotado = ya se usaron todas las del rango y hubo que repetir.
+async function _tirarDelRango(tipo, r) {
+  const min = Math.min(r.min, r.max), max = Math.max(r.min, r.max);
+  const usadas = await _cantidadesUsadas(tipo);
+  const disponibles = [];
+  for (let v = min; v <= max; v++) if (!usadas.has(v)) disponibles.push(v);
+  const agotado = disponibles.length === 0;
+  const val = agotado
+    ? Math.floor(min + Math.random() * (max - min + 1))
+    : disponibles[Math.floor(Math.random() * disponibles.length)];
+  _marcarUsada(tipo, val);
+  return { val, agotado, min, max };
+}
+
 async function rollCantidad() {
   const r = _rangoDelProducto();
   if (!r || r.min == null || r.max == null) return;
-  const min = Math.min(r.min, r.max), max = Math.max(r.min, r.max);
   const tipo = _tipoActual();
-  const usadas = await _cantidadesUsadas(tipo);
-
-  const disponibles = [];
-  for (let v = min; v <= max; v++) if (!usadas.has(v)) disponibles.push(v);
+  const { val, agotado, min, max } = await _tirarDelRango(tipo, r);
 
   const hint = document.getElementById("orden-cantidad-hint");
-  let val;
-  if (disponibles.length === 0) {
-    val = Math.floor(min + Math.random() * (max - min + 1));   // rango agotado
-    if (hint) {
-      hint.textContent = `Ya se usaron todas las cantidades entre ${min} y ${max} para este cliente; puede repetirse.`;
-      hint.classList.remove("hidden");
-    }
-  } else {
-    val = disponibles[Math.floor(Math.random() * disponibles.length)];
+  if (agotado && hint) {
+    hint.textContent = `Ya se usaron todas las cantidades entre ${min} y ${max} para este cliente; puede repetirse.`;
+    hint.classList.remove("hidden");
   }
 
-  _marcarUsada(tipo, val);
   const el = document.getElementById("orden-cantidad");
   el.value = val;
   clearFieldError("orden-cantidad");
   obtenerCosto();
+}
+
+// ── Órdenes precreadas a partir de los rangos ────────────────────────────────
+// Al entrar al paso de órdenes se arma sola una orden por cada producto con
+// rango configurado (likes/views/shares), con cantidad al azar dentro del rango.
+// Los rangos son los del cliente del post; si el post no es de ningún cliente,
+// los del cliente genérico (los resuelve el backend en el meta del scrape).
+// Son órdenes normales: se pueden editar o borrar antes de enviar.
+function _productoDeTipo(grupos, tipo) {
+  const candidatos = [];
+  for (const g of grupos || []) {
+    for (const item of g.items || []) {
+      if (_tipoProducto(item.nombre) === tipo) candidatos.push(item);
+    }
+  }
+  if (!candidatos.length) return null;
+  // Preferimos el producto BASE ("Likes", "Views", "Shares") sobre las variantes
+  // con proveedor o formato distinto ("Story Views", "Views Live", "Likes 1178
+  // JAP"): el nombre antes del precio tiene que ser el tipo pelado.
+  const base = candidatos.find(c =>
+    (c.nombre.split("(")[0] || "").trim().toLowerCase() === tipo);
+  return base || candidatos[0];
+}
+
+async function _costoDe(rsId, prodId, cantidad) {
+  try {
+    const r = await fetch("/api/costo_trafico", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ redsocial: rsId, producto: prodId, cant_solicitada: cantidad }),
+    });
+    const d = await r.json();
+    return d.costoTrafico != null ? parseFloat(d.costoTrafico) : null;
+  } catch { return null; }
+}
+
+async function _precrearOrdenesDeRangos() {
+  const ranges = window._clientRanges || {};
+  const rsId = document.getElementById("orden-redsocial").value;
+  const grupos = _productosCache[rsId] || [];
+  let oid = Date.now() + 1000;
+
+  for (const tipo of ["likes", "views", "shares"]) {
+    const r = ranges[tipo];
+    if (!r || r.min == null || r.max == null) continue;
+    // Si ya hay una orden de ese tipo (precreada antes o cargada a mano), no la
+    // duplicamos: entrar y volver al paso de órdenes no debe sumar de nuevo.
+    if (ordenes.some(o => o.rangoTipo === tipo)) continue;
+    const prod = _productoDeTipo(grupos, tipo);
+    if (!prod) continue;   // el CRM no ofrece ese producto para esta red
+
+    const { val } = await _tirarDelRango(tipo, r);
+    ordenes.push({
+      id: oid++,
+      redsocial: _currentNombreRed || "Instagram",
+      redsocialId: rsId,
+      productoId: prod.id,
+      productoNombre: prod.nombre,
+      cantidad: val,
+      link: currentUrl,
+      cuando: "ahora",
+      cuandoLabel: "Ahora",
+      fechaProgramada: "",
+      obs: "",
+      tipo: "normal",
+      rangoTipo: tipo,   // marca de precreada, para no duplicar
+      costo: await _costoDe(rsId, prod.id, val),
+    });
+  }
 }
 
 function onCantidadInput() {
@@ -1763,6 +1900,7 @@ function renderOrdenes() {
           <span class="orden-card-pill orden-card-pill--when">${(o.splitTotal || o.turno) ? "⏰" : (CUANDO_ICONS[o.cuando] || "⚡")} ${escapeHtml(o.cuandoLabel)}</span>
           ${o.costo != null && o.costo > 0 ? `<span class="orden-card-pill orden-card-pill--cost">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
           ${o.tipo === "comentarios" ? `<span class="orden-card-pill orden-card-pill--green">✓ Comentarios IA</span>` : ""}
+          ${o.rangoTipo ? `<span class="orden-card-pill orden-card-pill--auto" title="Cantidad al azar dentro del rango configurado">🎲 Automática</span>` : ""}
         </div>
         <div class="orden-card-link">${escapeHtml(o.link)}</div>
         ${o.obs ? `<div class="orden-card-obs">"${escapeHtml(o.obs)}"</div>` : ""}
@@ -1792,6 +1930,7 @@ async function solicitarOrdenes() {
     const box = document.getElementById("venta-picker");
     box.classList.remove("hidden");
     box.classList.add("venta-picker--falta");
+    _ventaPickerMsg("Elegí una campaña para poder enviar el tráfico.", true);
     box.scrollIntoView({ behavior: "smooth", block: "center" });
     document.getElementById("venta-picker-select").focus();
     return;

@@ -34,18 +34,21 @@ _jobs_lock = threading.Lock()
 _JOB_TTL = int(os.environ.get("JOB_TTL", "1800"))    # 30 min
 
 
-def _gender_de(ig_username: str):
-    """Género configurado del cliente ("male"/"female") o None (mixto).
-    El front lo usa para mostrar UNA sola sección en vez de las 2 columnas."""
-    if not ig_username:
-        return None
+def _datos_cliente(ig_username: str, es_cliente: bool):
+    """(ranges, gender) del cliente del post. Si el post NO es de un cliente
+    cargado, salen del cliente GENÉRICO: es donde el vendedor configura los
+    rangos de cantidades y el género para estos casos. Antes quedaban vacíos y
+    el modal de órdenes no ofrecía la cantidad random."""
     try:
         from common import repository as _repo
-        row = _repo.get_client_by_ig_username(ig_username)
-        return (row or {}).get("gender")
+        from modules.ai_generator import GENERIC_CLIENT_ID
+        row = _repo.get_client_by_ig_username(ig_username) if (ig_username and es_cliente) else None
+        if row is None:
+            row = _repo.get_client_by_ig_username(GENERIC_CLIENT_ID)
+        return (row or {}).get("ranges") or {}, (row or {}).get("gender")
     except Exception as e:
-        print(f"[gender] no disponible ({e})", flush=True)
-        return None
+        print(f"[cliente] datos no disponibles ({e})", flush=True)
+        return {}, None
 
 
 # ── Session management ────────────────────────────────────────────────────────
@@ -313,7 +316,7 @@ def procesar_post_web():
 
     def run():
         from modules.post_processor import scrape_post
-        from modules.ai_generator import generar_comentarios_stream
+        from modules.ai_generator import generar_comentarios_stream, GENERIC_CLIENT_ID
         from modules.engagement_flow import detectar_cliente, alias_owner
 
         job = _jobs[job_id]
@@ -333,6 +336,8 @@ def procesar_post_web():
                         # alimenta el _clientIg del front.
                         preview_owner = alias_owner(fast_preview.get("owner_username", "")) or ""
                         preview_client_id = detectar_cliente(preview_owner) if preview_owner else None
+                        preview_ranges, preview_gender = _datos_cliente(
+                            preview_owner, bool(preview_client_id))
                         preview_meta = {
                             "caption": fast_preview.get("caption", ""),
                             "owner_username": preview_owner,
@@ -343,7 +348,10 @@ def procesar_post_web():
                             "photo_description": "",
                             "transcription": "",
                             "is_video": url_is_video or fast_preview.get("is_video", False),
-                            "gender": _gender_de(preview_owner),
+                            # Rangos ya desde el preview: el modal de órdenes puede
+                            # ofrecer la cantidad random sin esperar el scrape completo.
+                            "ranges": preview_ranges,
+                            "gender": preview_gender,
                         }
                         job["meta"] = preview_meta
                         job["scrape_ready"] = True
@@ -390,21 +398,17 @@ def procesar_post_web():
                 job["progreso"].append(f"Cliente detectado: {client_id}")
 
             # Prompt: si hay cliente mapeado usamos su propio prompt (owner_ig);
-            # si no hay cliente asignado, usamos igual el prompt de Peter Fournier.
-            prompt_client_id = owner_ig.lower() if client_id else "peterjfournier"
+            # si no, el prompt GENÉRICO. Antes caía en el de Peter Fournier, que
+            # mete sus personajes (Holly, Natalie...), sus inside jokes y sus
+            # @menciones en posts de cuentas que no tienen nada que ver.
+            prompt_client_id = owner_ig.lower() if client_id else GENERIC_CLIENT_ID
 
             # Rangos de cantidades del cliente (TAREA 6): el front los usa para
             # autocompletar likes/views/shares con un valor random dentro del rango.
-            ranges = {}
-            client_gender = None
-            try:
-                from common import repository as _repo
-                row = _repo.get_client_by_ig_username(owner_ig) if owner_ig else None
-                if row:
-                    ranges = row.get("ranges") or {}
-                    client_gender = row.get("gender")  # male/female/None -> formato de salida
-            except Exception as e:
-                print(f"[ranges] no disponible ({e})", flush=True)
+            # ranges: el front autocompleta likes/views/shares con un valor random
+            # dentro del rango. gender: male/female -> UNA sección, None -> mixto.
+            # Sin cliente, ambos salen del genérico (ver _datos_cliente).
+            ranges, client_gender = _datos_cliente(owner_ig, bool(client_id))
 
             job["meta"] = {
                 "client_id": client_id or post_data.owner_full_name or post_data.owner_username,

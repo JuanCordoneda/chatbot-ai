@@ -158,8 +158,11 @@ function renderKpis() {
   setTxt("kpi-cli-sub", selectedVendedor ? `${clientsCache.length} en total` : "elegí un vendedor");
   setTxt("kpi-cli-pau", selectedVendedor ? pau : "–");
   setTxt("kpi-ven-act", venAct);
-  const inact = vendedoresCache.length - venAct;
-  setTxt("kpi-ven-sub", inact ? `${inact} inactivo${inact === 1 ? "" : "s"}` : "todos activos");
+  const pend = vendedoresCache.filter(v => v.status === "pending").length;
+  const inact = vendedoresCache.length - venAct - pend;
+  setTxt("kpi-ven-sub", pend
+    ? `${pend} esperando habilitación`
+    : (inact ? `${inact} sin acceso` : "todos activos"));
   setTxt("tab-cli-cnt", selectedVendedor ? clientsCache.length : 0);
   setTxt("tab-ven-cnt", vendedoresCache.length);
   setTxt("tab-usr-cnt", selectedVendedor ? usuariosCache.length : 0);
@@ -202,11 +205,18 @@ function renderVendedorSelect() {
     selectedVendedor = null;
     return;
   }
+  // Los que están esperando habilitación no operan todavía: no se pueden elegir.
+  const elegibles = vendedoresCache.filter(v => v.status !== "pending");
+  if (!elegibles.length) {
+    sel.innerHTML = '<option value="">— sin vendedores habilitados —</option>';
+    selectedVendedor = null;
+    return;
+  }
   const saved = selectedVendedor || parseInt(localStorage.getItem("admin_vendedor") || "0");
-  const valid = vendedoresCache.some(v => v.id === saved);
-  selectedVendedor = valid ? saved : vendedoresCache[0].id;
+  const valid = elegibles.some(v => v.id === saved);
+  selectedVendedor = valid ? saved : elegibles[0].id;
   localStorage.setItem("admin_vendedor", String(selectedVendedor));
-  sel.innerHTML = vendedoresCache.map(v =>
+  sel.innerHTML = elegibles.map(v =>
     `<option value="${v.id}" ${v.id === selectedVendedor ? "selected" : ""}>${esc(v.name)}${v.active ? "" : " (inactivo)"}</option>`
   ).join("");
 }
@@ -649,21 +659,55 @@ function renderVendedores() {
     !q || v.name.toLowerCase().includes(q) || (v.crm_email || "").toLowerCase().includes(q));
   if (!vendedoresCache.length) { list.innerHTML = emptyState("Sin vendedores", "Creá el primero con su email y contraseña de Growi."); return; }
   if (!items.length) { list.innerHTML = emptyState("Sin resultados", "Probá con otro nombre o email."); return; }
-  list.innerHTML = items.map(v => `
-    <div class="ax-card ${v.active ? "" : "ax-dimmed"}">
+  // Las solicitudes pendientes van arriba: son lo único que requiere una decisión.
+  const orden = { pending: 0, approved: 1, rejected: 2 };
+  items.sort((a, b) => (orden[a.status] ?? 1) - (orden[b.status] ?? 1) || a.name.localeCompare(b.name));
+  list.innerHTML = items.map(v => {
+    const pend = v.status === "pending";
+    const pill = pend
+      ? '<span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pendiente de habilitación</span>'
+      : (v.active ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Activo</span>'
+                  : '<span class="ax-pill ax-pill--off"><span class="ax-pdot"></span>Sin acceso</span>');
+    const acts = pend
+      ? `<button class="ax-btn ax-btn--sm ax-btn--primary" onclick="resolveVendor(${v.id}, 'approved')">Aceptar</button>
+         <button class="ax-btn ax-btn--sm" onclick="resolveVendor(${v.id}, 'rejected')">Restringir</button>`
+      : `<button class="ax-btn ax-btn--sm" onclick="openVendorModal(${v.id})">Editar</button>
+         <button class="ax-btn ax-btn--sm" onclick="toggleVendorActive(${v.id})">${v.active ? "Restringir" : "Habilitar"}</button>`;
+    const sub = pend
+      ? `${esc(v.crm_email || "(sin email)")} · pidió acceso con sus credenciales de Growi`
+      : `${esc(v.crm_email || "(sin email)")}${v.crm_idvendedor ? ` · id ${esc(v.crm_idvendedor)}` : ""}`;
+    return `
+    <div class="ax-card ${v.active || pend ? "" : "ax-dimmed"}">
       <div class="ax-avatar" style="${avatarStyle(v.name)}">${esc((v.name[0] || "?").toUpperCase())}</div>
       <div class="ax-main">
         <div class="ax-name">${esc(v.name)}
-          ${v.active ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Activo</span>' : '<span class="ax-pill ax-pill--off"><span class="ax-pdot"></span>Inactivo</span>'}
-          ${v.has_password ? "" : '<span class="ax-pill ax-pill--paused" title="Sin contraseña guardada">sin pass</span>'}
+          ${pill}
+          ${v.has_password || pend ? "" : '<span class="ax-pill ax-pill--paused" title="Sin contraseña guardada">sin pass</span>'}
         </div>
-        <div class="ax-sub">${esc(v.crm_email || "(sin email)")}${v.crm_idvendedor ? ` · id ${esc(v.crm_idvendedor)}` : ""}</div>
+        <div class="ax-sub">${sub}</div>
       </div>
-      <div class="ax-acts">
-        <button class="ax-btn ax-btn--sm" onclick="openVendorModal(${v.id})">Editar</button>
-        <button class="ax-btn ax-btn--sm" onclick="toggleVendorActive(${v.id})">${v.active ? "Desactivar" : "Activar"}</button>
-      </div>
-    </div>`).join("");
+      <div class="ax-acts">${acts}</div>
+    </div>`;
+  }).join("");
+}
+
+async function resolveVendor(id, status) {
+  const v = vendedoresCache.find(x => x.id === id); if (!v) return;
+  const aprobar = status === "approved";
+  const ok = await confirmDialog({
+    title: aprobar ? "Habilitar vendedor" : "Restringir acceso",
+    text: aprobar
+      ? `${v.crm_email || v.name} va a poder entrar a la plataforma con sus credenciales de Growi.`
+      : `${v.crm_email || v.name} no va a poder entrar. Podés habilitarlo más adelante.`,
+    okLabel: aprobar ? "Habilitar" : "Restringir",
+  });
+  if (!ok) return;
+  try {
+    await api("PATCH", `/api/admin/vendedores/${id}/estado`, { status });
+    toast(aprobar ? "Vendedor habilitado" : "Acceso restringido", "ok");
+    await loadVendedores();
+    loadClients();
+  } catch (e) { toast(e.message, "bad"); }
 }
 
 function openVendorModal(id) {
@@ -716,15 +760,15 @@ async function toggleVendorActive(id) {
   const v = vendedoresCache.find(x => x.id === id); if (!v) return;
   if (v.active) {
     const ok = await confirmDialog({
-      title: "Desactivar vendedor",
-      text: `${v.name} no va a poder iniciar sesión hasta que lo reactives.`,
-      okLabel: "Desactivar",
+      title: "Restringir acceso",
+      text: `${v.name} no va a poder iniciar sesión hasta que lo habilites de nuevo.`,
+      okLabel: "Restringir",
     });
     if (!ok) return;
   }
   try {
     await api("PATCH", `/api/admin/vendedores/${id}`, { active: !v.active });
-    toast(v.active ? "Vendedor desactivado" : "Vendedor activado", "ok");
+    toast(v.active ? "Acceso restringido" : "Vendedor habilitado", "ok");
     await loadVendedores();
     loadClients();
   } catch (e) { toast(e.message, "bad"); }
