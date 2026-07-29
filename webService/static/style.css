@@ -944,6 +944,9 @@ body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.0
    arrastre un hueco (evita el salto durante el stream porque ahí no está vacío). */
 .stream-status:empty { min-height: 0; padding: 0; }
 
+/* Descripción que no salió por falla de IA: se muestra el motivo, en amarillo */
+.desc-error { color: var(--yellow); font-style: italic; }
+
 /* Aviso de IA caída (saturada / sin crédito) sin perder el resto de la pantalla */
 .ia-error-banner {
   display: flex;

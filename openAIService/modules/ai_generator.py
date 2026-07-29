@@ -282,7 +282,10 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
         )},
     ]
     # Un 529/overloaded puntual dejaba al post sin descripción. Reintentamos una
-    # vez antes de rendirnos (el fallback sigue siendo el alt-text de Instagram).
+    # vez antes de rendirnos. Si igual falla, PROPAGAMOS la excepción para que el
+    # llamador sepa POR QUÉ (saturación/sin crédito) y se lo pueda avisar al
+    # vendedor, en vez de quedar en silencio con la descripción vacía.
+    ultimo_error = None
     for intento in (1, 2):
         try:
             resp = _client.messages.create(
@@ -292,7 +295,8 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
             )
             return "".join(b.text for b in resp.content if b.type == "text").strip()
         except Exception as e:
+            ultimo_error = e
             print(f"[describe] error describiendo imagen (intento {intento}/2): {e}", flush=True)
             if intento == 1:
                 time.sleep(2)
-    return ""
+    raise ultimo_error

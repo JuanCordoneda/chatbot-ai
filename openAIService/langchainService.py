@@ -28,9 +28,17 @@ _calendar_service = None
 _calendar_lock = threading.Lock()
 
 def _clasificar_error_ia(err: str) -> dict:
-    """Traduce el error crudo de la API de Claude a algo que el vendedor entienda,
-    y dice si conviene reintentar. Devuelve {mensaje, motivo, reintentable}."""
+    """Traduce el error crudo (de la API de Claude o del scrape de Instagram) a
+    algo que el vendedor entienda, y dice si conviene reintentar.
+    Devuelve {mensaje, motivo, reintentable}."""
     e = (err or "").lower()
+    # Error de acceso al post (Instagram), NO de la IA: el mensaje del scrape ya
+    # es claro ("no se pudo obtener el contenido... sesión venció / rate limit").
+    if ("instagram" in e or "contenido del post" in e or "shortcode" in e
+            or "post puede ser privado" in e):
+        return {"motivo": "instagram", "reintentable": True,
+                "mensaje": (err or "").strip() or
+                           "No se pudo leer el post de Instagram. Reintentá en un minuto."}
     if "overloaded" in e or "529" in e:
         return {"motivo": "saturada", "reintentable": True,
                 "mensaje": "La IA está saturada en este momento. "
@@ -445,6 +453,9 @@ def procesar_post_web():
                 "owner_username": owner_ig or post_data.owner_username,
                 "transcription": post_data.transcription,
                 "photo_description": post_data.photo_description,
+                # Motivo si la descripción quedó vacía por falla de la IA: el front
+                # lo muestra en el bloque de descripción en vez de dejarlo vacío.
+                "descripcion_error": post_data.descripcion_error,
                 "caption": post_data.caption,
                 "is_video": post_data.is_video,
                 "ranges": ranges,

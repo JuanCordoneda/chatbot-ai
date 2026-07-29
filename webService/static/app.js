@@ -444,11 +444,21 @@ function mostrarScrape(data) {
     document.getElementById("scrape-caption-text").textContent = data.caption;
     document.getElementById("scrape-caption-block").classList.remove("hidden");
   }
+  const pdBlock2 = document.getElementById("photo-description-block");
+  const pdText = document.getElementById("photo-description-text");
+  const pdSum = document.getElementById("photo-description-summary");
   if (data.photo_description) {
-    const sum = document.getElementById("photo-description-summary");
-    if (sum) sum.textContent = data.is_video ? "Descripción de la portada del video" : "Descripción de imagen";
-    document.getElementById("photo-description-text").textContent = data.photo_description;
-    document.getElementById("photo-description-block").classList.remove("hidden");
+    if (pdSum) pdSum.textContent = data.is_video ? "Descripción de la portada del video" : "Descripción de imagen";
+    pdText.textContent = data.photo_description;
+    pdText.classList.remove("desc-error");
+    pdBlock2.classList.remove("hidden");
+  } else if (data.descripcion_error) {
+    // La descripción no salió por una falla de la IA (saturada / sin crédito):
+    // lo decimos, en vez de dejar el bloque vacío o directamente no mostrarlo.
+    if (pdSum) pdSum.textContent = data.is_video ? "Descripción de la portada del video" : "Descripción de imagen";
+    pdText.textContent = "⚠️ " + data.descripcion_error;
+    pdText.classList.add("desc-error");
+    pdBlock2.classList.remove("hidden");
   }
 
   // Cliente mixto (sin género fijo): armamos las 2 columnas (Hombres | Mujeres)

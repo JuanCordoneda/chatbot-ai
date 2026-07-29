@@ -24,6 +24,23 @@ class PostData:
     is_video: bool = False
     image_b64: str = ""          # imagen del post en base64 (visión multimodal)
     image_media_type: str = ""   # ej "image/jpeg"
+    # Motivo (para el vendedor) si la descripción por IA quedó vacía por un error
+    # de la IA (saturada / sin crédito). "" si salió bien o no hubo imagen.
+    descripcion_error: str = ""
+
+
+def _motivo_desc_error(err: str) -> str:
+    """Mensaje corto para el vendedor cuando la descripción por IA falla."""
+    e = (err or "").lower()
+    if "overloaded" in e or "529" in e:
+        return "No se pudo describir la imagen: la IA está saturada. Reintentá en unos segundos."
+    if "rate_limit" in e or "429" in e:
+        return "No se pudo describir la imagen: demasiadas consultas seguidas. Reintentá en un momento."
+    if "credit balance" in e or "billing" in e or "insufficient" in e:
+        return "No se pudo describir la imagen: el servicio de IA se quedó sin crédito. Avisá al administrador."
+    if "timeout" in e or "timed out" in e:
+        return "No se pudo describir la imagen: la IA tardó demasiado. Reintentá."
+    return "No se pudo describir la imagen (error de la IA). Reintentá en un momento."
 
 
 def extract_shortcode(url: str) -> Optional[str]:
@@ -432,6 +449,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         transcription = f"(transcripción no disponible: {motivo}. Probá de nuevo en un minuto.)"
         print(f"[ig_api] sin transcripción — {motivo}", flush=True)
 
+    descripcion_error = ""
     if desc_future is not None:
         try:
             desc_ia = desc_future.result(timeout=30)
@@ -439,6 +457,10 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
                 photo_description = desc_ia
                 print(f"[describe] descripción IA lista ({len(desc_ia)} chars)", flush=True)
         except Exception as e:
+            # Sólo avisamos si NO quedó ninguna descripción (ni el alt-text de IG):
+            # si hay alt-text, hay algo que mostrar y no molestamos con el error.
+            if not photo_description:
+                descripcion_error = _motivo_desc_error(str(e))
             print(f"[describe] error/timeout, uso alt-text de Instagram ({e})", flush=True)
         finally:
             desc_executor.shutdown(wait=False)
@@ -459,6 +481,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         is_video=bool(is_video),
         image_b64=image_b64,
         image_media_type=image_media_type,
+        descripcion_error=descripcion_error,
     )
 
     # Se cachea solo si el post salió completo: un video sin transcripción por un
