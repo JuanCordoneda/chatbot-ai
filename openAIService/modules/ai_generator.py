@@ -23,40 +23,81 @@ except Exception:
 GENERIC_CLIENT_ID = "__generico__"
 
 
-def _load_template(client_id: str | None, account_id: int | None = None) -> str:
-    """Trae el template del prompt: DB primero (prompt del cliente en su cuenta),
-    si no hay, cae al .txt del cliente, y si tampoco, al default.txt.
-    Para el cliente genérico el archivo es prompts/generico.txt."""
-    if client_id == GENERIC_CLIENT_ID:
-        # El genérico es UNO SOLO global: el mismo prompt para los posts sin
-        # cliente de todos los vendedores (por eso no se filtra por cuenta).
-        if _repo is not None:
-            try:
-                db_prompt = _repo.get_generic_prompt()
-                if db_prompt:
-                    return db_prompt
-            except Exception as e:
-                print(f"[ai] prompt genérico de DB no disponible, uso archivo ({e})", flush=True)
-        generico = _PROMPTS_DIR / "generico.txt"
-        if generico.exists():
-            return generico.read_text(encoding="utf-8")
-        return (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
+# El prompt final se arma en DOS CAPAS:
+#
+#   1. BASE   = el prompt genérico. Son las reglas de oficio que valen para
+#              TODOS los clientes (distribución de largos, mayúsculas/minúsculas,
+#              emojis, cómo no sonar a bot). Se edita en un solo lugar y el
+#              arreglo le llega a todos los clientes al instante.
+#   2. CLIENTE = el prompt del cliente. Solo lo PROPIO de esa cuenta: rubro,
+#              personajes, @menciones permitidas, tono, idioma.
+#
+# Antes cada prompt de cliente era autónomo, así que un arreglo global (ej:
+# "que algunos comentarios arranquen en mayúscula") había que copiarlo a mano en
+# cada cliente. Con las capas se escribe una vez en el genérico.
+#
+# La capa del cliente va ABAJO y manda: si se contradicen, gana lo específico.
+_LAYER_SEP = (
+    "\n\n"
+    "════════════════════════════════════════════════════════════════\n"
+    "INSTRUCCIONES ESPECÍFICAS DE ESTE CLIENTE\n"
+    "Todo lo de arriba son las reglas generales de la agencia. Lo que sigue es\n"
+    "lo propio de este cliente y TIENE PRIORIDAD: si algo se contradice con las\n"
+    "reglas generales, mandá con lo de acá abajo.\n"
+    "════════════════════════════════════════════════════════════════\n\n"
+)
 
-    if client_id and _repo is not None:
+
+def _generic_base() -> str:
+    """La capa base (prompt genérico): DB primero, si no el archivo de la imagen.
+    El genérico es UNO SOLO global: el mismo para todas las cuentas (por eso no
+    se filtra por account_id)."""
+    if _repo is not None:
+        try:
+            db_prompt = _repo.get_generic_prompt()
+            if db_prompt:
+                return db_prompt
+        except Exception as e:
+            print(f"[ai] prompt genérico de DB no disponible, uso archivo ({e})", flush=True)
+    generico = _PROMPTS_DIR / "generico.txt"
+    if generico.exists():
+        return generico.read_text(encoding="utf-8")
+    return ""
+
+
+def _client_layer(client_id: str, account_id: int | None) -> str:
+    """La capa propia del cliente: DB primero, si no el .txt de la imagen."""
+    if _repo is not None:
         try:
             db_prompt = _repo.get_client_prompt(client_id, account_id)
             if db_prompt:
                 return db_prompt
         except Exception as e:
             print(f"[ai] prompt DB no disponible, uso archivo ({e})", flush=True)
+    client_key = client_id.lower().replace(" ", "")
+    client_prompt = _PROMPTS_DIR / "clients" / f"{client_key}.txt"
+    if client_prompt.exists():
+        return client_prompt.read_text(encoding="utf-8")
+    return ""
 
-    if client_id:
-        client_key = client_id.lower().replace(" ", "")
-        client_prompt = _PROMPTS_DIR / "clients" / f"{client_key}.txt"
-        if client_prompt.exists():
-            return client_prompt.read_text(encoding="utf-8")
 
-    return (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
+def _load_template(client_id: str | None, account_id: int | None = None) -> str:
+    """Arma el prompt final: base genérica + capa del cliente (ver arriba).
+
+    Sin cliente (o cliente genérico) va solo la base. Si el cliente no tiene
+    prompt propio, también va solo la base: es mejor default que el default.txt,
+    que quedó como último recurso por si no hay genérico cargado."""
+    base = _generic_base()
+
+    if not client_id or client_id == GENERIC_CLIENT_ID:
+        return base or (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
+
+    especifico = (_client_layer(client_id, account_id) or "").strip()
+    if not especifico:
+        return base or (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
+    if not base.strip():
+        return especifico
+    return base.rstrip() + _LAYER_SEP + especifico
 
 
 # ── Formato de salida controlado por el SISTEMA (no editable por el usuario) ──

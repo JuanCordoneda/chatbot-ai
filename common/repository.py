@@ -11,7 +11,7 @@ from typing import Optional
 from werkzeug.security import check_password_hash
 
 from common.db import db_available, session_scope
-from common.models import Account, User, Client, UsageEvent
+from common.models import Account, User, Client, PromptRequest, UsageEvent
 from common import crypto
 
 
@@ -286,6 +286,103 @@ def update_generic_client(*, prompt=None, gender=None, gender_set=False,
         c.status = "active"
         s.flush()
         return _client_to_dict(c)
+
+
+# ── Pedidos de ajuste de prompt (bandeja del admin) ──────────────────────────
+#
+# El vendedor describe en castellano qué quiere cambiar; el admin resuelve la
+# cola desde /admin con el asistente de IA. Deliberadamente NO hay IA de este
+# lado: el pedido es texto plano y no cuesta tokens.
+
+_PR_STATUS = ("pending", "done", "discarded")
+
+
+def _prompt_request_to_dict(p: PromptRequest) -> dict:
+    return {
+        "id": p.id,
+        "account_id": p.account_id,
+        "client_id": p.client_id,
+        "client_ig_username": p.client_ig_username,
+        "user_id": p.user_id,
+        "username": p.username,
+        "text": p.text,
+        "status": p.status,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "resolved_at": p.resolved_at.isoformat() if p.resolved_at else None,
+        "resolved_by": p.resolved_by,
+    }
+
+
+def create_prompt_request(account_id: int, client_id: int, *, user_id=None,
+                          username: str = "", text: str = "") -> dict:
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    text = (text or "").strip()
+    if not text:
+        raise RepoError("Escribí qué querés cambiar del prompt")
+    if len(text) > 4000:
+        raise RepoError("El pedido es demasiado largo (máximo 4000 caracteres)")
+    with session_scope() as s:
+        # El cliente tiene que ser de la cuenta que pide: si no, un vendedor
+        # podría abrir pedidos sobre clientes ajenos mandando un id cualquiera.
+        c = s.query(Client).filter(
+            Client.account_id == account_id, Client.id == client_id
+        ).first()
+        if not c:
+            raise RepoError("Cliente no encontrado")
+        p = PromptRequest(
+            account_id=account_id,
+            client_id=c.id,
+            client_ig_username=c.ig_username,
+            user_id=user_id,
+            username=(username or "").strip(),
+            text=text,
+            status="pending",
+        )
+        s.add(p)
+        s.flush()
+        return _prompt_request_to_dict(p)
+
+
+def list_prompt_requests(account_id=None, status=None) -> list[dict]:
+    """Sin account_id devuelve los de TODAS las cuentas (vista del admin)."""
+    if not db_available():
+        return []
+    with session_scope() as s:
+        q = s.query(PromptRequest)
+        if account_id is not None:
+            q = q.filter(PromptRequest.account_id == account_id)
+        if status:
+            q = q.filter(PromptRequest.status == status)
+        ps = q.order_by(PromptRequest.created_at.desc()).limit(300).all()
+        out = []
+        # El nombre de la cuenta ahorra el "¿de quién era este pedido?" en el panel.
+        nombres = {a.id: a.name for a in s.query(Account).all()}
+        for p in ps:
+            d = _prompt_request_to_dict(p)
+            d["account_name"] = nombres.get(p.account_id, "")
+            out.append(d)
+        return out
+
+
+def set_prompt_request_status(request_id: int, status: str, *, resolved_by: str = "") -> dict:
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    if status not in _PR_STATUS:
+        raise RepoError("Estado inválido")
+    with session_scope() as s:
+        p = s.query(PromptRequest).filter(PromptRequest.id == request_id).first()
+        if not p:
+            raise RepoError("Pedido no encontrado")
+        p.status = status
+        if status == "pending":
+            p.resolved_at, p.resolved_by = None, None
+        else:
+            from common.models import _utcnow
+            p.resolved_at = _utcnow()
+            p.resolved_by = (resolved_by or "").strip() or None
+        s.flush()
+        return _prompt_request_to_dict(p)
 
 
 # ── CRUD de vendedores (admin self-serve, TAREA 3) ──────────────────────────────

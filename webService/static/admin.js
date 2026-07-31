@@ -60,6 +60,7 @@ function switchTab(name) {
   document.getElementById("panel-" + name).classList.add("ax-on");
   if (name === "uso") loadUso();
   if (name === "usuarios") loadUsuarios();
+  if (name === "pedidos") loadPedidos();
 }
 
 // ── Modales ──
@@ -468,6 +469,7 @@ function clientCard(c) {
       </div>
       <div class="ax-acts">
         <button class="ax-btn ax-btn--sm" onclick="openClientModal(${c.id})">Editar</button>
+        ${IS_ADMIN ? "" : `<button class="ax-btn ax-btn--sm" title="Pedirle al administrador que ajuste el prompt" onclick="openPedidoModal(${c.id})">Pedir ajuste</button>`}
         <button class="ax-btn ax-btn--sm" onclick="togglePause(${c.id})">${c.status === "active" ? "Pausar" : "Activar"}</button>
         <button class="ax-btn ax-btn--sm ax-btn--danger ax-btn--icon" title="Borrar" onclick="deleteClient(${c.id})">
           <svg viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V3h4v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -615,7 +617,21 @@ function openClientModal(id) {
     document.getElementById(`range-${k}-min`).value = rg[k] && rg[k].min != null ? rg[k].min : "";
     document.getElementById(`range-${k}-max`).value = rg[k] && rg[k].max != null ? rg[k].max : "";
   }
+  // El prompt final del motor son dos capas: el genérico (reglas para todos) +
+  // esto. Conviene que quede clarísimo cuál de las dos se está editando.
+  const help = document.getElementById("client-prompt-help");
+  if (help) {
+    help.innerHTML = gen
+      ? "Estas reglas se aplican a <b>todos los clientes</b>, arriba de las instrucciones propias de cada uno. Es el lugar para los arreglos generales (ej: que no todos los comentarios arranquen en minúscula)."
+      : "Acá va <b>solo lo propio de este cliente</b> (rubro, personajes, @menciones, tono). Las reglas generales del prompt de sistema se le suman solas al generar — no hace falta repetirlas. Si algo se contradice, manda lo que escribas acá.";
+  }
   document.getElementById("client-prompt").value = c ? c.prompt : "";
+  // Cada ficha arranca sin propuesta de IA pendiente ni pedido asociado: el
+  // "Deshacer" de un cliente no puede sobrevivir al abrir otro.
+  aiPromptAnterior = null;
+  pedidoEnCurso = null;
+  const undo = document.getElementById("client-prompt-undo");
+  if (undo) undo.classList.add("ax-hidden");
   document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
   document.querySelector("#client-mo .ax-editor-btn-ico").textContent = "⤢";
   document.getElementById("client-prompt-expand-txt").textContent = "Agrandar prompt";
@@ -659,6 +675,8 @@ async function saveClient() {
     document.querySelector("#client-mo .ax-modal").classList.remove("ax-modal--full");
     closeMo("client-mo");
     toast(id ? "Cliente actualizado" : "Cliente creado", "ok");
+    // Si veníamos de la bandeja, guardar el prompt ES resolver el pedido.
+    if (pedidoEnCurso) { const pid = pedidoEnCurso; pedidoEnCurso = null; cerrarPedido(pid, "done"); }
     loadClients();
   } catch (e) { showErr("client-err", e.message); } finally { btn.disabled = false; }
 }
@@ -954,6 +972,199 @@ async function toggleUserActive(id) {
   } catch (e) { toast(e.message, "bad"); }
 }
 
+// ── Pedidos de ajuste de prompt ──────────────────────────────────────────────
+// El vendedor manda texto plano (sin IA, cero tokens) y el admin resuelve la
+// cola acá, disparando el asistente solo cuando se pone a trabajar el pedido.
+
+let pedidosCache = [];
+
+// --- Lado vendedor: abrir y enviar el pedido ---
+function openPedidoModal(clientId) {
+  const c = findClient(clientId);
+  if (!c) return;
+  hideErr("ped-err");
+  document.getElementById("ped-client-id").value = clientId;
+  document.getElementById("ped-title").textContent =
+    `Pedir un ajuste · @${c.ig_username}`;
+  document.getElementById("ped-text").value = "";
+  openMo("ped-mo");
+  setTimeout(() => document.getElementById("ped-text").focus(), 50);
+}
+
+async function enviarPedido() {
+  const texto = document.getElementById("ped-text").value.trim();
+  if (!texto) { showErr("ped-err", "Escribí qué querés cambiar"); return; }
+  const btn = document.getElementById("ped-save"); btn.disabled = true;
+  try {
+    await api("POST", "/api/prompt-requests", {
+      client_id: parseInt(document.getElementById("ped-client-id").value),
+      text: texto,
+    });
+    closeMo("ped-mo");
+    toast("Pedido enviado al administrador", "ok");
+  } catch (e) { showErr("ped-err", e.message); } finally { btn.disabled = false; }
+}
+
+// --- Lado admin: la bandeja ---
+function fechaCorta(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d) ? "" : d.toLocaleString("es-AR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+async function loadPedidos() {
+  if (!IS_ADMIN) return;
+  const sel = document.getElementById("ped-status");
+  const status = sel ? sel.value : "pending";
+  try {
+    const d = await api("GET", `/api/prompt-requests${status ? `?status=${status}` : ""}`);
+    pedidosCache = d.requests || [];
+    renderPedidos();
+    // El contador de la pestaña siempre muestra PENDIENTES, esté donde esté el
+    // filtro: es el número que le importa al admin de un vistazo.
+    if (status === "pending") setTxt("tab-ped-cnt", pedidosCache.length);
+    else {
+      const p = await api("GET", "/api/prompt-requests?status=pending");
+      setTxt("tab-ped-cnt", (p.requests || []).length);
+    }
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function pedidoCard(p) {
+  const pend = p.status === "pending";
+  const pill = pend
+    ? '<span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pendiente</span>'
+    : p.status === "done"
+    ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Resuelto</span>'
+    : '<span class="ax-pill"><span class="ax-pdot"></span>Descartado</span>';
+  const resuelto = p.resolved_at
+    ? ` · ${p.status === "done" ? "resuelto" : "descartado"} ${fechaCorta(p.resolved_at)}${p.resolved_by ? " por " + esc(p.resolved_by) : ""}`
+    : "";
+  return `
+    <div class="ax-card ${pend ? "" : "ax-dimmed"}" style="align-items:flex-start;">
+      <div class="ax-avatar" style="${avatarStyle(p.client_ig_username)}">${esc(initials("", p.client_ig_username))}</div>
+      <div class="ax-main">
+        <div class="ax-name">@${esc(p.client_ig_username)} ${pill}</div>
+        <div class="ax-sub">${esc(p.account_name || "")} · pedido por ${esc(p.username || "—")} · ${fechaCorta(p.created_at)}${resuelto}</div>
+        <div class="ax-ped-txt">${esc(p.text)}</div>
+      </div>
+      <div class="ax-acts">
+        ${p.client_id
+          ? `<button class="ax-btn ax-btn--sm ax-btn--primary" onclick="trabajarPedido(${p.id})">Trabajar</button>`
+          : '<span class="ax-hint">Cliente borrado</span>'}
+        ${pend
+          ? `<button class="ax-btn ax-btn--sm" onclick="cerrarPedido(${p.id},'done')">Marcar resuelto</button>
+             <button class="ax-btn ax-btn--sm" onclick="cerrarPedido(${p.id},'discarded')">Descartar</button>`
+          : `<button class="ax-btn ax-btn--sm" onclick="cerrarPedido(${p.id},'pending')">Reabrir</button>`}
+      </div>
+    </div>`;
+}
+
+function renderPedidos() {
+  const list = document.getElementById("pedidos-list");
+  if (!list) return;
+  if (!pedidosCache.length) {
+    list.innerHTML = emptyState("No hay pedidos acá",
+      "Cuando un vendedor pida un ajuste de prompt, te aparece en esta bandeja.");
+    return;
+  }
+  list.innerHTML = pedidosCache.map(pedidoCard).join("");
+}
+
+// "Trabajar" = abrir el cliente del pedido con el asistente de IA ya cargado con
+// el texto del vendedor. Al guardar, el pedido se marca resuelto solo.
+let pedidoEnCurso = null;
+
+async function trabajarPedido(id) {
+  const p = pedidosCache.find(x => x.id === id);
+  if (!p || !p.client_id) return;
+  // El cliente vive en la cuenta del vendedor que pidió: hay que pararse ahí
+  // antes de abrir la ficha, o el PATCH iría contra la cuenta equivocada.
+  if (selectedVendedor !== p.account_id) {
+    selectedVendedor = p.account_id;
+    const sel = document.getElementById("vendedor-select");
+    if (sel) sel.value = String(p.account_id);
+    await loadClients();
+  }
+  switchTab("clientes");
+  if (!findClient(p.client_id)) {
+    toast("No encontré ese cliente (¿lo borraron?)", "bad");
+    return;
+  }
+  // openClientModal resetea el estado del asistente, así que el pedido en curso
+  // se marca DESPUÉS de abrir la ficha.
+  openClientModal(p.client_id);
+  pedidoEnCurso = p.id;
+  openAiModal(p.text);
+}
+
+async function cerrarPedido(id, status) {
+  try {
+    await api("PATCH", `/api/prompt-requests/${id}`, { status });
+    toast(status === "done" ? "Pedido resuelto" : status === "discarded" ? "Pedido descartado" : "Pedido reabierto", "ok");
+    if (pedidoEnCurso === id) pedidoEnCurso = null;
+    loadPedidos();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+// ── Asistente de IA (solo admin) ─────────────────────────────────────────────
+// Reescribe el prompt del cliente abierto según una instrucción en castellano.
+// NO guarda: deja la propuesta en el textarea para revisarla y guardarla a mano.
+
+let aiPromptAnterior = null;   // para "Deshacer IA"
+
+function openAiModal(textoInicial) {
+  if (!IS_ADMIN) return;
+  hideErr("ai-err");
+  document.getElementById("ai-instruction").value = textoInicial || "";
+  const sub = document.getElementById("ai-subtitle");
+  sub.textContent = textoInicial
+    ? "Este es el pedido del vendedor, tal cual lo escribió. Editalo si hace falta y generá la propuesta."
+    : "Escribí en castellano qué querés cambiar. La propuesta queda en el editor: no se guarda hasta que apretés Guardar.";
+  openMo("ai-mo");
+  setTimeout(() => document.getElementById("ai-instruction").focus(), 50);
+}
+
+async function runPromptAi() {
+  const instruccion = document.getElementById("ai-instruction").value.trim();
+  if (!instruccion) { showErr("ai-err", "Escribí qué querés cambiar"); return; }
+  const btn = document.getElementById("ai-run");
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Generando…";
+  hideErr("ai-err");
+  try {
+    const actual = document.getElementById("client-prompt").value;
+    const abierto = findClient(parseInt(document.getElementById("client-id").value));
+    const d = await api("POST", "/api/admin/prompt-ai", {
+      instruction: instruccion,
+      prompt: actual,
+      client_name: document.getElementById("client-name").value,
+      // Editando el genérico se escribe el prompt entero; editando un cliente,
+      // solo su capa (el genérico ya se le suma solo al generar).
+      is_generic: !!(abierto && abierto.reserved),
+    });
+    aiPromptAnterior = actual;
+    document.getElementById("client-prompt").value = d.prompt;
+    document.getElementById("client-prompt-undo").classList.remove("ax-hidden");
+    updatePromptCount();
+    closeMo("ai-mo");
+    toast("Propuesta lista — revisala y guardá", "ok");
+  } catch (e) {
+    showErr("ai-err", e.message);
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+
+function undoAiPrompt() {
+  if (aiPromptAnterior === null) return;
+  document.getElementById("client-prompt").value = aiPromptAnterior;
+  aiPromptAnterior = null;
+  document.getElementById("client-prompt-undo").classList.add("ax-hidden");
+  updatePromptCount();
+  toast("Volví al prompt anterior", "ok");
+}
+
 // ── init ──
 // Primero los vendedores: definen el selector y el vendedor por defecto; recién
 // entonces cargamos los clientes de ese vendedor.
@@ -963,6 +1174,7 @@ async function toggleUserActive(id) {
     loadClients();
     loadUsuarios();
     loadUso();
+    loadPedidos();
   } else {
     // Modo vendedor: solo sus clientes. selectedVendedor truthy para pasar los
     // guards; el backend usa la cuenta de la sesión (ignora el ?vendedor).

@@ -271,6 +271,10 @@
     .ax-err { background: rgba(255,90,90,.12); border: 1px solid rgba(255,90,90,.4); color: #ff8a8a; padding: 10px 13px;
       border-radius: 11px; margin-bottom: 15px; font-size: .86rem; display: none; }
     .ax-err.ax-on { display: block; }
+    .ax-hidden { display: none !important; }
+    /* Bandeja de pedidos: el texto del vendedor, tal cual lo escribió. */
+    .ax-ped-txt { white-space: pre-wrap; background: var(--surface2); border: 1px solid var(--border);
+                  border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: .88rem; line-height: 1.5; }
 
     .ax-confirm { max-width: 400px; text-align: center; }
     .ax-confirm .ax-cico { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,90,90,.14); display: grid; place-items: center; margin: 0 auto 14px; color: #ff6b6b; }
@@ -345,6 +349,7 @@
       <div class="ax-seg" role="tablist">
         <div class="ax-tab ax-on" data-tab="clientes" onclick="switchTab('clientes')">Clientes <span class="ax-cnt" id="tab-cli-cnt">0</span></div>
         {% if is_admin %}
+        <div class="ax-tab" data-tab="pedidos" onclick="switchTab('pedidos')">Pedidos <span class="ax-cnt" id="tab-ped-cnt">0</span></div>
         <div class="ax-tab" data-tab="usuarios" onclick="switchTab('usuarios')">Usuarios <span class="ax-cnt" id="tab-usr-cnt">0</span></div>
         <div class="ax-tab" data-tab="vendedores" onclick="switchTab('vendedores')">Vendedores <span class="ax-cnt" id="tab-ven-cnt">0</span></div>
         <div class="ax-tab" data-tab="uso" onclick="switchTab('uso')">Uso</div>
@@ -403,6 +408,24 @@
     </section>
 
     {% if is_admin %}
+    <!-- Bandeja de pedidos: lo que los vendedores quieren cambiar de sus prompts.
+         Ellos escriben texto plano (no gastan tokens); acá se resuelve con IA. -->
+    <section class="ax-panel" id="panel-pedidos">
+      <div class="ax-toolbar">
+        <div class="ax-field" style="margin:0;min-width:200px;">
+          <label style="font-size:.72rem;">Estado</label>
+          <select id="ped-status" onchange="loadPedidos()">
+            <option value="pending">Pendientes</option>
+            <option value="done">Resueltos</option>
+            <option value="discarded">Descartados</option>
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <button class="ax-btn" onclick="loadPedidos()">Actualizar</button>
+      </div>
+      <div class="ax-list" id="pedidos-list"></div>
+    </section>
+
     <!-- Usuarios (logins) del vendedor elegido = asientos de la suscripción -->
     <section class="ax-panel" id="panel-usuarios">
       <div class="ax-toolbar">
@@ -531,6 +554,16 @@
             <span>Instrucciones para la IA</span>
             <span class="ax-editor-meta">
               <span class="ax-hint" id="client-prompt-count">0 caracteres</span>
+              {% if is_admin %}
+              <button type="button" class="ax-editor-btn" id="client-prompt-ai" onclick="openAiModal()" title="Reescribir el prompt con IA">
+                <span class="ax-editor-btn-ico">✨</span>
+                <span>Ajustar con IA</span>
+              </button>
+              <button type="button" class="ax-editor-btn ax-hidden" id="client-prompt-undo" onclick="undoAiPrompt()" title="Volver al prompt anterior a la propuesta">
+                <span class="ax-editor-btn-ico">↺</span>
+                <span>Deshacer IA</span>
+              </button>
+              {% endif %}
               <button type="button" class="ax-editor-btn" id="client-prompt-expand" onclick="togglePromptFull()" title="Ver el prompt en grande (⌥E)">
                 <span class="ax-editor-btn-ico">⤢</span>
                 <span id="client-prompt-expand-txt">Agrandar prompt</span>
@@ -540,7 +573,7 @@
           <textarea id="client-prompt" spellcheck="true" oninput="updatePromptCount()" placeholder="Ej: Actuá como seguidores reales de un influencer de fitness. Comentarios cortos y variados, con buena onda, en el idioma del post. Nada genérico tipo 'nice post' o 'great content'…"></textarea>
           <div class="ax-help">
             <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <span>Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos.</span>
+            <span id="client-prompt-help">Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos.</span>
           </div>
         </div>
       </div>
@@ -625,6 +658,44 @@
     </div>
   </div>
 
+  {% if is_admin %}
+  <!-- Asistente de IA (SOLO admin: es lo que consume tokens de Claude).
+       No guarda: deja la propuesta en el editor para revisar y guardar a mano. -->
+  <div class="ax-mo" id="ai-mo">
+    <div class="ax-modal" style="max-width:560px;">
+      <h3>Ajustar el prompt con IA</h3>
+      <div class="ax-msub" id="ai-subtitle">Escribí en castellano qué querés cambiar. La propuesta queda en el editor: no se guarda hasta que apretés Guardar.</div>
+      <div class="ax-err" id="ai-err"></div>
+      <div class="ax-field">
+        <label>Qué cambiar</label>
+        <textarea id="ai-instruction" rows="5" placeholder="Ej: que no mencione a la competencia, que los comentarios sean más cortos y que sume alguno preguntando por el precio…"></textarea>
+      </div>
+      <div class="ax-modal-actions">
+        <button class="ax-btn" onclick="closeMo('ai-mo')">Cancelar</button>
+        <button class="ax-btn ax-btn--primary" id="ai-run" onclick="runPromptAi()">Generar propuesta</button>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <!-- Pedido del vendedor: texto plano, sin IA. Cae en la bandeja del admin. -->
+  <div class="ax-mo" id="ped-mo">
+    <div class="ax-modal" style="max-width:560px;">
+      <h3 id="ped-title">Pedir un ajuste</h3>
+      <div class="ax-msub">Contá qué querés que cambie en las instrucciones de este cliente. Lo recibe el administrador y lo aplica él.</div>
+      <div class="ax-err" id="ped-err"></div>
+      <input type="hidden" id="ped-client-id" />
+      <div class="ax-field">
+        <label>Qué querés cambiar</label>
+        <textarea id="ped-text" rows="5" placeholder="Ej: que los comentarios no nombren la marca, que sean más cortos y que hablen en español…"></textarea>
+      </div>
+      <div class="ax-modal-actions">
+        <button class="ax-btn" onclick="closeMo('ped-mo')">Cancelar</button>
+        <button class="ax-btn ax-btn--primary" id="ped-save" onclick="enviarPedido()">Enviar pedido</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Confirm -->
   <div class="ax-mo" id="confirm-mo">
     <div class="ax-modal ax-confirm">
@@ -639,6 +710,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785300030"></script>
+  <script src="/static/admin.js?v=1785400200"></script>
 </body>
 </html>

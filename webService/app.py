@@ -1342,6 +1342,198 @@ def admin_clients_delete(client_id):
     return jsonify({"deleted": ok})
 
 
+# ── Pedidos de ajuste de prompt ──────────────────────────────────────────────
+# El vendedor deja el pedido escrito (texto plano, sin IA: no gasta tokens) y el
+# admin lo resuelve desde /admin con el asistente de IA, que es admin-only.
+
+@app.route("/api/prompt-requests", methods=["POST"])
+@require_login
+@_repo_error_response
+def prompt_requests_create():
+    d = request.get_json(silent=True) or {}
+    try:
+        client_id = int(d.get("client_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Falta indicar el cliente"}), 400
+    p = _repo.create_prompt_request(
+        _target_account_id(), client_id,
+        user_id=session.get("user_id"),
+        username=session.get("username", ""),
+        text=d.get("text", ""),
+    )
+    return jsonify({"request": p}), 201
+
+
+@app.route("/api/prompt-requests", methods=["GET"])
+@require_login
+@_repo_error_response
+def prompt_requests_list():
+    # El admin ve la cola de TODAS las cuentas; el vendedor solo la suya.
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    status = (request.args.get("status") or "").strip() or None
+    return jsonify({"requests": _repo.list_prompt_requests(account_id, status)})
+
+
+@app.route("/api/prompt-requests/<int:request_id>", methods=["PATCH"])
+@require_admin
+@_repo_error_response
+def prompt_requests_update(request_id):
+    d = request.get_json(silent=True) or {}
+    p = _repo.set_prompt_request_status(
+        request_id, (d.get("status") or "").strip(),
+        resolved_by=session.get("username", ""),
+    )
+    return jsonify({"request": p})
+
+
+# ── Asistente de IA para reescribir prompts (ADMIN ONLY) ─────────────────────
+# Está deliberadamente detrás de @require_admin: si cada vendedor pudiera pedirle
+# a Claude que le reescriba el prompt, el consumo de tokens se dispara. Los
+# vendedores piden por escrito (arriba) y el admin es el único que dispara la IA.
+
+# El prompt final que ve el motor son DOS CAPAS: el genérico (reglas de oficio
+# comunes a todos los clientes) + el prompt del cliente (solo lo propio). Ver
+# openAIService/modules/ai_generator.py. El asistente escribe SOLO la capa del
+# cliente: si repitiera las reglas base, un arreglo global en el genérico volvería
+# a quedar pisado cliente por cliente, que es justo lo que queremos evitar.
+_AI_SYSTEM = """Sos un asistente que edita prompts de generación de comentarios
+de Instagram para una agencia de engagement.
+
+El prompt que finalmente ve el modelo se arma en dos capas:
+1. REGLAS GENERALES: valen para todos los clientes (largos, mayúsculas, emojis,
+   cómo no sonar a bot). Se editan en otro lado, NO son tu salida.
+2. INSTRUCCIONES DEL CLIENTE: lo propio de esta cuenta. ESTO es lo que escribís.
+
+Recibís las reglas generales (como contexto), las instrucciones actuales del
+cliente y un PEDIDO en castellano rioplatense. Devolvés las INSTRUCCIONES DEL
+CLIENTE completas y ya modificadas.
+
+Reglas:
+- Devolvé SOLO el texto de las instrucciones del cliente. Sin explicaciones, sin
+  comentarios, sin markdown de code fence, sin encabezados tipo "Prompt nuevo:".
+- NO repitas ni reformules las reglas generales: ya se aplican solas. Escribí
+  únicamente lo específico de este cliente.
+- Si el pedido contradice a propósito una regla general (ej: "para este cliente
+  todo en minúscula"), SÍ escribilo: la capa del cliente tiene prioridad.
+- Aplicá el pedido y NADA más: conservá intacto todo lo que no se pidió cambiar
+  (rubro, personajes, @menciones permitidas, tono, idioma, ejemplos).
+- Si las instrucciones del cliente vienen vacías, escribí solo lo que el pedido
+  necesite; no rellenes con generalidades.
+- Mantené el mismo idioma en que están escritas las instrucciones.
+"""
+
+# Cuando lo que se edita es el genérico mismo no hay capa de arriba: ahí sí se
+# escribe el prompt completo.
+_AI_SYSTEM_GENERIC = """Sos un asistente que edita el PROMPT GENERAL de una
+agencia de engagement: las reglas de generación de comentarios de Instagram que
+aplican a TODOS los clientes (largos, mayúsculas, emojis, cómo no sonar a bot).
+
+Recibís el prompt general actual y un PEDIDO en castellano rioplatense sobre qué
+cambiar. Devolvés el prompt general completo y ya modificado.
+
+Reglas:
+- Devolvé SOLO el texto del prompt. Sin explicaciones, sin comentarios, sin
+  markdown de code fence, sin encabezados tipo "Prompt nuevo:".
+- Aplicá el pedido y NADA más: conservá intacto todo lo que no se pidió cambiar.
+- Escribí reglas GENERALES: nada de un cliente puntual, su rubro o sus @menciones.
+- Mantené el prompt en el mismo idioma en que está escrito.
+"""
+
+
+def _anthropic_client():
+    """Cliente de Anthropic para el asistente. None si falta la API key."""
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if not key:
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        print("[prompt-ai] falta el paquete 'anthropic' en webService", flush=True)
+        return None
+    return anthropic.Anthropic(api_key=key, max_retries=3)
+
+
+@app.route("/api/admin/prompt-ai", methods=["POST"])
+@require_admin
+def prompt_ai():
+    """Reescribe un prompt según una instrucción en castellano.
+
+    NO guarda nada: devuelve la propuesta para que el admin la revise en el
+    editor y recién ahí apriete Guardar. Así una instrucción mal entendida
+    nunca pisa el prompt en producción.
+    """
+    d = request.get_json(silent=True) or {}
+    instruccion = (d.get("instruction") or "").strip()
+    actual = d.get("prompt") or ""
+    if not instruccion:
+        return jsonify({"error": "Escribí qué querés cambiar"}), 400
+    if len(instruccion) > 4000:
+        return jsonify({"error": "El pedido es demasiado largo"}), 400
+
+    client = _anthropic_client()
+    if client is None:
+        return jsonify({"error": "El asistente no está configurado "
+                                 "(falta ANTHROPIC_API_KEY en el web-service)"}), 503
+
+    # Editando el genérico no hay capa de arriba; editando un cliente, sí: se le
+    # pasa el genérico como contexto para que NO lo repita.
+    es_generico = bool(d.get("is_generic"))
+    nombre = (d.get("client_name") or "").strip()
+    if es_generico:
+        sistema = _AI_SYSTEM_GENERIC
+        user_msg = (
+            f"PROMPT GENERAL ACTUAL:\n<<<\n{actual}\n>>>\n\n"
+            f"PEDIDO:\n<<<\n{instruccion}\n>>>\n\n"
+            "Devolvé el prompt general completo ya modificado, sin nada alrededor."
+        )
+    else:
+        base = ""
+        if _repo is not None:
+            try:
+                base = _repo.get_generic_prompt() or ""
+            except Exception as e:
+                print(f"[prompt-ai] no pude leer el prompt genérico ({e})", flush=True)
+        sistema = _AI_SYSTEM
+        contexto = f"Cliente: {nombre}\n\n" if nombre else ""
+        bloque_base = (f"REGLAS GENERALES (contexto: ya se aplican solas, NO las repitas "
+                       f"en tu salida):\n<<<\n{base}\n>>>\n\n") if base.strip() else ""
+        user_msg = (
+            f"{contexto}{bloque_base}"
+            f"INSTRUCCIONES ACTUALES DEL CLIENTE:\n<<<\n{actual}\n>>>\n\n"
+            f"PEDIDO:\n<<<\n{instruccion}\n>>>\n\n"
+            "Devolvé las instrucciones del cliente completas y ya modificadas, "
+            "sin nada alrededor."
+        )
+    try:
+        resp = client.messages.create(
+            model="claude-opus-5",
+            max_tokens=16000,
+            system=sistema,
+            messages=[{"role": "user", "content": user_msg}],
+            # Igual que en ai_generator: el SDK pineado (anthropic 0.54.0) no
+            # expone estos kwargs, así que van por extra_body.
+            extra_body={"output_config": {"effort": "high"}},
+        )
+    except Exception as e:
+        print(f"[prompt-ai] error llamando a Claude: {e!r}", flush=True)
+        return jsonify({"error": "No pude generar la propuesta. Probá de nuevo."}), 502
+
+    # Opus 5 puede rechazar por políticas: devuelve 200 con stop_reason refusal
+    # y content vacío. Sin este chequeo, el front pisaría el prompt con "".
+    if getattr(resp, "stop_reason", None) == "refusal":
+        return jsonify({"error": "El asistente no puede procesar ese pedido. "
+                                 "Reformulalo o editá el prompt a mano."}), 422
+
+    texto = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    if not texto:
+        return jsonify({"error": "El asistente devolvió una respuesta vacía. Probá de nuevo."}), 502
+    # Por si igual devuelve el prompt envuelto en un code fence.
+    if texto.startswith("```"):
+        texto = re.sub(r"^```[a-zA-Z]*\n?", "", texto)
+        texto = re.sub(r"\n?```$", "", texto).strip()
+    return jsonify({"prompt": texto})
+
+
 @app.route("/api/uso", methods=["GET"])
 @require_admin
 def uso():

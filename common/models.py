@@ -90,6 +90,31 @@ class UsageEvent(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
 
 
+class PromptRequest(Base):
+    """Pedido de un vendedor para que le ajusten el prompt de un cliente.
+
+    El vendedor escribe en castellano qué quiere cambiar ("que no mencione la
+    competencia", "más cortos"); NO usa la IA (eso quema tokens). El admin ve la
+    cola desde /admin, genera el prompt nuevo con IA, lo aplica y lo marca
+    resuelto. Reemplaza el ida y vuelta por WhatsApp.
+    """
+    __tablename__ = "prompt_requests"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Si borran el cliente el pedido queda igual (con el @usuario de snapshot),
+    # así el admin entiende de qué venía la conversación.
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True)
+    client_ig_username = Column(String(100), nullable=False, default="")
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username = Column(String(100), nullable=False, default="")   # snapshot de quién pidió
+    text = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="pending", index=True)  # pending|done|discarded
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by = Column(String(100), nullable=True)
+
+
 class Client(Base):
     """Cliente de engagement: un @usuario de Instagram con su prompt propio.
     Antes vivía en clients_map.json + prompts/clients/<key>.txt."""
