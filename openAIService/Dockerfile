@@ -9,6 +9,11 @@ WORKDIR /app
 COPY openAIService/requirements.txt /app/
 RUN pip install -r requirements.txt
 
+# El modelo de whisper se bajaba en la primera transcripción: ~500MB en medio de
+# un pedido del usuario (y sin red, fallaba en prod). Queda dentro de la imagen.
+ARG WHISPER_MODEL=small
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')"
+
 COPY common/ /app/common/
 COPY alembic.ini /app/
 COPY migrations/ /app/migrations/

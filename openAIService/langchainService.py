@@ -657,4 +657,11 @@ def publicar_web():
 
 
 if __name__ == "__main__":
+    # El modelo de transcripción se carga en paralelo al arranque: así el primer
+    # reel del día no paga los ~13s de carga arriba de la transcripción.
+    try:
+        from modules.post_processor import precargar_whisper
+        precargar_whisper()
+    except Exception as e:
+        print(f"[whisper] no se pudo precargar: {e}", flush=True)
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)

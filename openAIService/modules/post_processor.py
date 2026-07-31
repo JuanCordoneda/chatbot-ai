@@ -2,6 +2,7 @@ import re
 import os
 import json
 import html as html_lib
+import subprocess
 import tempfile
 import time
 import threading
@@ -63,6 +64,42 @@ _whisper_load_lock = threading.Lock()
 _whisper_sem = threading.BoundedSemaphore(int(os.environ.get("WHISPER_CONCURRENCIA", "2")))
 # Cores por transcripción: acotado para que N transcripciones no se peleen por la CPU.
 _WHISPER_THREADS = int(os.environ.get("WHISPER_THREADS", "4"))
+# Idioma de los videos. Vacío ("") vuelve a la autodetección.
+_WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "es") or None
+# Tamaño del modelo. "small" transcribe bastante mejor que "base" y ocupa ~500MB
+# (vs ~150MB): si el server queda corto de RAM, WHISPER_MODEL=base.
+_WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
+# beam_size=5 vs 1: ~30% más lento pero con beam=1 el modelo devolvía frases
+# inventadas que además pasaban el filtro de confianza. No bajar sin medir.
+_WHISPER_BEAM = int(os.environ.get("WHISPER_BEAM", "5"))
+# Segmentos con confianza muy baja: es ruido que el modelo "rellenó" con texto
+# inventado. Preferimos no mostrarlos antes que mostrar algo falso.
+_LOGPROB_MIN = float(os.environ.get("WHISPER_LOGPROB_MIN", "-1.2"))
+_NOSPEECH_MAX = float(os.environ.get("WHISPER_NOSPEECH_MAX", "0.85"))
+
+
+def _preparar_audio(video_path: str) -> str:
+    """Extrae el audio del video y lo limpia antes de transcribir. En los reels
+    el audio viene con cancha, música y viento encima de la voz, y whisper sobre
+    ese ruido inventaba frases enteras. Filtrando fuera de la banda de la voz y
+    normalizando el volumen, las alucinaciones desaparecen.
+    Devuelve la ruta del wav, o el video original si ffmpeg falla."""
+    destino = os.path.join(os.path.dirname(video_path), "audio.wav")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", video_path,
+             "-vn", "-ac", "1", "-ar", "16000",
+             # highpass/lowpass: dejamos la banda de la voz. afftdn: quita ruido
+             # de fondo constante. loudnorm: empareja el volumen (voz lejana).
+             "-af", "highpass=f=100,lowpass=f=4000,afftdn=nf=-25,loudnorm",
+             "-y", destino],
+            capture_output=True, timeout=120,
+        )
+        if os.path.exists(destino) and os.path.getsize(destino) > 0:
+            return destino
+    except Exception as e:
+        print(f"[whisper] no se pudo limpiar el audio ({e}), uso el video tal cual", flush=True)
+    return video_path
 
 
 def _get_whisper_model():
@@ -70,10 +107,23 @@ def _get_whisper_model():
     with _whisper_load_lock:
         if _whisper_model is None:
             from faster_whisper import WhisperModel
-            print(f"[whisper] cargando modelo (cpu_threads={_WHISPER_THREADS})...", flush=True)
-            _whisper_model = WhisperModel("base", device="cpu", compute_type="int8",
+            print(f"[whisper] cargando modelo {_WHISPER_MODEL} (cpu_threads={_WHISPER_THREADS})...", flush=True)
+            _whisper_model = WhisperModel(_WHISPER_MODEL, device="cpu", compute_type="int8",
                                           cpu_threads=_WHISPER_THREADS)
         return _whisper_model
+
+
+def precargar_whisper():
+    """Carga el modelo en segundo plano al arrancar el servicio. Si no, el
+    primero que manda un reel espera ~13s a que se cargue, arriba de lo que
+    tarda la transcripción."""
+    def _cargar():
+        try:
+            _get_whisper_model()
+            print("[whisper] modelo precargado", flush=True)
+        except Exception as e:
+            print(f"[whisper] precarga falló ({e}), se cargará en el primer uso", flush=True)
+    threading.Thread(target=_cargar, daemon=True).start()
 
 
 def _transcribe_video(video_path: str) -> str:
@@ -90,17 +140,91 @@ def _transcribe_video(video_path: str) -> str:
             espera = time.time() - t0
             if espera > 0.5:
                 print(f"[whisper] esperó {espera:.1f}s por turno (otra transcripción en curso)", flush=True)
-            segments, _ = model.transcribe(video_path)
-            text = " ".join(s.text for s in segments).strip()
+            # language fijo: con audio de cancha / música, la autodetección de
+            # idioma se equivocaba y devolvía frases inventadas en inglés sobre
+            # un video hablado en español.
+            # vad_filter: recorta los tramos sin voz. Sin esto, whisper "rellena"
+            # el ruido ambiente con texto alucinado ("I don't know...") que después
+            # se le mostraba al vendedor como si fuera lo que dice el video.
+            segments, _ = model.transcribe(
+                _preparar_audio(video_path),
+                language=_WHISPER_LANGUAGE,
+                vad_filter=True,
+                condition_on_previous_text=False,   # corta el loop de repetir la última frase
+                beam_size=_WHISPER_BEAM,
+            )
+            # Descartamos los segmentos que el propio modelo da por poco
+            # confiables: ahí es donde aparecían las frases inventadas.
+            partes, descartados = [], 0
+            for s in segments:
+                if s.avg_logprob < _LOGPROB_MIN or s.no_speech_prob > _NOSPEECH_MAX:
+                    descartados += 1
+                    print(f"[whisper] descartado (logprob={s.avg_logprob:.2f} "
+                          f"nospeech={s.no_speech_prob:.2f}): {s.text.strip()[:60]}", flush=True)
+                    continue
+                partes.append(s.text)
+            text = " ".join(partes).strip()
         print(f"[whisper] transcripción: {len(text)} chars en {time.time()-t0:.1f}s", flush=True)
         if not text:
             # Video sin voz (música, ambiente): no es un error, pero antes quedaba
             # un bloque vacío y parecía que había fallado.
+            if descartados:
+                return ("(sin transcripción: el audio está muy ruidoso y no se "
+                        "entiende lo que se dice)")
             return "(sin transcripción: el video no tiene voz hablada — solo música o sonido ambiente)"
         return text
     except Exception as e:
         print(f"[whisper] error: {e}", flush=True)
         return f"(transcripción no disponible: {e})"
+
+
+_FRAMES_VIDEO = int(os.environ.get("FRAMES_VIDEO", "6"))
+
+
+def _duracion_video(video_path: str) -> float:
+    """Duración en segundos vía ffprobe. 0.0 si no se pudo determinar."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=20,
+        )
+        return float((out.stdout or "0").strip() or 0)
+    except Exception as e:
+        print(f"[frames] ffprobe falló: {e}", flush=True)
+        return 0.0
+
+
+def _extraer_frames(video_path: str, n: int = _FRAMES_VIDEO) -> list[bytes]:
+    """Saca n capturas repartidas a lo largo del video (a un % fijo de la
+    duración cada una) para armar el mosaico. Antes solo se miraba la portada:
+    un reel de 60s se describía por su primer frame, que muchas veces es una
+    placa de título y no dice nada de lo que pasa después.
+    Devuelve [] si no se pudo (el llamador cae al thumbnail de siempre)."""
+    dur = _duracion_video(video_path)
+    if dur <= 0:
+        return []
+    # Muestreamos en el centro de cada tramo: evita el primer frame (suele venir
+    # negro o con fade) y el último (créditos / cierre).
+    tiempos = [dur * (i + 0.5) / n for i in range(n)]
+    frames = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, t in enumerate(tiempos):
+            destino = os.path.join(tmpdir, f"f{i}.jpg")
+            try:
+                # -ss antes de -i = seek rápido (no decodifica desde el principio).
+                subprocess.run(
+                    ["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}",
+                     "-i", video_path, "-frames:v", "1", "-q:v", "3", "-y", destino],
+                    capture_output=True, timeout=30,
+                )
+                if os.path.exists(destino) and os.path.getsize(destino) > 0:
+                    with open(destino, "rb") as f:
+                        frames.append(f.read())
+            except Exception as e:
+                print(f"[frames] error extrayendo frame {i} ({t:.1f}s): {e}", flush=True)
+    print(f"[frames] {len(frames)}/{n} capturas de un video de {dur:.1f}s", flush=True)
+    return frames
 
 
 def _load_ig_cookies() -> dict:
@@ -217,6 +341,78 @@ def _fetch_fast(shortcode: str) -> dict:
     return result
 
 
+_MOSAICO_MAX_IMAGENES = int(os.environ.get("MOSAICO_MAX_IMAGENES", "10"))
+
+
+def _tile_px(n: int) -> int:
+    """Px por celda del mosaico. Con pocas fotos agrandamos las celdas (se lee
+    mejor el texto chico); con muchas achicamos para no inflar la imagen."""
+    if n <= 4:
+        return 768
+    if n <= 9:
+        return 512
+    return 384
+
+
+def _armar_mosaico(imagenes: list[bytes]) -> tuple[str, str]:
+    """Arma UNA sola imagen (grilla) con todas las fotos del carrusel, numeradas.
+    Así el modelo describe el carrusel completo en una única llamada de visión,
+    en vez de una llamada (y un juego de tokens) por foto.
+    Devuelve (base64, media_type). Ante cualquier problema devuelve ("", "")."""
+    try:
+        import base64
+        import io
+        import math
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as e:
+        print(f"[mosaico] Pillow no disponible: {e}", flush=True)
+        return "", ""
+
+    try:
+        fotos = []
+        for raw in imagenes[:_MOSAICO_MAX_IMAGENES]:
+            try:
+                fotos.append(Image.open(io.BytesIO(raw)).convert("RGB"))
+            except Exception:
+                continue
+        if not fotos:
+            return "", ""
+
+        tile = _tile_px(len(fotos))
+        cols = math.ceil(math.sqrt(len(fotos)))
+        filas = math.ceil(len(fotos) / cols)
+        lienzo = Image.new("RGB", (cols * tile, filas * tile), (255, 255, 255))
+        d = ImageDraw.Draw(lienzo)
+        try:
+            fuente = ImageFont.load_default(size=tile // 12)
+        except Exception:
+            fuente = ImageFont.load_default()   # Pillow viejo: sin size
+
+        for i, foto in enumerate(fotos):
+            # "contain" sobre fondo blanco: no recortamos nada del contenido.
+            foto.thumbnail((tile, tile), Image.LANCZOS)
+            x0, y0 = (i % cols) * tile, (i // cols) * tile
+            lienzo.paste(foto, (x0 + (tile - foto.width) // 2, y0 + (tile - foto.height) // 2))
+            # Número de orden bien visible: la descripción va foto por foto, así
+            # que el modelo tiene que poder distinguir cuál es cuál sin dudar.
+            # (Con la fuente default de PIL, 11px, en una celda de 512 el número
+            # quedaba ilegible.)
+            lado = tile // 8
+            d.rectangle([x0 + 6, y0 + 6, x0 + 6 + lado, y0 + 6 + lado], fill=(0, 0, 0))
+            d.text((x0 + 6 + lado // 2, y0 + 6 + lado // 2), str(i + 1),
+                   fill=(255, 255, 255), font=fuente, anchor="mm")
+            d.rectangle([x0, y0, x0 + tile - 1, y0 + tile - 1], outline=(0, 0, 0), width=2)
+
+        buf = io.BytesIO()
+        lienzo.save(buf, format="JPEG", quality=85)
+        print(f"[mosaico] {len(fotos)} imágenes en grilla {cols}x{filas} "
+              f"({len(buf.getvalue())} bytes)", flush=True)
+        return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
+    except Exception as e:
+        print(f"[mosaico] error armando mosaico: {e}", flush=True)
+        return "", ""
+
+
 def _fetch_instagram_api(shortcode: str) -> dict:
     """
     Fetch via GraphQL doc_id de Instagram (la misma API que usa el navegador).
@@ -263,11 +459,21 @@ def _fetch_instagram_api(shortcode: str) -> dict:
 
         # display_url = imagen del post (foto, o thumbnail del video). En carruseles
         # tomamos la del primer item.
+        # display_url = imagen principal. En carruseles juntamos TODAS las
+        # imágenes de los hijos: después se arma un mosaico y se describe de una
+        # sola pasada (describir una por una multiplicaba los tokens de visión).
+        display_urls = []
+        for edge in (media.get("edge_sidecar_to_children", {}).get("edges") or []):
+            node = edge.get("node", {}) or {}
+            u = node.get("display_url", "") or ""
+            if u:
+                display_urls.append(u)
+
         display_url = media.get("display_url", "") or ""
-        if not display_url:
-            hijos = media.get("edge_sidecar_to_children", {}).get("edges") or []
-            if hijos:
-                display_url = hijos[0].get("node", {}).get("display_url", "") or ""
+        if not display_url and display_urls:
+            display_url = display_urls[0]
+        if not display_urls and display_url:
+            display_urls = [display_url]
 
         result = {
             "caption": (media.get("edge_media_to_caption", {}).get("edges") or [{}])[0].get("node", {}).get("text", "") or "",
@@ -277,6 +483,7 @@ def _fetch_instagram_api(shortcode: str) -> dict:
             "is_video": media.get("is_video", False),
             "video_url": media.get("video_url", "") or "",
             "display_url": display_url,
+            "display_urls": display_urls,
         }
         print(f"[ig_api] ok — owner={result['owner_username']} is_video={result['is_video']}", flush=True)
         return result
@@ -389,20 +596,45 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
 
     # Imagen del post para visión multimodal: foto (posts de imagen) o thumbnail
     # (reels/videos). La descargamos y la mandamos a Claude junto con el texto.
+    # Si es un carrusel, bajamos TODAS las fotos y las unimos en un mosaico:
+    # una sola llamada de visión describe el carrusel entero.
     display_url = slow.get("display_url") or ""
+    display_urls = [u for u in (slow.get("display_urls") or []) if u]
+    if display_url and display_url not in display_urls:
+        display_urls.insert(0, display_url)
+    if is_video:
+        # En reels alcanza con la portada: el contenido lo aporta la transcripción.
+        display_urls = display_urls[:1]
+
     image_b64 = ""
     image_media_type = ""
-    if display_url:
+    n_imagenes = 0
+    descargadas = []
+    for u in display_urls[:_MOSAICO_MAX_IMAGENES]:
         try:
-            import base64
-            r_img = req.get(display_url, timeout=15)
+            r_img = req.get(u, timeout=15)
             if r_img.status_code == 200 and r_img.content:
-                image_b64 = base64.b64encode(r_img.content).decode()
                 ct = (r_img.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
-                image_media_type = ct if ct.startswith("image/") else "image/jpeg"
-                print(f"[image] imagen del post descargada ({len(r_img.content)} bytes, {image_media_type})", flush=True)
+                descargadas.append((r_img.content, ct if ct.startswith("image/") else "image/jpeg"))
         except Exception as e:
             print(f"[image] error descargando imagen: {e}", flush=True)
+
+    if len(descargadas) == 1:
+        import base64
+        image_b64 = base64.b64encode(descargadas[0][0]).decode()
+        image_media_type = descargadas[0][1]
+        n_imagenes = 1
+        print(f"[image] imagen del post descargada ({len(descargadas[0][0])} bytes, {image_media_type})", flush=True)
+    elif len(descargadas) > 1:
+        image_b64, image_media_type = _armar_mosaico([c for c, _ in descargadas])
+        if image_b64:
+            n_imagenes = min(len(descargadas), _MOSAICO_MAX_IMAGENES)
+        else:
+            # Sin Pillow o mosaico fallido: al menos describimos la primera.
+            import base64
+            image_b64 = base64.b64encode(descargadas[0][0]).decode()
+            image_media_type = descargadas[0][1]
+            n_imagenes = 1
 
     # Descripción visual para mostrarle al vendedor: la genera la IA mirando la
     # imagen real (foto, o portada/preview del video). El accessibility_caption de
@@ -411,13 +643,22 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     # y la descripción no sume latencia propia.
     desc_executor = None
     desc_future = None
-    if image_b64:
+
+    def _lanzar_descripcion(b64, media_type, n, es_video):
+        nonlocal desc_executor, desc_future
         try:
             from modules.ai_generator import describir_imagen
             desc_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            desc_future = desc_executor.submit(describir_imagen, image_b64, image_media_type, caption)
+            desc_future = desc_executor.submit(describir_imagen, b64, media_type,
+                                               caption, n, es_video)
         except Exception as e:
             print(f"[describe] no disponible ({e})", flush=True)
+
+    # En videos la descripción sale de un mosaico de capturas del propio video,
+    # así que se lanza recién después de bajarlo (igual queda en paralelo con la
+    # transcripción, que es lo lento). En fotos se lanza ya.
+    if image_b64 and not (is_video and video_url):
+        _lanzar_descripcion(image_b64, image_media_type, n_imagenes, False)
 
     if is_video and video_url:
         print(f"[ig_api] descargando video para transcripción...", flush=True)
@@ -433,6 +674,22 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
                         raise IOError(f"descarga del video devolvió {r_vid.status_code}")
                     with open(video_path, "wb") as f:
                         f.write(r_vid.content)
+
+                    # Capturas repartidas a lo largo del video → mosaico → una
+                    # sola llamada de visión que describe el reel entero, no solo
+                    # la portada. Se lanza ANTES de transcribir para que corran
+                    # en paralelo y no sume latencia.
+                    if desc_future is None:
+                        frames = _extraer_frames(video_path)
+                        if len(frames) > 1:
+                            m_b64, m_mt = _armar_mosaico(frames)
+                            if m_b64:
+                                image_b64, image_media_type = m_b64, m_mt
+                                n_imagenes = min(len(frames), _MOSAICO_MAX_IMAGENES)
+                        if image_b64:
+                            _lanzar_descripcion(image_b64, image_media_type,
+                                                n_imagenes, True)
+
                     transcription = _transcribe_video(video_path)
                 ultimo_error = None
                 break
@@ -442,6 +699,10 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
                 time.sleep(1.5 * intento)
         if ultimo_error is not None:
             transcription = f"(transcripción no disponible: no se pudo descargar el video — {ultimo_error})"
+        # No se pudo bajar el video (o no salió ningún frame): describimos la
+        # portada, que es lo que se hacía antes de las capturas.
+        if desc_future is None and image_b64:
+            _lanzar_descripcion(image_b64, image_media_type, n_imagenes, True)
     elif is_video:
         # Reel sin video_url ni después de los reintentos: le decimos al usuario
         # POR QUÉ, en vez del genérico "sin transcripción disponible".

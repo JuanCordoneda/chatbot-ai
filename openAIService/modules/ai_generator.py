@@ -327,24 +327,67 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         prev_motivo = f"generación cortada ({count} líneas)"
 
 
-def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "") -> str:
+def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "",
+                     n_imagenes: int = 1, es_video: bool = False) -> str:
     """Describe textualmente la imagen de un post (para mostrarla al usuario como
     si fuera el pie de página). Llamada de visión corta, en español. Devuelve ""
     ante cualquier problema (el llamador simplemente no muestra descripción)."""
     if not image_b64:
         return ""
+    qué_mirar = (
+        "personas y gestos, ropa y accesorios, lugar, objetos, comida, "
+        "cualquier texto que aparezca en la imagen, y el ambiente general"
+    )
+    if n_imagenes > 1:
+        # Carrusel o video: llega UNA sola imagen que es una grilla numerada (las
+        # fotos del carrusel, o capturas repartidas a lo largo del video). Una
+        # sola llamada de visión — el costo es el de UNA imagen, no el de N —
+        # pero la respuesta sí va item por item.
+        if es_video:
+            qué_es = (
+                f"Esta imagen es un mosaico con {n_imagenes} capturas de un video "
+                "de Instagram, tomadas a intervalos regulares y en orden "
+                "cronológico (la 1 es el principio, la última es el final)"
+            )
+            unidad, conjunto = "captura", (
+                "Al final agregá una última línea que empiece con \"En conjunto:\" "
+                "contando en 1 o 2 oraciones qué pasa en el video de principio a "
+                "fin (cómo evoluciona la escena)."
+            )
+        else:
+            qué_es = (
+                f"Esta imagen es un mosaico con las {n_imagenes} fotos de un "
+                "carrusel de Instagram, en orden"
+            )
+            unidad, conjunto = "foto", (
+                "Al final agregá una última línea que empiece con \"En conjunto:\" "
+                "resumiendo de qué se trata el carrusel en 1 oración."
+            )
+        instruccion = (
+            f"{qué_es}, ordenadas de izquierda a derecha y de arriba hacia abajo, "
+            "cada una con su número arriba a la izquierda (el número está "
+            "sobreimpreso por nosotros, no forma parte de la imagen).\n"
+            f"Describí en español CADA {unidad} por separado: {qué_mirar}.\n"
+            f"Formato EXACTO, una línea por {unidad} y nada más:\n"
+            f"1. <descripción de la {unidad} 1, 1 o 2 oraciones>\n"
+            f"2. <descripción de la {unidad} 2, 1 o 2 oraciones>\n"
+            f"...hasta la {n_imagenes}.\n"
+            f"{conjunto}\n"
+            "Ignorá las zonas blancas vacías de la grilla (son relleno). Concreto "
+            "y fiel a lo que se ve, sin preámbulos ni comillas."
+        )
+    else:
+        instruccion = (
+            "Describí en español, en 2 a 5 oraciones, qué se ve en esta imagen de "
+            f"Instagram (puede ser una foto, o la portada/preview de un video): {qué_mirar}. "
+            "Concreto y fiel a lo que se ve. Devolvé SOLO la descripción, sin "
+            "preámbulos ni comillas."
+        )
     content = [
         {"type": "image", "source": {"type": "base64",
                                       "media_type": image_media_type or "image/jpeg",
                                       "data": image_b64}},
-        {"type": "text", "text": (
-            "Describí en español, en 2 a 5 oraciones, qué se ve en esta imagen de "
-            "Instagram (puede ser una foto, o la portada/preview de un video): "
-            "personas y gestos, ropa y accesorios, lugar, objetos, comida, "
-            "cualquier texto que aparezca en la imagen, y el ambiente general. "
-            "Concreto y fiel a lo que se ve. Devolvé SOLO la descripción, sin "
-            "preámbulos ni comillas."
-        )},
+        {"type": "text", "text": instruccion},
     ]
     # Un 529/overloaded puntual dejaba al post sin descripción. Reintentamos una
     # vez antes de rendirnos. Si igual falla, PROPAGAMOS la excepción para que el
@@ -355,7 +398,9 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
         try:
             resp = _client.messages.create(
                 model=_MODEL_VISION,
-                max_tokens=500,
+                # Una línea por foto: con carruseles largos 500 tokens cortaban
+                # la descripción a la mitad.
+                max_tokens=500 + 150 * max(0, n_imagenes - 1),
                 messages=[{"role": "user", "content": content}],
             )
             return "".join(b.text for b in resp.content if b.type == "text").strip()
