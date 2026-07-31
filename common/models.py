@@ -130,6 +130,10 @@ class Client(Base):
     prompt = Column(Text, nullable=False, default="")
     status = Column(String(20), nullable=False, default="active")  # "active" | "paused"
     gender = Column(String(10), nullable=True)              # "male" | "female" | None (TAREA 4)
+    # Calidad del motor: "pro" (modelo más potente) | "standard" (más liviano y
+    # barato). Se carga al dar de alta el cliente y decide con qué modelo de IA
+    # se le generan los comentarios. None = standard.
+    quality = Column(String(10), nullable=True)
     # Rangos min-max de cantidades por producto (TAREA 6). Ej:
     # {"likes": {"min": 800, "max": 1200}, "views": {...}, "shares": {...}}
     ranges = Column(JSON, nullable=True)

@@ -97,11 +97,13 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
         client_id = detectar_cliente(post_data.owner_username)
 
     client_gender = None
+    client_quality = None
     if _repo is not None and post_data.owner_username:
         try:
             row = _repo.get_client_by_ig_username(post_data.owner_username)
             if row:
                 client_gender = row.get("gender")
+                client_quality = row.get("quality")
         except Exception:
             pass
 
@@ -114,6 +116,7 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
             image_b64=post_data.image_b64,
             image_media_type=post_data.image_media_type,
             client_gender=client_gender,
+            client_quality=client_quality,
         )
     except Exception as e:
         return f"Error generando los comentarios con IA: {e}"

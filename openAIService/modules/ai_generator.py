@@ -7,6 +7,27 @@ from pathlib import Path
 _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"), max_retries=4)
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
+# Calidad del motor por cliente. Cada cliente tiene asignado "pro" o "standard"
+# desde el admin y de ahí sale QUÉ modelo genera sus comentarios: el pro es más
+# caro y más fino, el standard alcanza para la mayoría de las cuentas.
+#
+# Van por env var a propósito: subir de familia de modelo es cambiar una
+# variable y reiniciar, no tocar código y redeployar.
+_MODEL_PRO = os.environ.get("CROW_MODEL_PRO", "claude-opus-4-8")
+_MODEL_STANDARD = os.environ.get("CROW_MODEL_STANDARD", "claude-sonnet-5")
+
+# La descripción de la foto NO usa el modelo del cliente: describir en 5
+# oraciones lo que se ve en una imagen no mejora con el modelo caro, y es una
+# llamada por post. Va siempre en el liviano.
+_MODEL_VISION = os.environ.get("CROW_MODEL_VISION", _MODEL_STANDARD)
+
+
+def _modelo(quality) -> str:
+    """Modelo de la tanda según la calidad asignada al cliente. Cualquier cosa
+    que no sea 'pro' (vacío, cliente sin calidad cargada, valor viejo) cae en el
+    standard: el modelo barato es el default seguro."""
+    return _MODEL_PRO if (quality or "").strip().lower() == "pro" else _MODEL_STANDARD
+
 # Capa de datos multi-tenant opcional: si no está, se usan los .txt de siempre.
 try:
     from common import repository as _repo
@@ -216,9 +237,9 @@ _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None) -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None) -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -226,7 +247,7 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
     (el consumidor debe descartar lo emitido hasta ese punto).
@@ -234,8 +255,11 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     evitar: comentarios de tandas anteriores que el modelo no debe repetir ni
     parafrasear (usado por "Cargar más").
     image_b64/image_media_type: imagen del post (visión multimodal). Si viene, se
-    manda como bloque de imagen a Claude junto con el prompt."""
+    manda como bloque de imagen a Claude junto con el prompt.
+    client_quality: 'pro' | 'standard' — decide con qué modelo se genera."""
     has_image = bool(image_b64)
+    modelo = _modelo(client_quality)
+    print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}", flush=True)
     prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender)
 
     if has_image:
@@ -259,7 +283,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         buffer = ""
         try:
             with _client.messages.stream(
-                model="claude-opus-4-8",
+                model=modelo,
                 # max_tokens subido: con thinking prendido, el "pensar" también
                 # consume de este cupo; con 4096 podría cortar la tanda de ~70.
                 max_tokens=8192,
@@ -330,7 +354,7 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
     for intento in (1, 2):
         try:
             resp = _client.messages.create(
-                model="claude-opus-4-8",
+                model=_MODEL_VISION,
                 max_tokens=500,
                 messages=[{"role": "user", "content": content}],
             )

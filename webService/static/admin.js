@@ -462,6 +462,9 @@ function clientCard(c) {
           ${c.status === "active"
             ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Activo</span>'
             : '<span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pausado</span>'}
+          ${c.quality === "pro"
+            ? '<span class="ax-pill ax-pill--pro" title="Corre con el modelo de IA más potente">Pro</span>'
+            : ""}
         </div>
         <div class="ax-sub"><span class="ax-handle" title="Copiar" onclick="copyHandle('${esc(c.ig_username)}')">@${esc(c.ig_username)}</span>
           · ${(c.prompt || "").length} car. de prompt
@@ -545,6 +548,7 @@ function _clientFormState() {
   const v = (id) => document.getElementById(id).value;
   return JSON.stringify([
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
+    v("client-quality"),
     v("client-venta"), v("client-prompt"),
     ...["likes", "views", "shares"].flatMap(k => [v(`range-${k}-min`), v(`range-${k}-max`)]),
   ]);
@@ -609,6 +613,8 @@ function openClientModal(id) {
   document.getElementById("client-name").value = c ? c.display_name : "";
   document.getElementById("client-status").value = c ? c.status : "active";
   document.getElementById("client-gender").value = c && c.gender ? c.gender : "";
+  // Cliente nuevo arranca en estándar: subir a pro es una decisión explícita.
+  document.getElementById("client-quality").value = c && c.quality === "pro" ? "pro" : "standard";
   renderVentaSelect(c ? c.ig_username : document.getElementById("client-ig").value);
   document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
   actualizarVentaHint();
@@ -660,6 +666,7 @@ async function saveClient() {
     display_name: document.getElementById("client-name").value,
     status: document.getElementById("client-status").value,
     gender: document.getElementById("client-gender").value,
+    quality: document.getElementById("client-quality").value,
     ranges,
     prompt: document.getElementById("client-prompt").value,
     // El idvendedor viaja junto al idventa: el CRM imputa la orden a ese par, y

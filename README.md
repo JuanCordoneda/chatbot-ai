@@ -34,6 +34,19 @@ Variables de Entorno: Configura las siguientes variables de entorno en tu sistem
 - GOOGLE_APPLICATION_CREDENTIALS: La ruta al archivo de credenciales de tu cuenta de Google Cloud.
   - Ejemplo local: `GOOGLE_APPLICATION_CREDENTIALS=/Users/abc/Desktop/CROW/chatbot-ai/admin-key.json`
 
+Modelos de IA (opcionales — si no se setean, valen los defaults):
+
+- CROW_MODEL_PRO: modelo de los clientes marcados **Pro** en el admin. Default `claude-opus-4-8`.
+- CROW_MODEL_STANDARD: modelo de los clientes **Estándar**. Default `claude-sonnet-5`.
+- CROW_MODEL_VISION: modelo que describe la imagen del post. Default: el estándar.
+  Es una llamada corta por post y no mejora con el modelo caro, por eso va aparte
+  de la calidad del cliente.
+
+La calidad (`pro` / `standard`) se carga por cliente desde el admin. Subir de
+familia de modelo es cambiar estas variables y reiniciar el servicio: no hace
+falta tocar código. Antes de bajar clientes a estándar, comparar las dos tandas
+con `python scripts/comparar_calidad.py` (el prompt está calibrado contra el pro).
+
 **Instalación de Dependencias: Ejecuta pip install -r requirements.txt para instalar las dependencias necesarias.**
 
 #### Ejecución Local:

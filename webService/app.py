@@ -1292,6 +1292,7 @@ def admin_clients_create():
         prompt=d.get("prompt", ""),
         status=d.get("status", "active"),
         gender=d.get("gender"),
+        quality=d.get("quality"),
         ranges=d.get("ranges"),
         crm_idventa=d.get("crm_idventa"),
         crm_idvendedor=d.get("crm_idvendedor"),
@@ -1311,6 +1312,7 @@ def admin_clients_update(client_id):
         c = _repo.update_generic_client(
             prompt=d.get("prompt"),
             gender=d.get("gender"), gender_set=("gender" in d),
+            quality=d.get("quality"), quality_set=("quality" in d),
             ranges=d.get("ranges"), ranges_set=("ranges" in d),
         )
         return jsonify({"client": {**c, "reserved": True}})
@@ -1322,6 +1324,8 @@ def admin_clients_update(client_id):
         ig_username=d.get("ig_username"),
         gender=d.get("gender"),
         gender_set=("gender" in d),
+        quality=d.get("quality"),
+        quality_set=("quality" in d),
         ranges=d.get("ranges"),
         ranges_set=("ranges" in d),
         crm_idventa=d.get("crm_idventa"),

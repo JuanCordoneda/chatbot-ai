@@ -67,19 +67,22 @@ _JOB_TTL = int(os.environ.get("JOB_TTL", "1800"))    # 30 min
 
 
 def _datos_cliente(ig_username: str, es_cliente: bool):
-    """(ranges, gender) del cliente del post. Si el post NO es de un cliente
-    cargado, salen del cliente GENÉRICO global (lo configura el admin, es el
-    mismo para todos los vendedores). Antes quedaban vacíos y el modal de
-    órdenes no ofrecía la cantidad random."""
+    """(ranges, gender, quality) del cliente del post. Si el post NO es de un
+    cliente cargado, salen del cliente GENÉRICO global (lo configura el admin,
+    es el mismo para todos los vendedores). Antes quedaban vacíos y el modal de
+    órdenes no ofrecía la cantidad random.
+
+    quality: 'pro' | 'standard' — con qué modelo se le generan los comentarios."""
     try:
         from common import repository as _repo
         row = _repo.get_client_by_ig_username(ig_username) if (ig_username and es_cliente) else None
         if row is None:
             row = _repo.get_generic_client()
-        return (row or {}).get("ranges") or {}, (row or {}).get("gender")
+        row = row or {}
+        return row.get("ranges") or {}, row.get("gender"), row.get("quality")
     except Exception as e:
         print(f"[cliente] datos no disponibles ({e})", flush=True)
-        return {}, None
+        return {}, None, None
 
 
 # ── Session management ────────────────────────────────────────────────────────
@@ -371,7 +374,7 @@ def procesar_post_web():
                         # alimenta el _clientIg del front.
                         preview_owner = alias_owner(fast_preview.get("owner_username", "")) or ""
                         preview_client_id = detectar_cliente(preview_owner) if preview_owner else None
-                        preview_ranges, preview_gender = _datos_cliente(
+                        preview_ranges, preview_gender, _ = _datos_cliente(
                             preview_owner, bool(preview_client_id))
                         preview_meta = {
                             "caption": fast_preview.get("caption", ""),
@@ -443,7 +446,7 @@ def procesar_post_web():
             # ranges: el front autocompleta likes/views/shares con un valor random
             # dentro del rango. gender: male/female -> UNA sección, None -> mixto.
             # Sin cliente, ambos salen del genérico (ver _datos_cliente).
-            ranges, client_gender = _datos_cliente(owner_ig, bool(client_id))
+            ranges, client_gender, client_quality = _datos_cliente(owner_ig, bool(client_id))
 
             job["meta"] = {
                 "client_id": client_id or post_data.owner_full_name or post_data.owner_username,
@@ -480,6 +483,7 @@ def procesar_post_web():
                 image_b64=post_data.image_b64,
                 image_media_type=post_data.image_media_type,
                 client_gender=client_gender,
+                client_quality=client_quality,
             ):
                 # Cortar acá deja de consumir el stream de la API: la conexión
                 # se cierra al salir del for y no se generan más comentarios.

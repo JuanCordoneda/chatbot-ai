@@ -43,6 +43,17 @@ def _norm_gender(g):
     return None
 
 
+_QUALITIES = ("pro", "standard")
+
+
+def _norm_quality(q):
+    """Normaliza la calidad del motor a 'pro'/'standard'. Cualquier otra cosa
+    (vacío, valor viejo, basura) cae en 'standard': el modelo liviano es el
+    default seguro para la plata, y subir a pro es una decisión explícita."""
+    q = (q or "").strip().lower()
+    return q if q in _QUALITIES else "standard"
+
+
 _RANGE_KEYS = ("likes", "views", "shares")
 
 
@@ -78,6 +89,7 @@ def _client_to_dict(c: Client) -> dict:
         "prompt": c.prompt,
         "status": c.status,
         "gender": c.gender,
+        "quality": _norm_quality(c.quality),
         "ranges": c.ranges or {},
         "crm_idventa": c.crm_idventa or "",
         "crm_idvendedor": c.crm_idvendedor or "",
@@ -165,7 +177,7 @@ def _norm_ig(ig_username: str) -> str:
 
 
 def create_client(account_id: int, ig_username: str, display_name: str, prompt: str,
-                  status: str = "active", gender=None, ranges=None,
+                  status: str = "active", gender=None, quality=None, ranges=None,
                   crm_idventa=None, crm_idvendedor=None) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
@@ -187,6 +199,7 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
             prompt=prompt or "",
             status=status if status in ("active", "paused") else "active",
             gender=_norm_gender(gender),
+            quality=_norm_quality(quality),
             ranges=_norm_ranges(ranges),
             crm_idventa=(crm_idventa or "").strip() or None,
             crm_idvendedor=(crm_idvendedor or "").strip() or None,
@@ -198,7 +211,8 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
 
 def update_client(account_id: int, client_id: int, *, display_name=None,
                   prompt=None, status=None, ig_username=None, gender=None,
-                  gender_set=False, ranges=None, ranges_set=False,
+                  gender_set=False, quality=None, quality_set=False,
+                  ranges=None, ranges_set=False,
                   crm_idventa=None, crm_idvendedor=None) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
@@ -235,6 +249,8 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
             c.status = status
         if gender_set:
             c.gender = _norm_gender(gender)
+        if quality_set:
+            c.quality = _norm_quality(quality)
         if ranges_set:
             c.ranges = _norm_ranges(ranges)
         # Vaciar el campo = desasignar la venta (vuelve al fallback de la cuenta).
@@ -263,6 +279,7 @@ def delete_client(account_id: int, client_id: int) -> bool:
 
 
 def update_generic_client(*, prompt=None, gender=None, gender_set=False,
+                          quality=None, quality_set=False,
                           ranges=None, ranges_set=False) -> dict:
     """Edición del genérico global (solo admin). Deliberadamente NO deja tocar
     @usuario, nombre ni estado: siempre activo y siempre el mismo, porque es el
@@ -281,6 +298,8 @@ def update_generic_client(*, prompt=None, gender=None, gender_set=False,
             c.prompt = prompt
         if gender_set:
             c.gender = _norm_gender(gender)
+        if quality_set:
+            c.quality = _norm_quality(quality)
         if ranges_set:
             c.ranges = _norm_ranges(ranges)
         c.status = "active"

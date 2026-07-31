@@ -99,6 +99,10 @@
     .ax-pill--admin { background: var(--yellow-lo); color: var(--yellow-dk); }
     body:not(.light) .ax-pill--admin { color: var(--yellow); }
     .ax-pill--vend { background: var(--surface3); color: var(--muted); }
+    /* Calidad del motor. Solo se marca "Pro": el estándar es el caso normal y
+       poner un chip en cada tarjeta sería ruido. */
+    .ax-pill--pro { background: var(--yellow-lo); color: var(--yellow-dk); }
+    body:not(.light) .ax-pill--pro { color: var(--yellow); }
 
     /* Campaña del CRM asociada al cliente (de dónde sale la plata). */
     .ax-venta { font-weight: 700; color: var(--muted2); background: var(--surface3);
@@ -500,6 +504,14 @@
             <option value="female">Mujer</option>
           </select>
         </div>
+      </div>
+      <div class="ax-field">
+        <label>Calidad del motor</label>
+        <select id="client-quality">
+          <option value="standard">Estándar — comentarios muy buenos, costo normal</option>
+          <option value="pro">Pro — comentarios más elaborados, mayor costo</option>
+        </select>
+        <span class="ax-hint">Con qué modelo de IA se le generan los comentarios a este cliente. Pro para las cuentas clave o muy exigentes; estándar alcanza para el resto.</span>
       </div>
       <div class="ax-field">
         <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
