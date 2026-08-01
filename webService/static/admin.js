@@ -117,7 +117,13 @@ document.addEventListener("keydown", e => {
     if (e.target.id === "client-ig") {
       renderVentaSelect(e.target.value);
       actualizarVentaHint();
+      setFieldErr("client-ig", validarIg(e.target.value));
+      pintarCabeceraCliente();
     }
+    if (e.target.id === "client-name" || e.target.id === "client-status") pintarCabeceraCliente();
+    // Los rangos se validan mientras se tipea: mín > máx o calidad sin rango se
+    // ven al toque, no al apretar Guardar.
+    if (e.target.closest(".ax-range-row")) revisarRangos();
     updatePromptCount();
   })
 );
@@ -140,6 +146,24 @@ function confirmDialog({ title, text, okLabel = "Borrar" }) {
 }
 
 function showErr(id, msg) { const e = document.getElementById(id); e.textContent = msg; e.classList.add("ax-on"); }
+
+// Error pegado al campo que lo causó: el cartel rojo de arriba del modal no
+// decía cuál de los ocho campos estaba mal.
+function setFieldErr(inputId, msg) {
+  const fe = document.getElementById("fe-" + inputId);
+  const input = document.getElementById(inputId);
+  if (fe) { fe.textContent = msg || ""; fe.classList.toggle("ax-on", !!msg); }
+  if (input) {
+    input.classList.toggle("ax-bad", !!msg);
+    input.setAttribute("aria-invalid", msg ? "true" : "false");
+  }
+}
+function clearFieldErrs(scopeId) {
+  const box = document.getElementById(scopeId);
+  if (!box) return;
+  box.querySelectorAll(".ax-fe").forEach(e => { e.textContent = ""; e.classList.remove("ax-on"); });
+  box.querySelectorAll(".ax-bad").forEach(e => { e.classList.remove("ax-bad"); e.removeAttribute("aria-invalid"); });
+}
 function hideErr(id) { document.getElementById(id).classList.remove("ax-on"); }
 
 // Vendedor (cuenta) seleccionado para la pestaña Clientes.
@@ -542,6 +566,196 @@ function copyHandle(h) {
 // Snapshot del formulario al abrir: sirve para avisar si se cierra con cambios
 // sin guardar (perder un prompt largo por un Esc de más es lo peor que puede
 // pasar en esta pantalla).
+// Tipos de producto con rango min-max configurable por cliente (TAREA 6).
+const RANGE_KEYS = ["likes", "views", "shares", "reposts", "saves", "reach"];
+
+// ── Calidades por tipo de producto ───────────────────────────────────────────
+// El CRM ofrece varias variantes del mismo tipo ("Likes" vs "Likes 1178 JAP"):
+// esa es la CALIDAD. Acá se fija cuál usa este cliente cuando la herramienta
+// precrea la orden; vacío = la base, como venía siendo.
+let _prodsPorTipo = null;   // {likes: [{id, nombre}], ...} — cache de la sesión
+
+// Espejo de _tipoProducto() de app.js y de _tipo_producto() del backend: los
+// tres tienen que clasificar igual o la calidad elegida no matchea nada.
+function _tipoProducto(nombre) {
+  const n = (nombre || "").toLowerCase();
+  if (n.includes("like") || n.includes("me gusta")) return "likes";
+  if (n.includes("view") || n.includes("reproduc") || n.includes("visualiz") || n.includes("vista")) return "views";
+  if (n.includes("repost") || n.includes("reposte") || n.includes("requeteo")) return "reposts";
+  if (n.includes("save") || n.includes("guardad") || n.includes("guardar")) return "saves";
+  if (n.includes("reach") || n.includes("alcance")) return "reach";
+  if (n.includes("share") || n.includes("compart")) return "shares";
+  return null;
+}
+
+async function cargarCalidades() {
+  if (_prodsPorTipo) return _prodsPorTipo;
+  const out = {};
+  for (const k of RANGE_KEYS) out[k] = [];
+  try {
+    const data = await api("GET", "/api/productos?rrss=1");   // 1 = Instagram
+    for (const items of Object.values(data || {})) {
+      for (const p of items || []) {
+        const t = _tipoProducto(p.label);
+        if (t && out[t]) out[t].push({ id: String(p.id), nombre: p.label });
+      }
+    }
+  } catch (e) {
+    console.error("cargarCalidades:", e);   // sin CRM se sigue: quedan los rangos solos
+  }
+  _prodsPorTipo = out;
+  return out;
+}
+
+const RANGE_LABELS = {
+  likes: "👍 Likes", views: "▶ Views", shares: "↗ Shares",
+  reposts: "🔁 Reposts", saves: "🔖 Saves", reach: "📡 Reach",
+};
+
+// Estado de los rangos de la ficha abierta: {likes: [{min,max,prod_id,prod_nombre}], ...}
+// Un tipo puede tener VARIAS entradas: hay clientes que piden dos calidades de
+// likes en el mismo post, cada una con su rango.
+let rangosState = {};
+
+function _entradasDeRango(v) {
+  if (Array.isArray(v)) return v;
+  return v ? [v] : [];          // fichas viejas: un solo objeto por tipo
+}
+
+// Lee lo tipeado en pantalla. Es la fuente de verdad antes de agregar/sacar una
+// fila (si no, se perdería lo escrito al re-renderizar).
+function leerRangosDOM() {
+  const out = {};
+  for (const k of RANGE_KEYS) {
+    const filas = document.querySelectorAll(`.ax-range-row[data-tipo="${k}"]`);
+    out[k] = Array.from(filas).map(f => {
+      const sel = f.querySelector(".ax-range-prod");
+      return {
+        min: f.querySelector(".ax-range-min").value,
+        max: f.querySelector(".ax-range-max").value,
+        prod_id: sel ? sel.value : "",
+        prod_nombre: sel && sel.value ? (sel.options[sel.selectedIndex]?.text || "") : "",
+      };
+    });
+  }
+  return out;
+}
+
+// Dibuja todas las filas desde rangosState. Un tipo con una sola variante en el
+// CRM no muestra select ni el "+ otra calidad": no hay calidad que elegir.
+function renderRangos() {
+  const box = document.getElementById("ranges-box");
+  if (!box) return;
+  const prods = _prodsPorTipo || {};
+  const sinCrm = _prodsPorTipo && !RANGE_KEYS.some(k => (prods[k] || []).length);
+  let html = sinCrm
+    ? '<div class="ax-range-note">No se pudieron traer los productos del CRM, así que no hay calidades para elegir. Los rangos se guardan igual.</div>'
+    : "";
+  for (const k of RANGE_KEYS) {
+    const lista = prods[k] || [];
+    const entradas = rangosState[k] && rangosState[k].length ? rangosState[k] : [{}];
+    const cargado = entradas.some(e => e.min !== "" && e.min != null && e.max !== "" && e.max != null);
+    html += `<div class="ax-range-group${cargado ? " ax-range-group--on" : ""}" data-tipo="${k}">`;
+    entradas.forEach((e, i) => {
+      const actual = e.prod_id ? String(e.prod_id) : "";
+      let opts = '<option value="">Calidad automática</option>';
+      for (const p of lista) opts += `<option value="${esc(p.id)}"${p.id === actual ? " selected" : ""}>${esc(p.nombre)}</option>`;
+      // La calidad guardada puede haber desaparecido del CRM: la dejamos a la
+      // vista en vez de resetearla a automática en silencio.
+      if (actual && !lista.some(p => p.id === actual))
+        opts += `<option value="${esc(actual)}" selected>${esc(e.prod_nombre || "#" + actual)} (ya no está en el CRM)</option>`;
+      const mostrarSel = lista.length >= 2 || actual || entradas.length > 1;
+      html += `<div class="ax-range-row" data-tipo="${k}">
+        <span class="ax-range-name">${i === 0 ? RANGE_LABELS[k] : "<em>otra calidad</em>"}</span>
+        <input type="number" min="0" class="ax-range-min" value="${esc(e.min ?? "")}" placeholder="mín" aria-label="Mínimo de ${esc(RANGE_LABELS[k])}" />
+        <span class="ax-range-dash">–</span>
+        <input type="number" min="0" class="ax-range-max" value="${esc(e.max ?? "")}" placeholder="máx" aria-label="Máximo de ${esc(RANGE_LABELS[k])}" />
+        <select class="ax-range-prod${mostrarSel ? "" : " ax-hidden"}" aria-label="Calidad de ${esc(RANGE_LABELS[k])}">${opts}</select>
+        ${entradas.length > 1
+          ? `<button type="button" class="ax-range-del" title="Sacar esta calidad" aria-label="Sacar esta calidad" onclick="quitarCalidad('${k}',${i})">×</button>`
+          : "<span></span>"}
+        <div class="ax-fe ax-range-fe"></div>
+      </div>`;
+    });
+    if (lista.length >= 2)
+      html += `<button type="button" class="ax-range-add" onclick="agregarCalidad('${k}')">+ otra calidad de ${esc(RANGE_LABELS[k].split(" ")[1] || k)}</button>`;
+    html += "</div>";
+  }
+  box.innerHTML = html;
+  revisarRangos();
+}
+
+// Valida las filas en vivo y actualiza el resumen del encabezado. Devuelve true
+// si no hay ningún error que impida guardar.
+function revisarRangos() {
+  let ok = true, ordenes = 0;
+  for (const fila of document.querySelectorAll(".ax-range-row")) {
+    const min = fila.querySelector(".ax-range-min");
+    const max = fila.querySelector(".ax-range-max");
+    const sel = fila.querySelector(".ax-range-prod");
+    const fe = fila.querySelector(".ax-range-fe");
+    const tieneMin = min.value !== "", tieneMax = max.value !== "";
+    let msg = "", warn = false;
+
+    if (tieneMin !== tieneMax) {
+      msg = "Faltan los dos números: sin mínimo y máximo no se autocompleta nada.";
+    } else if (tieneMin && parseInt(min.value) > parseInt(max.value)) {
+      msg = "El mínimo es mayor que el máximo.";
+    } else if (tieneMin && parseInt(max.value) === 0) {
+      msg = "El máximo tiene que ser mayor que cero.";
+    } else if (!tieneMin && sel && sel.value) {
+      // No rompe el guardado, pero la calidad elegida se pierde: hay que decirlo
+      // acá y no recién en un toast al apretar Guardar.
+      msg = "Elegiste calidad pero no cargaste el rango: así no se guarda.";
+      warn = true;
+    }
+
+    fe.textContent = msg;
+    fe.classList.toggle("ax-on", !!msg);
+    fe.classList.toggle("ax-fe--warn", warn);
+    const malo = !!msg && !warn;
+    min.classList.toggle("ax-bad", malo);
+    max.classList.toggle("ax-bad", malo);
+    if (malo) ok = false;
+    if (!msg && tieneMin) ordenes++;
+  }
+  // Marca visual del grupo que ya tiene algo cargado.
+  for (const g of document.querySelectorAll(".ax-range-group")) {
+    const cargado = Array.from(g.querySelectorAll(".ax-range-min")).some(i => i.value !== "");
+    g.classList.toggle("ax-range-group--on", cargado);
+  }
+  const resumen = document.getElementById("ranges-resumen");
+  if (resumen)
+    resumen.textContent = ordenes
+      ? `${ordenes} orden${ordenes === 1 ? "" : "es"} se van a precrear solas`
+      : "sin rangos: la cantidad se carga a mano";
+  return ok;
+}
+
+function agregarCalidad(tipo) {
+  rangosState = leerRangosDOM();
+  (rangosState[tipo] = rangosState[tipo] || []).push({});
+  renderRangos();
+}
+
+function quitarCalidad(tipo, i) {
+  rangosState = leerRangosDOM();
+  rangosState[tipo].splice(i, 1);
+  renderRangos();
+}
+
+// Trae las calidades del CRM y redibuja con ellas. Se llama al abrir la ficha.
+async function renderCalidades(rg) {
+  rangosState = {};
+  for (const k of RANGE_KEYS) rangosState[k] = _entradasDeRango(rg[k]);
+  renderRangos();                 // primero sin calidades: los rangos ya se ven
+  await cargarCalidades();
+  renderRangos();
+  // Los selects se llenan async, después de que openClientModal tomó la foto
+  // del formulario: sin esto la ficha arranca marcada como "con cambios".
+  clientSnapshot = _clientFormState();
+}
+
 let clientSnapshot = "";
 
 function _clientFormState() {
@@ -550,11 +764,41 @@ function _clientFormState() {
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
     v("client-quality"),
     v("client-venta"), v("client-prompt"),
-    ...["likes", "views", "shares"].flatMap(k => [v(`range-${k}-min`), v(`range-${k}-max`)]),
+    leerRangosDOM(),
   ]);
 }
 
 function clientIsDirty() { return _clientFormState() !== clientSnapshot; }
+
+// El @usuario es la clave del cliente: el motor busca por ahí el prompt del post.
+// Un espacio o una mayúscula de más y el post deja de matchear.
+function validarIg(v) {
+  const ig = (v || "").trim().replace(/^@/, "");
+  if (!ig) return "Poné el @usuario de Instagram: es con lo que el motor reconoce los posts.";
+  if (!/^[a-zA-Z0-9._]+$/.test(ig)) return "Solo letras, números, punto y guion bajo (sin espacios ni @).";
+  if (ig.length > 30) return "Instagram no permite más de 30 caracteres.";
+  return "";
+}
+
+// Avatar, título y estado de la cabecera, en vivo mientras se completa la ficha.
+function pintarCabeceraCliente() {
+  const ig = (document.getElementById("client-ig").value || "").trim().replace(/^@/, "");
+  const nombre = (document.getElementById("client-name").value || "").trim();
+  const av = document.getElementById("client-av");
+  const sub = document.getElementById("client-subtitle");
+  if (!av) return;
+  if (!ig && !nombre) {
+    av.textContent = "+";
+    av.style.cssText = "background:var(--surface3);color:var(--muted)";
+    return;
+  }
+  av.textContent = initials(nombre, ig);
+  av.style.cssText = avatarStyle(ig || nombre);
+  const pausado = document.getElementById("client-status").value === "paused";
+  if (sub && sub.dataset.vivo === "1")
+    sub.innerHTML = `<span style="font-family:ui-monospace,Menlo,monospace">@${esc(ig || "…")}</span>` +
+      (pausado ? ' · <span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pausado</span>' : "");
+}
 
 function updatePromptCount() {
   const txt = document.getElementById("client-prompt").value;
@@ -607,7 +851,11 @@ function openClientModal(id) {
   sub.textContent = gen
     ? "Es el prompt que se usa en TODOS los vendedores cuando el post no es de un cliente cargado. Se edita solo desde acá."
     : (c ? "" : "Se guarda en la base y el motor lo usa al instante, sin deploy.");
-  sub.style.display = (c && !gen) ? "none" : "";
+  // Editando, la bajada muestra el @usuario y el estado en vivo en vez de un
+  // texto explicativo que ya no hace falta.
+  sub.dataset.vivo = (c && !gen) ? "1" : "0";
+  sub.style.display = gen ? "" : "";
+  clearFieldErrs("client-mo");
   document.getElementById("client-id").value = c ? c.id : "";
   document.getElementById("client-ig").value = c ? c.ig_username : "";
   document.getElementById("client-name").value = c ? c.display_name : "";
@@ -619,9 +867,14 @@ function openClientModal(id) {
   document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
   actualizarVentaHint();
   const rg = (c && c.ranges) || {};
-  for (const k of ["likes", "views", "shares"]) {
-    document.getElementById(`range-${k}-min`).value = rg[k] && rg[k].min != null ? rg[k].min : "";
-    document.getElementById(`range-${k}-max`).value = rg[k] && rg[k].max != null ? rg[k].max : "";
+  renderCalidades(rg);   // async: dibuja las filas y las llena con lo del CRM
+  const av = document.getElementById("client-av");
+  if (gen) {
+    // El genérico no es una persona: ícono, no iniciales.
+    av.textContent = "✎";
+    av.style.cssText = "background:var(--yellow-lo);color:var(--yellow)";
+  } else {
+    pintarCabeceraCliente();
   }
   // El prompt final del motor son dos capas: el genérico (reglas para todos) +
   // esto. Conviene que quede clarísimo cuál de las dos se está editando.
@@ -655,12 +908,40 @@ function openClientModal(id) {
 
 async function saveClient() {
   const id = document.getElementById("client-id").value;
-  const ranges = {};
-  for (const k of ["likes", "views", "shares"]) {
-    const mn = document.getElementById(`range-${k}-min`).value;
-    const mx = document.getElementById(`range-${k}-max`).value;
-    if (mn !== "" && mx !== "") ranges[k] = { min: parseInt(mn), max: parseInt(mx) };
+  const gen = !!(id && (findClient(parseInt(id)) || {}).reserved);
+  // Validación antes de salir a la red: el error aparece pegado al campo y el
+  // foco va al primero que está mal, en vez de un 400 genérico arriba de todo.
+  hideErr("client-err");
+  const errIg = gen ? "" : validarIg(document.getElementById("client-ig").value);
+  setFieldErr("client-ig", errIg);
+  const rangosOk = revisarRangos();
+  if (errIg || !rangosOk) {
+    const primero = document.querySelector("#client-mo .ax-bad");
+    if (primero) { primero.focus(); primero.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    showErr("client-err", errIg
+      ? "Revisá el @usuario para poder guardar."
+      : "Revisá los rangos marcados en rojo para poder guardar.");
+    return;
   }
+  const ranges = {};
+  const sinRango = [];
+  for (const [k, entradas] of Object.entries(leerRangosDOM())) {
+    const filas = [];
+    for (const e of entradas) {
+      if (e.min !== "" && e.max !== "") {
+        const fila = { min: parseInt(e.min), max: parseInt(e.max) };
+        if (e.prod_id) { fila.prod_id = e.prod_id; fila.prod_nombre = e.prod_nombre; }
+        filas.push(fila);
+      } else if (e.prod_id) {
+        // La calidad viaja dentro del rango: sin min-max no hay orden precreada
+        // que la use. Ya está avisado en la fila (aviso ámbar), acá solo se cuenta.
+        sinRango.push(k);
+      }
+    }
+    if (filas.length) ranges[k] = filas;
+  }
+  if (sinRango.length)
+    toast(`Sin rango en ${[...new Set(sinRango)].join(", ")}: esa calidad no se guardó`, "bad");
   const payload = {
     ig_username: document.getElementById("client-ig").value,
     display_name: document.getElementById("client-name").value,

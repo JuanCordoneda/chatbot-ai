@@ -426,7 +426,7 @@ function mostrarScrape(data) {
   _ordenarBloquesContexto(ultimoEsVideo);
 
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
-  // likes/views/shares con un valor random dentro del rango configurado.
+  // cada tipo con rango (likes/views/shares/reposts/saves/reach) con un valor random.
   if (data.ranges !== undefined) window._clientRanges = data.ranges || {};
   // @usuario del cliente: se usa para consultar qué cantidades ya se le enviaron
   // y, sobre todo, para saber de qué campaña sale la plata al enviar tráfico.
@@ -1345,12 +1345,28 @@ function onProductoChange() {
 }
 
 // ── Cantidad automática por rango (TAREA 6) ──────────────────────────────────
+// Tipos de producto con rango configurable por cliente. El orden importa para
+// el select y para las órdenes precreadas.
+const RANGE_KEYS = ["likes", "views", "shares", "reposts", "saves", "reach"];
+
 function _tipoProducto(nombre) {
   const n = (nombre || "").toLowerCase();
   if (n.includes("like") || n.includes("me gusta")) return "likes";
   if (n.includes("view") || n.includes("reproduc") || n.includes("visualiz") || n.includes("vista")) return "views";
+  // Reposts antes que shares: en el CRM son "Reposteos"/"Repost" y algunos
+  // nombres los mezclan con "compartir".
+  if (n.includes("repost") || n.includes("reposte") || n.includes("requeteo")) return "reposts";
+  if (n.includes("save") || n.includes("guardad") || n.includes("guardar")) return "saves";
+  if (n.includes("reach") || n.includes("alcance")) return "reach";
   if (n.includes("share") || n.includes("compart")) return "shares";
   return null;
+}
+
+// Un tipo puede tener varias entradas (dos calidades de likes en el mismo post).
+// Las fichas viejas guardaron un solo objeto por tipo: se lee igual.
+function _entradasDeRango(v) {
+  if (Array.isArray(v)) return v;
+  return v ? [v] : [];
 }
 
 function _rangoDelProducto() {
@@ -1358,7 +1374,11 @@ function _rangoDelProducto() {
   const nombre = prodSelect.options[prodSelect.selectedIndex]?.text || "";
   const tipo = _tipoProducto(nombre);
   const ranges = window._clientRanges || {};
-  const r = (tipo && ranges[tipo]) || null;
+  const entradas = _entradasDeRango(tipo && ranges[tipo]);
+  // Con varias calidades del mismo tipo, manda la del producto elegido; si el
+  // vendedor eligió una variante sin rango propio, cae en la primera del tipo.
+  const prodId = String(prodSelect.value || "");
+  const r = entradas.find(e => String(e.prod_id || "") === prodId) || entradas[0] || null;
   const btn = document.getElementById("btn-roll-cantidad");
   if (btn) btn.style.display = r ? "" : "none";
   return r;
@@ -1461,7 +1481,7 @@ function onVentaElegida() {
   }
 }
 
-// Tipo de producto actualmente elegido (likes/views/shares) o null.
+// Tipo de producto actualmente elegido (likes/views/shares/reposts/saves/reach) o null.
 function _tipoActual() {
   const prodSelect = document.getElementById("orden-producto");
   return _tipoProducto(prodSelect.options[prodSelect.selectedIndex]?.text || "");
@@ -1511,14 +1531,47 @@ async function _tirarDelRango(tipo, r) {
   return { val, agotado, min, max };
 }
 
+// ── Piso de views: nunca menos de 5× los likes del mismo post ────────────────
+// Un post con 1.000 likes y 300 views se ve falso. La regla es un MÍNIMO: si el
+// azar del rango da menos, se sube; si da más, se respeta.
+const VIEWS_POR_LIKE = 5;
+
+function _totalDeTipo(tipo) {
+  return ordenes
+    .filter(o => _tipoProducto(o.productoNombre) === tipo)
+    .reduce((a, o) => a + (parseInt(o.cantidad) || 0), 0);
+}
+
+// Mínimo de views del post según los likes ya cargados. Editar una orden la
+// saca de la lista, así que no hay que descontarla acá.
+function _pisoViewsActual() {
+  return _totalDeTipo("likes") * VIEWS_POR_LIKE;
+}
+
+// Devuelve {val, subido}: subido = hubo que levantarlo para respetar el piso.
+function _pisoViews(val) {
+  const piso = _pisoViewsActual();
+  return piso > val ? { val: piso, subido: true, piso } : { val, subido: false, piso };
+}
+
 async function rollCantidad() {
   const r = _rangoDelProducto();
   if (!r || r.min == null || r.max == null) return;
   const tipo = _tipoActual();
-  const { val, agotado, min, max } = await _tirarDelRango(tipo, r);
+  const { val: tirado, agotado, min, max } = await _tirarDelRango(tipo, r);
+
+  // En views el rango es el punto de partida, pero el piso de 5× los likes manda.
+  let val = tirado, subidoPorLikes = false, piso = 0;
+  if (tipo === "views") {
+    const p = _pisoViews(tirado);
+    val = p.val; subidoPorLikes = p.subido; piso = p.piso;
+  }
 
   const hint = document.getElementById("orden-cantidad-hint");
-  if (agotado && hint) {
+  if (subidoPorLikes && hint) {
+    hint.textContent = `Subido a ${val.toLocaleString("es-AR")}: los views van como mínimo ${VIEWS_POR_LIKE}× los likes del post (${piso.toLocaleString("es-AR")}).`;
+    hint.classList.remove("hidden");
+  } else if (agotado && hint) {
     hint.textContent = `Ya se usaron todas las cantidades entre ${min} y ${max} para este cliente; puede repetirse.`;
     hint.classList.remove("hidden");
   }
@@ -1531,10 +1584,19 @@ async function rollCantidad() {
 
 // ── Órdenes precreadas a partir de los rangos ────────────────────────────────
 // Al entrar al paso de órdenes se arma sola una orden por cada producto con
-// rango configurado (likes/views/shares), con cantidad al azar dentro del rango.
+// rango configurado, con cantidad al azar dentro del rango.
 // Los rangos son los del cliente del post; si el post no es de ningún cliente,
 // los del cliente genérico (los resuelve el backend en el meta del scrape).
 // Son órdenes normales: se pueden editar o borrar antes de enviar.
+// Producto exacto elegido como calidad del cliente, si sigue estando.
+function _productoElegido(grupos, prodId) {
+  if (!prodId) return null;
+  for (const g of grupos || [])
+    for (const item of g.items || [])
+      if (String(item.id) === String(prodId)) return item;
+  return null;
+}
+
 function _productoDeTipo(grupos, tipo) {
   const candidatos = [];
   for (const g of grupos || []) {
@@ -1543,7 +1605,7 @@ function _productoDeTipo(grupos, tipo) {
     }
   }
   if (!candidatos.length) return null;
-  // Preferimos el producto BASE ("Likes", "Views", "Shares") sobre las variantes
+  // Preferimos el producto BASE ("Likes", "Views", "Shares", "Reposts"...) sobre las variantes
   // con proveedor o formato distinto ("Story Views", "Views Live", "Likes 1178
   // JAP"): el nombre antes del precio tiene que ser el tipo pelado.
   const base = candidatos.find(c =>
@@ -1569,32 +1631,43 @@ async function _precrearOrdenesDeRangos() {
   const grupos = _productosCache[rsId] || [];
   let oid = Date.now() + 1000;
 
-  for (const tipo of ["likes", "views", "shares"]) {
-    const r = ranges[tipo];
-    if (!r || r.min == null || r.max == null) continue;
-    // Si ya hay una orden de ese tipo (precreada antes o cargada a mano), no la
-    // duplicamos: entrar y volver al paso de órdenes no debe sumar de nuevo.
-    if (ordenes.some(o => o.rangoTipo === tipo)) continue;
-    const prod = _productoDeTipo(grupos, tipo);
-    if (!prod) continue;   // el CRM no ofrece ese producto para esta red
+  for (const tipo of RANGE_KEYS) {
+    // Una orden por entrada: un cliente puede pedir dos calidades del mismo
+    // producto en el mismo post, cada una con su rango.
+    const entradas = _entradasDeRango(ranges[tipo]);
+    for (let i = 0; i < entradas.length; i++) {
+      const r = entradas[i];
+      if (!r || r.min == null || r.max == null) continue;
+      // Si ya hay una orden de esa entrada (precreada antes o cargada a mano),
+      // no la duplicamos: volver al paso de órdenes no debe sumar de nuevo.
+      const rangoKey = `${tipo}|${r.prod_id || "auto"}|${i}`;
+      if (ordenes.some(o => o.rangoKey === rangoKey)) continue;
+      // Calidad fijada para este cliente (variante concreta del CRM). Si ya no
+      // existe en esta red social, caemos a la base en vez de no precrear nada.
+      const prod = _productoElegido(grupos, r.prod_id) || _productoDeTipo(grupos, tipo);
+      if (!prod) continue;   // el CRM no ofrece ese producto para esta red
 
-    const { val } = await _tirarDelRango(tipo, r);
-    ordenes.push({
-      id: oid++,
-      redsocial: _currentNombreRed || "Instagram",
-      redsocialId: rsId,
-      productoId: prod.id,
-      productoNombre: prod.nombre,
-      cantidad: val,
-      link: currentUrl,
-      cuando: "ahora",
-      cuandoLabel: "Ahora",
-      fechaProgramada: "",
-      obs: "",
-      tipo: "normal",
-      rangoTipo: tipo,   // marca de precreada, para no duplicar
-      costo: await _costoDe(rsId, prod.id, val),
-    });
+      let { val } = await _tirarDelRango(tipo, r);
+      // Los likes se precrean primero (van antes en RANGE_KEYS), así que acá ya
+      // están en la lista y se puede atar el piso de views a ellos.
+      if (tipo === "views") val = _pisoViews(val).val;
+      ordenes.push({
+        id: oid++,
+        redsocial: _currentNombreRed || "Instagram",
+        redsocialId: rsId,
+        productoId: prod.id,
+        productoNombre: prod.nombre,
+        cantidad: val,
+        link: currentUrl,
+        cuando: "ahora",
+        cuandoLabel: "Ahora",
+        fechaProgramada: "",
+        obs: "",
+        tipo: "normal",
+        rangoKey,          // marca de precreada, para no duplicar
+        costo: await _costoDe(rsId, prod.id, val),
+      });
+    }
   }
 }
 
@@ -1769,8 +1842,15 @@ function agregarOrden() {
   } else clearFieldError("orden-producto");
 
   const cantidad = parseInt(cantidadEl.value);
+  const tipoOrden = _tipoProducto(prodSelect.options[prodSelect.selectedIndex]?.text || "");
+  const pisoViews = _pisoViewsActual();
   if (!cantidad || cantidad < 1) {
     setFieldError("orden-cantidad", "Ingresá una cantidad válida");
+    valid = false;
+  } else if (tipoOrden === "views" && cantidad < pisoViews) {
+    // Un post con muchos likes y pocas views se ve comprado: el piso es duro.
+    setFieldError("orden-cantidad",
+      `Mínimo ${pisoViews.toLocaleString("es-AR")}: los views van al menos ${VIEWS_POR_LIKE}× los likes del post`);
     valid = false;
   } else clearFieldError("orden-cantidad");
 
@@ -1961,7 +2041,16 @@ function renderOrdenes() {
 
   const CUANDO_ICONS = { ahora: "⚡", programar: "🗓", split3: "÷3", split5: "÷5" };
 
-  lista.innerHTML = ordenes.map((o, i) => {
+  // Los likes se pueden cargar DESPUÉS de los views y dejar el post corto: el
+  // piso no se puede reescribir solo sin pisar lo que cargó el vendedor, así
+  // que se avisa arriba de la lista.
+  const piso = _pisoViewsActual();
+  const views = _totalDeTipo("views");
+  const avisoViews = (views > 0 && views < piso)
+    ? `<div class="orden-aviso">⚠ Los views quedaron en ${views.toLocaleString("es-AR")} y con estos likes tendrían que ser al menos ${piso.toLocaleString("es-AR")} (${VIEWS_POR_LIKE}× los likes). Editá la orden de views antes de enviar.</div>`
+    : "";
+
+  lista.innerHTML = avisoViews + ordenes.map((o, i) => {
     const rs = RS_META[o.redsocialId] || { icon: "🌐", label: o.redsocial, color: "#a0a0a0", slug: "" };
     const rsIconHtml = rs.slug
       ? `<img src="https://cdn.simpleicons.org/${rs.slug}/${rs.color.replace('#','')}" class="rs-card-icon" />`
@@ -1984,7 +2073,7 @@ function renderOrdenes() {
           <span class="orden-card-pill orden-card-pill--when">${(o.splitTotal || o.turno) ? "⏰" : (CUANDO_ICONS[o.cuando] || "⚡")} ${escapeHtml(o.cuandoLabel)}</span>
           ${o.costo != null && o.costo > 0 ? `<span class="orden-card-pill orden-card-pill--cost">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
           ${o.tipo === "comentarios" ? `<span class="orden-card-pill orden-card-pill--green">✓ Comentarios IA</span>` : ""}
-          ${o.rangoTipo ? `<span class="orden-card-pill orden-card-pill--auto" title="Cantidad al azar dentro del rango configurado">🎲 Automática</span>` : ""}
+          ${o.rangoKey ? `<span class="orden-card-pill orden-card-pill--auto" title="Cantidad al azar dentro del rango configurado">🎲 Automática</span>` : ""}
         </div>
         <div class="orden-card-link">${escapeHtml(o.link)}</div>
         ${o.obs ? `<div class="orden-card-obs">"${escapeHtml(o.obs)}"</div>` : ""}

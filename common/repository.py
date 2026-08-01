@@ -54,30 +54,53 @@ def _norm_quality(q):
     return q if q in _QUALITIES else "standard"
 
 
-_RANGE_KEYS = ("likes", "views", "shares")
+_RANGE_KEYS = ("likes", "views", "shares", "reposts", "saves", "reach")
 
 
 def _norm_ranges(r):
     """Normaliza el dict de rangos min-max por producto. Descarta lo inválido.
-    Devuelve {'likes':{'min':int,'max':int}, ...} o None si no queda nada."""
+    Devuelve {'likes':{'min':int,'max':int,'prod_id':str,'prod_nombre':str}, ...}
+    o None si no queda nada.
+
+    prod_id/prod_nombre son la CALIDAD elegida: cuando el CRM ofrece varias
+    variantes del mismo tipo (ej "Likes" vs "Likes 1178 JAP"), el admin fija cuál
+    usar para este cliente. Vacío = la herramienta elige la base como antes."""
     if not r or not isinstance(r, dict):
         return None
     out = {}
     for k in _RANGE_KEYS:
-        v = r.get(k)
-        if not isinstance(v, dict):
-            continue
-        try:
-            mn = int(v.get("min"))
-            mx = int(v.get("max"))
-        except (TypeError, ValueError):
-            continue
-        if mn < 0 or mx < 0 or mx == 0:
-            continue
-        if mx < mn:
-            mn, mx = mx, mn
-        out[k] = {"min": mn, "max": mx}
+        entradas = [e for e in _as_list(r.get(k)) if isinstance(e, dict)]
+        limpias = [x for x in (_norm_range_entry(e) for e in entradas) if x]
+        if limpias:
+            out[k] = limpias
     return out or None
+
+
+def _as_list(v):
+    """Un tipo puede tener VARIAS entradas (mismo post, dos calidades de likes
+    con rangos distintos). Las fichas viejas guardaron un solo dict: se leen
+    igual, envueltas en lista."""
+    if isinstance(v, list):
+        return v
+    return [v] if isinstance(v, dict) else []
+
+
+def _norm_range_entry(v):
+    try:
+        mn = int(v.get("min"))
+        mx = int(v.get("max"))
+    except (TypeError, ValueError):
+        return None
+    if mn < 0 or mx < 0 or mx == 0:
+        return None
+    if mx < mn:
+        mn, mx = mx, mn
+    entry = {"min": mn, "max": mx}
+    prod_id = str(v.get("prod_id") or "").strip()
+    if prod_id:
+        entry["prod_id"] = prod_id
+        entry["prod_nombre"] = str(v.get("prod_nombre") or "").strip()
+    return entry
 
 
 def _client_to_dict(c: Client) -> dict:

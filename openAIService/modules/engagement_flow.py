@@ -11,8 +11,11 @@ except Exception:
     GROWI_AVAILABLE = False
 
 
+# El esquema y el @usuario del medio son opcionales: Instagram comparte tanto
+# instagram.com/p/CODE/ como instagram.com/usuario/reel/CODE/, y la gente pega
+# el link pelado (sin https://). Las tres formas tienen que entrar.
 INSTAGRAM_URL_RE = re.compile(
-    r"https?://(?:www\.)?instagram\.com/(?:p|reels?|tv)/[A-Za-z0-9_-]+"
+    r"(?:https?://)?(?:www\.)?instagram\.com/(?:[A-Za-z0-9._]+/)?(?:p|reels?|tv)/[A-Za-z0-9_-]+"
 )
 
 _CLIENTS_MAP_PATH = os.path.join(os.path.dirname(__file__), "..", "clients_map.json")

@@ -635,6 +635,43 @@ body.light .orden-btn-agregar {
   padding: 5px 13px;
 }
 
+/* Acceso a la otra herramienta (enviar followers). Va debajo del formulario:
+   tiene que verse a primera vista sin competirle al botón principal, así que
+   lleva el amarillo de la marca en el ícono y el borde, no en el fondo. */
+.tool-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--yellow-md);
+  border-radius: 16px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  transition: border-color 0.15s, background 0.15s, transform 0.06s;
+}
+.tool-cta:hover {
+  border-color: var(--yellow);
+  background: var(--yellow-lo);
+}
+.tool-cta:active { transform: translateY(1px); }
+.tool-cta-ico {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--yellow);
+  color: #1a1a1a;
+}
+.tool-cta-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tool-cta-txt b { font-size: 0.95rem; font-weight: 750; }
+.tool-cta-txt span { font-size: 0.8rem; color: var(--muted); }
+.tool-cta-arrow { color: var(--yellow); flex-shrink: 0; display: grid; place-items: center; }
+.tool-cta:hover .tool-cta-arrow { transform: translateX(2px); }
+
 .feature-dot {
   width: 5px;
   height: 5px;
@@ -2375,6 +2412,22 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   background: var(--yellow-lo);
   border: 1px solid var(--yellow-md);
   color: var(--yellow);
+}
+
+/* Aviso arriba de la lista de órdenes: los views quedaron por debajo del piso
+   de 5× los likes (pasa cuando los likes se cargan después). */
+.orden-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--yellow-lo);
+  border: 1px solid var(--yellow-md);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 11px 14px;
+  margin-bottom: 12px;
+  font-size: .86rem;
+  line-height: 1.45;
 }
 
 .orden-card-pill--split {

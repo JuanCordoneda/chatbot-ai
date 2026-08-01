@@ -45,12 +45,15 @@ def _motivo_desc_error(err: str) -> str:
 
 
 def extract_shortcode(url: str) -> Optional[str]:
-    match = re.search(r"instagram\.com/(?:p|reels?|tv)/([A-Za-z0-9_-]+)", url)
+    # El @usuario puede venir antes del /p/ o /reel/ (instagram.com/user/reel/CODE/).
+    match = re.search(
+        r"instagram\.com/(?:[A-Za-z0-9._]+/)?(?:p|reels?|tv)/([A-Za-z0-9_-]+)", url
+    )
     return match.group(1) if match else None
 
 
 def is_video_url(url: str) -> bool:
-    return bool(re.search(r"instagram\.com/(?:reels?|tv)/", url))
+    return bool(re.search(r"instagram\.com/(?:[A-Za-z0-9._]+/)?(?:reels?|tv)/", url))
 
 
 _whisper_model = None

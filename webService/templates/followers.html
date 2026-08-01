@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GROWI — Generador de followers</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=1785600200" />
+  <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
+  <style>
+    /* Herramienta hermana del generador de comentarios: mismo layout y mismos
+       tokens de style.css, con lo propio de esta pantalla acá (prefijo fw-). */
+    .fw-main { max-width: 880px; }
+    /* Acá el CTA va abajo de todo: se separa del formulario, no lo empuja. */
+    .tool-cta--bottom { margin: 26px 0 0; }
+    .fw-note { margin-top: 18px; font-size: .76rem; color: var(--faint); line-height: 1.5; text-align: center; }
+    .fw-main .ig-btn { margin-top: 6px; }
+
+    /* Resultado y confirmación */
+    .fw-confirm-card { max-width: 460px; text-align: left; }
+    .fw-confirm-body { margin: 16px 0 20px; display: grid; gap: 9px; }
+    .fw-crow { display: flex; justify-content: space-between; gap: 16px; font-size: .9rem; }
+    .fw-crow span:first-child { color: var(--faint); }
+    .fw-crow b { font-weight: 700; text-align: right; }
+    .fw-crow--total { border-top: 1px solid var(--border); padding-top: 10px; font-size: 1rem; }
+    .fw-crow--total b { color: var(--yellow); }
+    .fw-confirm-acts { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+    .fw-confirm-ok { width: auto; padding: 11px 22px; }
+    .fw-mini { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 10px 16px; font-size: .85rem; font-family: var(--font);
+      font-weight: 600; cursor: pointer; }
+    .fw-mini:hover { background: var(--surface3); }
+
+    .fw-res { margin-top: 26px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 22px 24px; }
+    .fw-res--ok { border-color: rgba(74,222,128,.45); }
+    .fw-res--bad { border-color: rgba(255,107,107,.45); }
+    .fw-res-t { font-weight: 750; font-size: 1rem; margin-bottom: 10px; }
+    .fw-res-l { font-size: .88rem; color: var(--muted); line-height: 1.6; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
+        <span class="header-sep"></span>
+        <span class="header-tag">Generador de followers</span>
+        {% if username %}
+        <span class="header-sep"></span>
+        <span class="header-user" title="Sesión iniciada como {{ username }}">
+          <span class="header-user-av">{{ username[0]|upper }}</span>
+          <span class="header-user-name">{{ username }}</span>
+        </span>
+        {% endif %}
+      </div>
+      <div class="header-actions">
+        <div class="header-btn-group">
+          <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
+          <a class="header-action-btn" href="/" title="Generador de comentarios">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            Comentarios
+          </a>
+          {% if is_admin %}
+          <a class="header-action-btn" href="/admin" title="Panel de administración">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.4"/><path d="M13 8a5 5 0 00-.1-1l1.3-1-1.3-2.2-1.5.5a5 5 0 00-1.7-1L9.4 0H6.6l-.3 1.3a5 5 0 00-1.7 1L3.1 1.8 1.8 4l1.3 1a5 5 0 000 2l-1.3 1L3.1 11l1.5-.5a5 5 0 001.7 1l.3 1.5h2.8l.3-1.5a5 5 0 001.7-1l1.5.5 1.3-2.2-1.3-1A5 5 0 0013 8z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            Admin
+          </a>
+          {% else %}
+          <a class="header-action-btn" href="/mis-clientes" title="Mis clientes y sus prompts">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Mis clientes
+          </a>
+          {% endif %}
+          <a class="header-action-btn" href="/logout" title="Cerrar sesión">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Salir
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class="main fw-main">
+      <div class="hero">
+        <div class="hero-eyebrow"><span class="eyebrow-dot"></span>Tráfico de Instagram</div>
+        <h1 class="hero-title">Enviá followers<br/><span class="accent">al perfil que quieras</span></h1>
+        <p class="hero-sub">Pegá el link del perfil, elegí la calidad y la cantidad. La orden sale al panel igual que desde Generar órdenes.</p>
+      </div>
+
+      <!-- Mismo formulario que Generar órdenes: producto (calidad), cantidad,
+           link y de qué campaña salen los fondos. El envío usa el mismo
+           /api/enviar_trafico, así el costo y el registro de uso quedan iguales. -->
+      <div class="orden-form-card">
+        <div class="orden-form">
+
+          <div class="orden-form-section-title">
+            <span class="ofsec-dot"></span> Perfil
+          </div>
+          <div class="orden-row">
+            <div class="orden-field orden-field--grow">
+              <label class="orden-label">Link del perfil</label>
+              <div class="orden-input-icon-wrap">
+                <span class="orden-input-icon">🔗</span>
+                <input type="text" id="fw-link" class="orden-input orden-input--has-icon"
+                       placeholder="https://www.instagram.com/usuario" autocomplete="off" spellcheck="false"
+                       oninput="onLinkInput()" />
+              </div>
+              <span id="fw-link-error" class="orden-field-error hidden">Pegá el link del perfil</span>
+              <span id="fw-cliente-hint" class="orden-field-hint hidden"></span>
+            </div>
+            <div class="orden-field orden-field--grow">
+              <label class="orden-label">…o elegí un cliente tuyo</label>
+              <select id="fw-cliente" class="orden-select" onchange="onClienteChange()">
+                <option value="" selected>Cargando clientes…</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="orden-form-divider"></div>
+          <div class="orden-form-section-title">
+            <span class="ofsec-dot"></span> Producto
+          </div>
+          <div class="orden-row">
+            <div class="orden-field orden-field--grow">
+              <div class="orden-label-row">
+                <label class="orden-label">Calidad</label>
+                <span id="fw-demora-badge" class="orden-inline-badge orden-inline-badge--green hidden"></span>
+              </div>
+              <select id="fw-calidad" class="orden-select" onchange="onCalidadChange()">
+                <option value="" disabled selected>Cargando calidades…</option>
+              </select>
+              <span id="fw-calidad-error" class="orden-field-error hidden">Elegí la calidad</span>
+            </div>
+            <div class="orden-field orden-field--qty">
+              <label class="orden-label">Cantidad</label>
+              <input type="number" id="fw-cantidad" class="orden-input" min="1" placeholder="1000" oninput="onCantidadInput()" />
+              <span id="fw-cantidad-error" class="orden-field-error hidden">Cantidad inválida</span>
+            </div>
+            <div class="orden-field orden-field--costo">
+              <label class="orden-label">Costo total</label>
+              <input type="text" id="fw-costo" class="orden-input orden-input--readonly" placeholder="—" readonly />
+            </div>
+          </div>
+
+          <!-- Solo cuando el perfil no es un cliente cargado: sin esto, el gasto
+               se descuenta de la campaña por defecto de la cuenta. -->
+          <div id="fw-campana-row" class="orden-row hidden">
+            <div class="orden-field orden-field--grow">
+              <label class="orden-label">Campaña (de dónde sale la plata)</label>
+              <select id="fw-campana" class="orden-select" onchange="onCampanaChange()">
+                <option value="">Cargando campañas…</option>
+              </select>
+              <span id="fw-campana-hint" class="orden-field-hint hidden"></span>
+            </div>
+          </div>
+
+          <div id="fw-error" class="error hidden"></div>
+
+          <button class="ig-btn" id="fw-btn" onclick="pedirFollowers()">
+            Enviar followers
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="fw-resultado" class="hidden"></div>
+
+      <!-- Vuelta a la otra herramienta, espejo del acceso que hay en el home. -->
+      <a class="tool-cta tool-cta--bottom" href="/">
+        <span class="tool-cta-ico">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.2h11v7.2h-6.2L4 13V10.4H2.5V3.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="tool-cta-txt">
+          <b>Generar comentarios</b>
+          <span>Para un post de Instagram, con el tono de cada cliente</span>
+        </span>
+        <span class="tool-cta-arrow">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </a>
+
+      <p class="fw-note">El envío se hace con el saldo de la campaña elegida, igual que cualquier otra orden de tráfico.</p>
+    </main>
+  </div>
+
+  <!-- Confirmación: es plata real y la orden sale al panel al instante. -->
+  <div id="fw-confirm" class="overlay hidden">
+    <div class="overlay-card fw-confirm-card">
+      <p class="overlay-title">Confirmá el envío</p>
+      <div id="fw-confirm-body" class="fw-confirm-body"></div>
+      <div class="fw-confirm-acts">
+        <button class="fw-mini" onclick="cerrarConfirm()">Cancelar</button>
+        <button class="ig-btn fw-confirm-ok" id="fw-confirm-ok" onclick="enviarFollowers()">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="copy-toast" class="copy-toast"></div>
+  <script src="/static/followers.js?v=1785600100"></script>
+</body>
+</html>

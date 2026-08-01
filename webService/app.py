@@ -487,14 +487,26 @@ def _current_user():
 
 
 def _tipo_producto(nombre):
-    """Clasifica el nombre del producto del CRM en likes/views/shares (o None).
-    Espeja _tipoProducto() del front para que lo registrado coincida con lo que
-    la tirada automática consulta después."""
+    """Clasifica el nombre del producto del CRM en likes/views/shares/reposts/
+    saves/reach (o None). Espeja _tipoProducto() del front para que lo registrado
+    coincida con lo que la tirada automática consulta después."""
     n = (nombre or "").lower()
     if "like" in n or "me gusta" in n:
         return "likes"
     if any(k in n for k in ("view", "reproduc", "visualiz", "vista")):
         return "views"
+    # Reposts antes que shares: en el CRM aparecen como "Reposteos"/"Repost" y
+    # algunos nombres los mezclan con "compartir".
+    if any(k in n for k in ("repost", "reposte", "requeteo")):
+        return "reposts"
+    if any(k in n for k in ("save", "guardad", "guardar")):
+        return "saves"
+    if any(k in n for k in ("reach", "alcance")):
+        return "reach"
+    # Followers no está en los rangos por cliente (RANGE_KEYS), así que el front
+    # no lo clasifica; acá sí, para que el envío quede bien registrado en el uso.
+    if any(k in n for k in ("follower", "seguidor")):
+        return "followers"
     if "share" in n or "compart" in n:
         return "shares"
     return None
@@ -596,6 +608,21 @@ def index():
         return redirect(url_for("login"))
     resp = make_response(render_template(
         "index.html",
+        is_admin=session.get("is_admin", False),
+        username=session.get("username", ""),
+    ))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.route("/followers")
+def followers_page():
+    """Generador de followers: pantalla propia, al lado del de comentarios."""
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    resp = make_response(render_template(
+        "followers.html",
         is_admin=session.get("is_admin", False),
         username=session.get("username", ""),
     ))
@@ -1536,6 +1563,32 @@ def prompt_ai():
         texto = re.sub(r"^```[a-zA-Z]*\n?", "", texto)
         texto = re.sub(r"\n?```$", "", texto).strip()
     return jsonify({"prompt": texto})
+
+
+# ── Envío de followers (pantalla /followers) ────────────────────────────────
+# La orden en sí sale por /api/enviar_trafico, igual que cualquier otro producto;
+# acá solo va lo propio de la pantalla: resolver el @usuario del link y listar
+# los clientes de la cuenta para saber de qué campaña salen los fondos.
+
+
+def _followers_clients():
+    """Clientes de la cuenta de la sesión, para el selector de la pantalla."""
+    if _repo is None:
+        return []
+    acc = session.get("account_id")
+    if not acc:
+        return []
+    return [c for c in _repo.list_clients(acc) if not c.get("reserved")]
+
+
+@app.route("/api/followers/clientes", methods=["GET"])
+@require_login
+def followers_clientes():
+    try:
+        return jsonify({"clients": _followers_clients()})
+    except Exception as e:
+        print(f"[followers] no pude listar clientes: {e!r}", flush=True)
+        return jsonify({"error": "No pude traer tus clientes", "clients": []}), 502
 
 
 @app.route("/api/uso", methods=["GET"])

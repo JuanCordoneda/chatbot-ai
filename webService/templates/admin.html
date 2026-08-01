@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785300030" />
+  <link rel="stylesheet" href="/static/style.css?v=1785500100" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -164,7 +164,6 @@
     .ax-modal--lg .ax-field label { font-size: .86rem; }
     .ax-modal--lg .ax-field input, .ax-modal--lg .ax-field select { padding: 12px 14px; font-size: .95rem; }
     .ax-modal--lg .ax-grid2 { gap: 18px; }
-    .ax-modal--lg .ax-range-row { grid-template-columns: 110px 1fr 16px 1fr; }
     .ax-modal--lg .ax-range-row input { padding: 10px 12px; font-size: .92rem; }
     .ax-modal--lg .ax-help { font-size: .84rem; }
 
@@ -255,13 +254,82 @@
     .ax-prefixed input { padding-left: 26px !important; font-family: ui-monospace, Menlo, monospace; }
     .ax-field textarea { min-height: 210px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: .84rem; line-height: 1.55; }
     .ax-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .ax-ranges { display: flex; flex-direction: column; gap: 8px; }
-    .ax-range-row { display: grid; grid-template-columns: 92px 1fr 14px 1fr; align-items: center; gap: 8px; }
-    .ax-range-name { font-size: .84rem; font-weight: 600; color: var(--muted2); }
+    /* ── Rangos por producto ────────────────────────────────────────────
+       Una fila por calidad: nombre · mín · máx · calidad del CRM · borrar. */
+    .ax-ranges { display: flex; flex-direction: column; gap: 10px; }
+    .ax-range-group { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 12px;
+      transition: background .13s; }
+    .ax-range-group:hover { background: var(--surface3); }
+    /* El grupo con algún rango cargado se marca: de un vistazo se ve qué
+       productos tiene configurados este cliente. */
+    .ax-range-group.ax-range-group--on { background: var(--yellow-lo); }
+    .ax-range-row { display: grid; grid-template-columns: 104px 1fr 14px 1fr 1.6fr 24px; align-items: center; gap: 8px; }
+    .ax-range-name { display: inline-flex; align-items: center; gap: 6px; font-size: .86rem; font-weight: 700;
+      color: var(--muted2); min-width: 0; }
+    .ax-range-name em { font-style: normal; font-size: .74rem; font-weight: 600; color: var(--faint); }
     .ax-range-dash { text-align: center; color: var(--faint); }
     .ax-range-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
-      border-radius: 9px; padding: 8px 10px; font-family: var(--font); font-size: .88rem; width: 100%; }
-    .ax-range-row input:focus { outline: none; border-color: var(--yellow); }
+      border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
+      transition: border-color .13s, box-shadow .13s; }
+    .ax-range-row input:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+    /* Calidad (variante de producto del CRM) de esa fila. Solo aparece cuando el
+       CRM ofrece más de una variante del tipo: si hay una sola, no hay qué elegir. */
+    .ax-range-prod { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+      border-radius: 9px; padding: 9px 10px; font-family: var(--font); font-size: .82rem; width: 100%;
+      transition: border-color .13s, box-shadow .13s; }
+    .ax-range-prod:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+    .ax-range-del { background: none; border: 1px solid transparent; border-radius: 8px; color: var(--faint);
+      cursor: pointer; font-size: 1rem; line-height: 1; padding: 5px; transition: color .13s, background .13s; }
+    .ax-range-del:hover { color: #ff6b6b; background: rgba(255,90,90,.12); }
+    .ax-range-add { align-self: start; margin-left: 104px; background: none; border: none; cursor: pointer;
+      color: var(--muted2); font-family: var(--font); font-size: .78rem; font-weight: 700; padding: 2px 0; }
+    .ax-range-add:hover { color: var(--yellow); }
+    .ax-range-fe { grid-column: 2 / -1; margin-top: 0; }
+    /* Sin CRM a mano no hay calidades que ofrecer: se dice, no se deja el hueco. */
+    .ax-range-note { font-size: .78rem; color: var(--faint); margin-bottom: 4px; }
+
+    /* ════════ Ficha de cliente — encabezado, secciones y errores ════════
+       Es el modal más cargado del panel: sin jerarquía visual era una lista
+       plana de 8 campos donde todo pesaba igual. Ahora tiene cabecera fija con
+       la identidad del cliente y los campos agrupados por tema. */
+    .ax-mhead { display: flex; align-items: center; gap: 14px; position: sticky; top: -34px; z-index: 3;
+      margin: -34px -36px 22px; padding: 22px 36px 16px; background: var(--surface);
+      border-bottom: 1px solid var(--border); border-radius: 22px 22px 0 0; }
+    .ax-mhead-av { width: 44px; height: 44px; border-radius: 13px; flex: 0 0 44px; display: grid; place-items: center;
+      font-weight: 800; font-size: 1.05rem; color: #fff; }
+    .ax-mhead-txt { min-width: 0; flex: 1; }
+    .ax-mhead h3 { margin-bottom: 2px; }
+    .ax-mhead .ax-msub { margin-bottom: 0; }
+    .ax-mclose { flex: 0 0 34px; height: 34px; display: grid; place-items: center; border-radius: 10px;
+      background: var(--surface2); border: 1px solid var(--border2); color: var(--muted); cursor: pointer;
+      font-size: 1.1rem; line-height: 1; font-family: var(--font); transition: color .13s, border-color .13s, background .13s; }
+    .ax-mclose:hover { color: var(--text); background: var(--surface3); }
+
+    /* Cada bloque temático es una tarjeta: identidad · generación · tráfico. */
+    .ax-sec { border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px 4px; margin-bottom: 16px;
+      background: var(--surface2); }
+    .ax-sec-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .ax-sec-h h4 { font-size: .82rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted2); }
+    .ax-sec-h .ax-sec-sub { font-size: .82rem; color: var(--faint); }
+    /* Dentro de la tarjeta los inputs van sobre el fondo del modal, un tono más
+       arriba, para que se lean como campos y no como parte del cartón. */
+    .ax-sec .ax-field input, .ax-sec .ax-field select, .ax-sec .ax-field textarea,
+    .ax-sec .ax-range-row input, .ax-sec .ax-range-prod { background: var(--surface); }
+
+    /* Errores por campo: el cartel rojo de arriba no decía QUÉ campo estaba mal. */
+    .ax-fe { display: none; align-items: center; gap: 6px; margin-top: 6px; font-size: .8rem;
+      font-weight: 600; color: #ff6b6b; }
+    .ax-fe.ax-on { display: flex; }
+    .ax-fe::before { content: "!"; display: grid; place-items: center; width: 14px; height: 14px; flex-shrink: 0;
+      border-radius: 50%; background: rgba(255,90,90,.18); font-size: .68rem; font-weight: 800; }
+    .ax-bad, .ax-sec .ax-field input.ax-bad, .ax-sec .ax-range-row input.ax-bad {
+      border-color: rgba(255,90,90,.65) !important; }
+    .ax-bad:focus { box-shadow: 0 0 0 3px rgba(255,90,90,.16) !important; }
+    /* Aviso ámbar: no impide guardar, avisa que algo no va a tener efecto. */
+    .ax-fe--warn { color: #d9903a; }
+    body:not(.light) .ax-fe--warn { color: var(--yellow); }
+    .ax-fe--warn::before { background: var(--yellow-lo); }
+
     .ax-tokens { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; align-items: center; }
     .ax-tok-label { font-size: .76rem; color: var(--faint); }
     .ax-tok { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font); font-size: .78rem; font-weight: 600;
@@ -309,6 +377,29 @@
       .ax-modal-actions--sticky { margin: 14px -18px -22px; padding: 12px 18px; }
       .ax-page-h { flex-direction: column; align-items: stretch; }
       .ax-seg { overflow-x: auto; }
+
+      /* ── Ficha de cliente en pantalla chica ──────────────────────────────
+         El modal pasa a ocupar la pantalla entera (hoja, no ventanita) y las
+         filas de rango se apilan: 6 columnas en 360px eran ilegibles. */
+      /* Solo la ficha de cliente va a pantalla completa: los modales chicos
+         (confirmar, usuario) siguen siendo ventanitas centradas. */
+      #client-mo { padding: 0; align-items: stretch; }
+      #client-mo .ax-modal { max-width: none; max-height: 100vh; height: 100vh; border-radius: 0; }
+      #client-mo .ax-mhead { margin: -22px -18px 16px; padding: 16px 18px 14px; top: -22px; border-radius: 0; }
+      .ax-mhead-av { width: 38px; height: 38px; border-radius: 11px; font-size: .95rem; }
+      .ax-sec { padding: 14px 14px 2px; border-radius: 14px; }
+      .ax-range-group { padding: 10px 10px 12px; background: var(--surface3); }
+      .ax-range-group:hover { background: var(--surface3); }
+      .ax-range-row { grid-template-columns: 1fr 14px 1fr 30px; row-gap: 7px; }
+      .ax-range-name { grid-column: 1 / -1; }
+      .ax-range-prod { grid-column: 1 / -1; }
+      .ax-range-fe { grid-column: 1 / -1; }
+      .ax-range-add { margin-left: 0; }
+      /* Guardar siempre visible y a dedo, sin buscarlo al final del scroll. */
+      #client-mo .ax-modal-actions--sticky { bottom: 0; margin: 14px -18px 0; padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+        border-radius: 0; }
+      .ax-modal-actions--sticky .ax-btn { flex: 1; justify-content: center; }
+      .ax-dirty { flex-basis: 100%; margin: 0 0 8px; }
     }
   </style>
 </head>
@@ -473,91 +564,96 @@
   <!-- Modal cliente -->
   <div class="ax-mo" id="client-mo">
     <div class="ax-modal ax-modal--lg">
-      <h3 id="client-title">Nuevo cliente</h3>
-      <div class="ax-msub" id="client-subtitle">Se guarda en la base y el motor lo usa al instante, sin deploy.</div>
+      <!-- Cabecera fija: quién se está editando, siempre a la vista aunque el
+           modal scrollee, con el cierre a mano (antes solo Esc o el botón del pie). -->
+      <div class="ax-mhead">
+        <div class="ax-mhead-av" id="client-av">+</div>
+        <div class="ax-mhead-txt">
+          <h3 id="client-title">Nuevo cliente</h3>
+          <div class="ax-msub" id="client-subtitle">Se guarda en la base y el motor lo usa al instante, sin deploy.</div>
+        </div>
+        <button type="button" class="ax-mclose" onclick="closeClientModal()" title="Cerrar (Esc)" aria-label="Cerrar">×</button>
+      </div>
       <div class="ax-err" id="client-err"></div>
       <input type="hidden" id="client-id" />
       <!-- Dos columnas: a la izquierda los datos, a la derecha el prompt a toda
            la altura (es lo que más se edita y lo que más espacio necesita). -->
       <div class="ax-split">
       <div class="ax-split-datos">
-      <div class="ax-grid2">
-        <div class="ax-field">
-          <label>@usuario de Instagram</label>
-          <div class="ax-prefixed"><span>@</span><input id="client-ig" placeholder="peterjfournier" autocomplete="off" /></div>
+      <section class="ax-sec">
+        <div class="ax-sec-h"><h4>Identidad</h4><span class="ax-sec-sub">quién es y si está recibiendo engagement</span></div>
+        <div class="ax-grid2">
+          <div class="ax-field">
+            <label>@usuario de Instagram</label>
+            <div class="ax-prefixed"><span>@</span><input id="client-ig" placeholder="peterjfournier" autocomplete="off" aria-describedby="fe-client-ig" /></div>
+            <div class="ax-fe" id="fe-client-ig"></div>
+          </div>
+          <div class="ax-field">
+            <label>Nombre para mostrar</label>
+            <input id="client-name" placeholder="Peter Fournier" autocomplete="off" />
+            <div class="ax-fe" id="fe-client-name"></div>
+          </div>
         </div>
-        <div class="ax-field">
-          <label>Nombre para mostrar</label>
-          <input id="client-name" placeholder="Peter Fournier" autocomplete="off" />
+        <div class="ax-grid2">
+          <div class="ax-field">
+            <label>Estado</label>
+            <select id="client-status"><option value="active">Activo</option><option value="paused">Pausado</option></select>
+          </div>
+          <div class="ax-field">
+            <label>Género</label>
+            <select id="client-gender">
+              <option value="">Mixto</option>
+              <option value="male">Hombre</option>
+              <option value="female">Mujer</option>
+            </select>
+          </div>
         </div>
-      </div>
-      <div class="ax-grid2">
+      </section>
+
+      <section class="ax-sec">
+        <div class="ax-sec-h"><h4>Generación de comentarios</h4><span class="ax-sec-sub">con qué modelo y con qué instrucciones</span></div>
         <div class="ax-field">
-          <label>Estado</label>
-          <select id="client-status"><option value="active">Activo</option><option value="paused">Pausado</option></select>
-        </div>
-        <div class="ax-field">
-          <label>Género</label>
-          <select id="client-gender">
-            <option value="">Mixto</option>
-            <option value="male">Hombre</option>
-            <option value="female">Mujer</option>
+          <label>Calidad del motor</label>
+          <select id="client-quality">
+            <option value="standard">Estándar — comentarios muy buenos, costo normal</option>
+            <option value="pro">Pro — comentarios más elaborados, mayor costo</option>
           </select>
-        </div>
-      </div>
-      <div class="ax-field">
-        <label>Calidad del motor</label>
-        <select id="client-quality">
-          <option value="standard">Estándar — comentarios muy buenos, costo normal</option>
-          <option value="pro">Pro — comentarios más elaborados, mayor costo</option>
-        </select>
-        <span class="ax-hint">Con qué modelo de IA se le generan los comentarios a este cliente. Pro para las cuentas clave o muy exigentes; estándar alcanza para el resto.</span>
-      </div>
-      <div class="ax-field">
-        <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
-        <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
-        <div id="client-venta-detalle" class="ax-venta-detalle"></div>
-      </div>
-      <!-- El prompt no se muestra acá: ocupa media pantalla y casi nunca se
-           toca de entrada. Se abre a pantalla completa con este botón. -->
-      <div class="ax-field">
-        <label>Instrucciones para la IA</label>
-        <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
-          <span class="ax-prompt-teaser-ico">✎</span>
-          <span class="ax-prompt-teaser-txt">
-            <b>Ver prompt</b>
-            <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
-          </span>
-          <span class="ax-prompt-teaser-go">⤢</span>
-        </button>
-      </div>
-      <div class="ax-field">
-        <label>Cantidades por rango <span class="ax-hint">likes · views · shares</span></label>
-        <div class="ax-ranges">
-          <div class="ax-range-row">
-            <span class="ax-range-name">👍 Likes</span>
-            <input type="number" min="0" id="range-likes-min" placeholder="mín" />
-            <span class="ax-range-dash">–</span>
-            <input type="number" min="0" id="range-likes-max" placeholder="máx" />
-          </div>
-          <div class="ax-range-row">
-            <span class="ax-range-name">▶ Views</span>
-            <input type="number" min="0" id="range-views-min" placeholder="mín" />
-            <span class="ax-range-dash">–</span>
-            <input type="number" min="0" id="range-views-max" placeholder="máx" />
-          </div>
-          <div class="ax-range-row">
-            <span class="ax-range-name">↗ Shares</span>
-            <input type="number" min="0" id="range-shares-min" placeholder="mín" />
-            <span class="ax-range-dash">–</span>
-            <input type="number" min="0" id="range-shares-max" placeholder="máx" />
+          <div class="ax-help">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Con qué modelo de IA se le generan los comentarios. <b>Pro</b> para las cuentas clave o muy exigentes; <b>estándar</b> alcanza para el resto.</span>
           </div>
         </div>
+        <!-- El prompt no se muestra acá: ocupa media pantalla y casi nunca se
+             toca de entrada. Se abre a pantalla completa con este botón. -->
+        <div class="ax-field">
+          <label>Instrucciones para la IA</label>
+          <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
+            <span class="ax-prompt-teaser-ico">✎</span>
+            <span class="ax-prompt-teaser-txt">
+              <b>Ver prompt</b>
+              <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
+            </span>
+            <span class="ax-prompt-teaser-go">⤢</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="ax-sec">
+        <div class="ax-sec-h"><h4>Tráfico</h4><span class="ax-sec-sub">de dónde sale la plata y cuánto se manda</span></div>
+        <div class="ax-field">
+          <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
+          <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
+          <div id="client-venta-detalle" class="ax-venta-detalle"></div>
+        </div>
+        <div class="ax-field">
+          <label>Cantidades por rango <span class="ax-hint" id="ranges-resumen"></span></label>
+          <div class="ax-ranges" id="ranges-box"></div>
         <div class="ax-help">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <span>Al armar la orden en la herramienta, la cantidad se elige <b>sola al azar</b> dentro del rango — no un número fijo. Dejalo vacío si no querés autocompletar.</span>
+          <span>Al armar la orden en la herramienta, la cantidad se elige <b>sola al azar</b> dentro del rango — no un número fijo. Dejalo vacío si no querés autocompletar. Si el tipo tiene varias <b>calidades</b> en el CRM, elegí cuál usar; en automático va la base. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango.</span>
+          </div>
         </div>
-      </div>
+      </section>
       </div><!-- /.ax-split-datos -->
 
       <div class="ax-split-prompt">
@@ -722,6 +818,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785400200"></script>
+  <script src="/static/admin.js?v=1785500100"></script>
 </body>
 </html>

@@ -83,7 +83,8 @@ class UsageEvent(Base):
     action = Column(String(40), nullable=False)          # "generar" | "publicar" | "enviar_trafico"
     client_ig_username = Column(String(100), nullable=True)
     post_url = Column(Text, nullable=True)
-    # Cantidad enviada y tipo de producto ("likes" | "views" | "shares"). Se usan
+    # Cantidad enviada y tipo de producto ("likes" | "views" | "shares" |
+    # "reposts" | "saves" | "reach"). Se usan
     # para que la tirada automática no repita una cantidad ya enviada al cliente.
     qty = Column(Integer, nullable=True)
     product_type = Column(String(20), nullable=True)
@@ -135,7 +136,12 @@ class Client(Base):
     # se le generan los comentarios. None = standard.
     quality = Column(String(10), nullable=True)
     # Rangos min-max de cantidades por producto (TAREA 6). Ej:
-    # {"likes": {"min": 800, "max": 1200}, "views": {...}, "shares": {...}}
+    # Cada tipo es una LISTA de entradas, porque un mismo post puede llevar dos
+    # calidades del mismo producto con rangos distintos. Ej:
+    # {"likes": [{"min": 800, "max": 1200, "prod_id": "12", "prod_nombre": "Likes"},
+    #            {"min": 100, "max": 200, "prod_id": "37", "prod_nombre": "Likes JAP"}],
+    #  "views": [...], "shares": [...], "reposts": [...], "saves": [...], "reach": [...]}
+    # Las fichas viejas guardaron un dict suelto por tipo: se sigue leyendo.
     ranges = Column(JSON, nullable=True)
     # Venta del CRM de la que salen los FONDOS de este cliente. Sin esto, todo el
     # tráfico se descontaba del idventa del .env (una sola venta para todos).
