@@ -56,6 +56,10 @@ def _norm_quality(q):
 
 _RANGE_KEYS = ("likes", "views", "shares", "reposts", "saves", "reach")
 
+# Espaciado por defecto del dripfeed: 2 horas entre tandas. Con 3 partes el post
+# recibe engagement durante 4 horas; con 5, durante 8.
+_DRIP_CADA_DEFAULT = 120
+
 
 def _norm_ranges(r):
     """Normaliza el dict de rangos min-max por producto. Descarta lo inválido.
@@ -73,6 +77,47 @@ def _norm_ranges(r):
         limpias = [x for x in (_norm_range_entry(e) for e in entradas) if x]
         if limpias:
             out[k] = limpias
+    com = _norm_comentarios(r.get("comentarios"))
+    if com:
+        out["comentarios"] = com
+    return out or None
+
+
+# Cuántos comentarios manda el cliente por post, por tipo. Vive dentro de
+# `ranges` pero NO es un _RANGE_KEYS: los comentarios no generan una orden
+# precreada (salen de los que el vendedor elige en la lista), acá solo se fija
+# cuántos de cada tipo hay que seleccionar.
+_COMENTARIO_KEYS = ("verificados", "comunes")
+
+# Los comunes se parten en dos tandas de 40 (mañana/tarde), así que 80 por día
+# es el techo real: dejar configurar más sería prometer algo que no se manda.
+_COMENTARIOS_TOPE = {"comunes": 80}
+
+
+def _norm_comentarios(c):
+    """Normaliza {'verificados': {'min':int,'max':int}, 'comunes': {...}}.
+    Rango min-max: la herramienta saca un número al azar adentro, para que el
+    cliente no reciba siempre la misma cantidad. None si no queda nada."""
+    if not isinstance(c, dict):
+        return None
+    out = {}
+    for k in _COMENTARIO_KEYS:
+        e = c.get(k)
+        if not isinstance(e, dict):
+            continue
+        try:
+            mn = int(e.get("min"))
+            mx = int(e.get("max"))
+        except (TypeError, ValueError):
+            continue
+        if mn < 0 or mx <= 0:
+            continue
+        if mx < mn:
+            mn, mx = mx, mn
+        tope = _COMENTARIOS_TOPE.get(k)
+        if tope:
+            mn, mx = min(mn, tope), min(mx, tope)
+        out[k] = {"min": mn, "max": mx}
     return out or None
 
 
@@ -100,6 +145,20 @@ def _norm_range_entry(v):
     if prod_id:
         entry["prod_id"] = prod_id
         entry["prod_nombre"] = str(v.get("prod_nombre") or "").strip()
+    # Dripfeed: en vez de una orden de 3.000 de una (que deja el post con cara de
+    # comprado), se parte en N tandas espaciadas. split=1 es "todo junto".
+    try:
+        split = int(v.get("split") or 1)
+    except (TypeError, ValueError):
+        split = 1
+    if split in (3, 5):
+        entry["split"] = split
+        try:
+            cada = int(v.get("cada_min"))
+        except (TypeError, ValueError):
+            cada = _DRIP_CADA_DEFAULT
+        # Entre 5 minutos y 24 horas: menos no es dripfeed y más se va de día.
+        entry["cada_min"] = min(1440, max(5, cada))
     return entry
 
 

@@ -428,6 +428,9 @@ function mostrarScrape(data) {
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
   // cada tipo con rango (likes/views/shares/reposts/saves/reach) con un valor random.
   if (data.ranges !== undefined) window._clientRanges = data.ranges || {};
+  // Cantidad de comentarios de la ficha del cliente: autocompleta los dos
+  // casilleros del reparto con un número al azar dentro del rango configurado.
+  _autocompletarComentarios(data.cliente_asignado ? data.client_id : "");
   // @usuario del cliente: se usa para consultar qué cantidades ya se le enviaron
   // y, sobre todo, para saber de qué campaña sale la plata al enviar tráfico.
   // Se pisa SIEMPRE, incluso vacío: antes, si un scrape no resolvía el dueño,
@@ -674,10 +677,9 @@ function toggleGenero(e, index) {
   }
 }
 
-// Alterna un comentario entre verificado (94) y no verificado (95).
-function toggleTipo(e, index) {
-  e.stopPropagation();
-  const nuevo = tiposGenerados[index] === "noverif" ? "verificado" : "noverif";
+// Fija el tipo de un comentario (verificado = producto 94, noverif = 95) y
+// sincroniza el switch.
+function _setTipo(index, nuevo) {
   tiposGenerados[index] = nuevo;
   const sw = document.getElementById(`tipo-${index}`);
   if (sw) {
@@ -686,6 +688,13 @@ function toggleTipo(e, index) {
     const knob = sw.querySelector(".ts-knob");
     if (knob) knob.textContent = nuevo === "verificado" ? "V" : "NV";
   }
+}
+
+// Alterna un comentario entre verificado (94) y no verificado (95).
+function toggleTipo(e, index) {
+  e.stopPropagation();
+  _setTipo(index, tiposGenerados[index] === "noverif" ? "verificado" : "noverif");
+  actualizarConteo();
 }
 
 // Edición inline: el ✎ vuelve editable el texto; se guarda al salir o con Enter.
@@ -914,12 +923,28 @@ function _refrescarConteoSecciones() {
   });
 }
 
+// Cuenta los comentarios seleccionados separados por tipo (V / NV).
+function contarPorTipo() {
+  let verif = 0, noverif = 0;
+  document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked").forEach((c) => {
+    const idx = parseInt(c.closest(".comentario-item").dataset.index, 10);
+    if (Number.isNaN(idx)) return;
+    if (tiposGenerados[idx] === "noverif") noverif++; else verif++;
+  });
+  return { verif, noverif };
+}
+
 function actualizarConteo() {
   const sel = contarSeleccionados();
   _refrescarConteoSecciones();
   const label = document.getElementById("count-label");
   if (label) {
-    label.textContent = `${sel} seleccionado${sel === 1 ? "" : "s"}`;
+    // Desglose V/NV a la vista: es lo que hay que chequear antes de publicar
+    // (y lo que define en cuántas órdenes se parte).
+    const { verif, noverif } = contarPorTipo();
+    label.textContent = sel === 0
+      ? "0 seleccionados"
+      : `${verif} verificados · ${noverif} comunes`;
     label.classList.toggle("count-label--lleno", sel > 0);   // pill amarilla con selección
   }
   const btnPublicar = document.getElementById("btn-publicar");
@@ -971,33 +996,84 @@ function seleccionarTodos() {
   actualizarConteo();
 }
 
-// Selección "indiferente": elige al azar CUÁLES comentarios y CUÁNTOS
-// (cantidad base ±20%), para que ningún post mande siempre el mismo número
-// y no parezca bot.
-function seleccionAleatoria() {
-  const checks = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]")];
-  checks.forEach((c) => {
-    c.checked = false;
-    c.closest(".comentario-item").classList.remove("selected");
-  });
+// Llena los casilleros de cantidad con lo configurado en la ficha del cliente
+// (rango min-max → un número al azar adentro, así no manda siempre lo mismo).
+// Sin cliente o sin rango cargado quedan en 0 y se completan a mano. Se pisan
+// SIEMPRE: si no, el post de un cliente arrastraría la cantidad del anterior.
+function _autocompletarComentarios(clienteLabel) {
+  const cfg = (window._clientRanges || {}).comentarios || {};
+  const tirar = (r) => {
+    const mn = parseInt(r?.min, 10), mx = parseInt(r?.max, 10);
+    if (!Number.isFinite(mn) || !Number.isFinite(mx)) return null;
+    return mn + Math.floor(Math.random() * (mx - mn + 1));
+  };
+  const verif = tirar(cfg.verificados);
+  const comunes = tirar(cfg.comunes);
 
-  // Cantidad base: vacío/inválido → 25; negativos → 0. Nunca dejamos que la
-  // aleatoriedad se salga de [0, cantidad de comentarios].
-  const raw = parseInt(document.getElementById("rand-cantidad")?.value, 10);
-  const base = Math.max(0, Number.isFinite(raw) ? raw : 25);
-  const jitter = base > 0 ? Math.max(1, Math.round(base * 0.2)) : 0;
-  let objetivo = base - jitter + Math.floor(Math.random() * (2 * jitter + 1));
-  objetivo = Math.max(0, Math.min(objetivo, checks.length));
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v == null ? 0 : v;
+  };
+  set("cant-verif", verif);
+  set("cant-noverif", comunes);
 
-  const idx = checks.map((_, k) => k);
-  for (let k = idx.length - 1; k > 0; k--) {
-    const j = Math.floor(Math.random() * (k + 1));
-    [idx[k], idx[j]] = [idx[j], idx[k]];
+  // El vendedor tiene que saber que el número no lo puso él, y de dónde salió.
+  const hint = document.getElementById("reparto-hint");
+  if (hint) {
+    hint.textContent = (verif == null && comunes == null)
+      ? "Elige al azar cuáles de la lista y los marca por vos"
+      : `Cantidad de la ficha de ${clienteLabel || "el cliente"} — podés cambiarla`;
+    hint.classList.toggle("reparto-hint--auto", verif != null || comunes != null);
   }
-  idx.slice(0, objetivo).forEach((k) => {
-    checks[k].checked = true;
-    checks[k].closest(".comentario-item").classList.add("selected");
+}
+
+// Tomás: contar a mano y togglear el V/NV de a uno para llegar a "60 verificados
+// + 80 comunes" es un viaje. Con esto se pide la cantidad exacta de cada tipo y
+// el reparto lo hace solo: elige al azar CUÁLES comentarios van (para que no
+// mande siempre los mismos) pero respeta al pie la cantidad pedida.
+function repartirPorTipo() {
+  const msg = document.getElementById("turnos-msg");
+  const error = (txt) => {
+    if (msg) { msg.textContent = txt; msg.classList.remove("hidden"); }
+  };
+  if (msg) msg.classList.add("hidden");
+
+  const leer = (id) => {
+    const raw = parseInt(document.getElementById(id)?.value, 10);
+    return Math.max(0, Number.isFinite(raw) ? raw : 0);
+  };
+  const nVerif   = leer("cant-verif");
+  const nNoVerif = leer("cant-noverif");
+
+  const items = [...document.querySelectorAll("#lista-comentarios .comentario-item")];
+  if (nVerif + nNoVerif === 0) {
+    return error("Escribí cuántos comentarios verificados y cuántos comunes querés mandar.");
+  }
+  if (nVerif + nNoVerif > items.length) {
+    return error(`Pediste ${nVerif + nNoVerif} comentarios pero solo hay ${items.length} generados. Tocá "+ Cargar más" para generar más, o bajá la cantidad.`);
+  }
+  if (nNoVerif > TURNOS_MAX) {
+    return error(`Los comunes tienen un tope de ${TURNOS_MAX} por día (40 + 40) y pediste ${nNoVerif}. Bajá a ${TURNOS_MAX} o menos.`);
+  }
+
+  // Barajamos los items y cortamos: los primeros nVerif van como V, los
+  // siguientes nNoVerif como NV, el resto queda sin seleccionar.
+  const orden = items.map((_, k) => k);
+  for (let k = orden.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1));
+    [orden[k], orden[j]] = [orden[j], orden[k]];
+  }
+
+  orden.forEach((k, pos) => {
+    const item = items[k];
+    const idx = parseInt(item.dataset.index, 10);
+    const elegido = pos < nVerif + nNoVerif;
+    if (elegido) _setTipo(idx, pos < nVerif ? "verificado" : "noverif");
+    const chk = item.querySelector("input[type=checkbox]");
+    if (chk) chk.checked = elegido;
+    item.classList.toggle("selected", elegido);
   });
+
   actualizarConteo();
 }
 
@@ -1625,6 +1701,12 @@ async function _costoDe(rsId, prodId, cantidad) {
   } catch { return null; }
 }
 
+// "YYYY-MM-DD HH:MM", que es lo que espera el CRM en fechaProgramada.
+function _fmtFechaCrm(d) {
+  const p = x => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 async function _precrearOrdenesDeRangos() {
   const ranges = window._clientRanges || {};
   const rsId = document.getElementById("orden-redsocial").value;
@@ -1651,22 +1733,39 @@ async function _precrearOrdenesDeRangos() {
       // Los likes se precrean primero (van antes en RANGE_KEYS), así que acá ya
       // están en la lista y se puede atar el piso de views a ellos.
       if (tipo === "views") val = _pisoViews(val).val;
-      ordenes.push({
-        id: oid++,
-        redsocial: _currentNombreRed || "Instagram",
-        redsocialId: rsId,
-        productoId: prod.id,
-        productoNombre: prod.nombre,
-        cantidad: val,
-        link: currentUrl,
-        cuando: "ahora",
-        cuandoLabel: "Ahora",
-        fechaProgramada: "",
-        obs: "",
-        tipo: "normal",
-        rangoKey,          // marca de precreada, para no duplicar
-        costo: await _costoDe(rsId, prod.id, val),
-      });
+
+      // División configurada en la ficha del cliente: el total se parte en N
+      // tandas espaciadas (una orden programada por tanda) para que el post no
+      // reciba 3.000 de golpe y parezca comprado.
+      const n = [3, 5].includes(Number(r.split)) ? Number(r.split) : 1;
+      const cadaMin = Number(r.cada_min) || 120;
+      const partes = n > 1 ? calcularSplitPartes(val, n) : [val];
+      const costoTotal = await _costoDe(rsId, prod.id, val);
+      const ahora = Date.now();
+
+      for (let t = 0; t < partes.length; t++) {
+        const cuandoFecha = new Date(ahora + t * cadaMin * 60 * 1000);
+        const programada = n > 1 && t > 0;   // la primera tanda sale ya
+        ordenes.push({
+          id: oid++,
+          redsocial: _currentNombreRed || "Instagram",
+          redsocialId: rsId,
+          productoId: prod.id,
+          productoNombre: prod.nombre,
+          cantidad: partes[t],
+          link: currentUrl,
+          cuando: programada ? "programar" : "ahora",
+          cuandoLabel: programada
+            ? cuandoFecha.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })
+            : "Ahora",
+          fechaProgramada: programada ? _fmtFechaCrm(cuandoFecha) : "",
+          obs: "",
+          tipo: "normal",
+          rangoKey,          // marca de precreada, para no duplicar
+          ...(n > 1 ? { splitIndex: t + 1, splitTotal: n } : {}),
+          costo: costoTotal != null ? costoTotal * (partes[t] / val) : null,
+        });
+      }
     }
   }
 }

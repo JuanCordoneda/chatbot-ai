@@ -1231,23 +1231,58 @@ body.light .comentario-item.selected {
   cursor: text;
 }
 
-/* Selección aleatoria */
-.rand-group {
+/* Reparto por cantidad (cuántos verificados / cuántos comunes) */
+.reparto-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+}
+.reparto-titulo {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-right: 2px;
+}
+.reparto-campo {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  cursor: pointer;
 }
-.rand-input {
-  width: 52px;
+.reparto-input {
+  width: 58px;
   padding: 5px 6px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
   text-align: center;
   background: var(--bg);
   color: inherit;
   border: 1px solid var(--border2);
   border-radius: 8px;
 }
-.rand-input:focus { outline: none; border-color: var(--yellow); }
+.reparto-input:focus { outline: none; border-color: var(--yellow); }
+.reparto-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  line-height: 1.5;
+}
+.reparto-tag--v  { background: rgba(52,199,89,0.18);  color: #34c759; }
+.reparto-tag--nv { background: rgba(160,160,160,0.20); color: #b0b0b0; }
+.reparto-hint {
+  font-size: 0.74rem;
+  color: var(--faint);
+}
+/* Cuando el número lo puso la ficha del cliente y no el vendedor. */
+.reparto-hint--auto { color: var(--yellow); font-weight: 600; }
+body.light .reparto-row { background: rgba(0,0,0,0.02); }
+body.light .reparto-tag--nv { background: rgba(0,0,0,0.07); color: #666; }
 
 /* Switch de género: fondo azul = hombre, fondo rosa = mujer. Click cambia. */
 .genero-switch {

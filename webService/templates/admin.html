@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785500100" />
+  <link rel="stylesheet" href="/static/style.css?v=1785700000" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -255,18 +255,58 @@
     .ax-field textarea { min-height: 210px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: .84rem; line-height: 1.55; }
     .ax-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     /* ── Rangos por producto ────────────────────────────────────────────
-       Una fila por calidad: nombre · mín · máx · calidad del CRM · borrar. */
+       Chips arriba para prender/apagar tipos, y una tarjeta por tipo prendido
+       con una fila por calidad (rango · calidad del CRM · división en tandas). */
     .ax-ranges { display: flex; flex-direction: column; gap: 10px; }
-    .ax-range-group { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 12px;
-      transition: background .13s; }
-    .ax-range-group:hover { background: var(--surface3); }
-    /* El grupo con algún rango cargado se marca: de un vistazo se ve qué
-       productos tiene configurados este cliente. */
-    .ax-range-group.ax-range-group--on { background: var(--yellow-lo); }
-    .ax-range-row { display: grid; grid-template-columns: 104px 1fr 14px 1fr 1.6fr 24px; align-items: center; gap: 8px; }
-    .ax-range-name { display: inline-flex; align-items: center; gap: 6px; font-size: .86rem; font-weight: 700;
-      color: var(--muted2); min-width: 0; }
-    .ax-range-name em { font-style: normal; font-size: .74rem; font-weight: 600; color: var(--faint); }
+    .ax-tipos { display: flex; flex-wrap: wrap; gap: 7px; }
+    .ax-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 20px;
+      background: var(--surface); border: 1px solid var(--border2); color: var(--muted);
+      font-family: var(--font); font-size: .82rem; font-weight: 600; cursor: pointer;
+      transition: color .13s, border-color .13s, background .13s; }
+    .ax-chip:hover { color: var(--text); border-color: var(--muted2); }
+    .ax-chip:hover .ax-chip-dot { opacity: .6; }
+    /* El punto toma el color del tipo (--c, inline): prendido se llena. */
+    .ax-chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--muted));
+      opacity: .3; transition: opacity .13s, box-shadow .13s; }
+    .ax-chip--on { background: var(--surface3); border-color: var(--c); color: var(--text); font-weight: 700; }
+    .ax-chip--on .ax-chip-dot { opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); }
+    /* Cuántas calidades tiene cargadas ese tipo (solo si es más de una). */
+    .ax-chip-n { font-size: .68rem; font-weight: 800; background: var(--c); color: #1a1a1a;
+      border-radius: 20px; padding: 0 6px; line-height: 1.5; }
+    .ax-range-empty { padding: 16px 14px; border: 1px dashed var(--border2); border-radius: 12px;
+      color: var(--faint); font-size: .84rem; line-height: 1.5; text-align: center; }
+
+    /* Comentarios por post: mismo look que una tarjeta de rango, pero con las
+       dos filas fijas (verificados / comunes) porque no hay calidades ni tandas. */
+    .ax-com { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 13px; }
+    .ax-com-row { display: grid; grid-template-columns: 1.5fr 1fr 14px 1fr; align-items: center; gap: 8px; }
+    .ax-com-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+      border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
+      transition: border-color .13s, box-shadow .13s; }
+    .ax-com-row input:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+    .ax-com-tag { font-size: .84rem; font-weight: 700; }
+    .ax-com-tag--v  { color: #34c759; }
+    .ax-com-tag--nv { color: var(--muted); }
+    @media (max-width: 720px) { .ax-com-row { grid-template-columns: 1fr; row-gap: 5px; }
+      .ax-com-row .ax-range-dash { display: none; } }
+
+    .ax-range-group { position: relative; display: flex; flex-direction: column; gap: 8px;
+      padding: 12px 14px 12px 17px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 13px; overflow: hidden; }
+    /* Barra del color del tipo a la izquierda: identifica la tarjeta de un vistazo. */
+    .ax-range-group::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+      background: var(--c, var(--border2)); opacity: .5; }
+    .ax-range-group--on::before { opacity: 1; }
+    /* Lo que va a hacer la herramienta con este tipo, en criollo y en vivo. */
+    .ax-range-resumen { font-size: .78rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+    /* El tipo que ya tiene rango cargado se marca en amarillo: de un vistazo se
+       ve qué productos van a salir solos y cuáles quedaron a medio configurar. */
+    .ax-range-group--on { border-color: var(--border2); }
+    .ax-range-ghead { display: flex; align-items: center; gap: 10px; }
+    .ax-range-name { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; font-weight: 700;
+      color: var(--text); margin-right: auto; }
+    .ax-range-row { display: grid; grid-template-columns: 1fr 14px 1fr 1.7fr 24px; align-items: center; gap: 8px; }
     .ax-range-dash { text-align: center; color: var(--faint); }
     .ax-range-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
       border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
@@ -279,56 +319,26 @@
       transition: border-color .13s, box-shadow .13s; }
     .ax-range-prod:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
     .ax-range-del { background: none; border: 1px solid transparent; border-radius: 8px; color: var(--faint);
-      cursor: pointer; font-size: 1rem; line-height: 1; padding: 5px; transition: color .13s, background .13s; }
+      cursor: pointer; font-size: 1rem; line-height: 1; padding: 4px 7px; transition: color .13s, background .13s; }
     .ax-range-del:hover { color: #ff6b6b; background: rgba(255,90,90,.12); }
-    .ax-range-add { align-self: start; margin-left: 104px; background: none; border: none; cursor: pointer;
-      color: var(--muted2); font-family: var(--font); font-size: .78rem; font-weight: 700; padding: 2px 0; }
+    .ax-range-add { background: none; border: none; cursor: pointer; color: var(--muted2);
+      font-family: var(--font); font-size: .78rem; font-weight: 700; padding: 2px 0; }
     .ax-range-add:hover { color: var(--yellow); }
-    .ax-range-fe { grid-column: 2 / -1; margin-top: 0; }
+    .ax-range-fe { grid-column: 1 / -1; margin-top: 0; }
+    /* División en tandas: sub-línea bajo la fila del rango. Partir el total
+       espaciadas es lo que hace que el post no parezca comprado. */
+    .ax-drip { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      font-size: .8rem; color: var(--muted); }
+    .ax-drip select { background: var(--surface2); border: 1px solid var(--border2); color: var(--muted2);
+      border-radius: 8px; padding: 5px 8px; font-family: var(--font); font-size: .78rem; font-weight: 600; }
+    .ax-drip select:focus { outline: none; border-color: var(--yellow); }
+    .ax-drip-cada { display: inline-flex; align-items: center; gap: 6px; }
+    .ax-drip-min { width: 68px; background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+      border-radius: 8px; padding: 5px 8px; font-family: var(--font); font-size: .78rem; }
+    .ax-drip-min:focus { outline: none; border-color: var(--yellow); }
+    .ax-drip-total { font-style: normal; color: var(--faint); }
     /* Sin CRM a mano no hay calidades que ofrecer: se dice, no se deja el hueco. */
-    .ax-range-note { font-size: .78rem; color: var(--faint); margin-bottom: 4px; }
-
-    /* ════════ Ficha de cliente — encabezado, secciones y errores ════════
-       Es el modal más cargado del panel: sin jerarquía visual era una lista
-       plana de 8 campos donde todo pesaba igual. Ahora tiene cabecera fija con
-       la identidad del cliente y los campos agrupados por tema. */
-    .ax-mhead { display: flex; align-items: center; gap: 14px; position: sticky; top: -34px; z-index: 3;
-      margin: -34px -36px 22px; padding: 22px 36px 16px; background: var(--surface);
-      border-bottom: 1px solid var(--border); border-radius: 22px 22px 0 0; }
-    .ax-mhead-av { width: 44px; height: 44px; border-radius: 13px; flex: 0 0 44px; display: grid; place-items: center;
-      font-weight: 800; font-size: 1.05rem; color: #fff; }
-    .ax-mhead-txt { min-width: 0; flex: 1; }
-    .ax-mhead h3 { margin-bottom: 2px; }
-    .ax-mhead .ax-msub { margin-bottom: 0; }
-    .ax-mclose { flex: 0 0 34px; height: 34px; display: grid; place-items: center; border-radius: 10px;
-      background: var(--surface2); border: 1px solid var(--border2); color: var(--muted); cursor: pointer;
-      font-size: 1.1rem; line-height: 1; font-family: var(--font); transition: color .13s, border-color .13s, background .13s; }
-    .ax-mclose:hover { color: var(--text); background: var(--surface3); }
-
-    /* Cada bloque temático es una tarjeta: identidad · generación · tráfico. */
-    .ax-sec { border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px 4px; margin-bottom: 16px;
-      background: var(--surface2); }
-    .ax-sec-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-    .ax-sec-h h4 { font-size: .82rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted2); }
-    .ax-sec-h .ax-sec-sub { font-size: .82rem; color: var(--faint); }
-    /* Dentro de la tarjeta los inputs van sobre el fondo del modal, un tono más
-       arriba, para que se lean como campos y no como parte del cartón. */
-    .ax-sec .ax-field input, .ax-sec .ax-field select, .ax-sec .ax-field textarea,
-    .ax-sec .ax-range-row input, .ax-sec .ax-range-prod { background: var(--surface); }
-
-    /* Errores por campo: el cartel rojo de arriba no decía QUÉ campo estaba mal. */
-    .ax-fe { display: none; align-items: center; gap: 6px; margin-top: 6px; font-size: .8rem;
-      font-weight: 600; color: #ff6b6b; }
-    .ax-fe.ax-on { display: flex; }
-    .ax-fe::before { content: "!"; display: grid; place-items: center; width: 14px; height: 14px; flex-shrink: 0;
-      border-radius: 50%; background: rgba(255,90,90,.18); font-size: .68rem; font-weight: 800; }
-    .ax-bad, .ax-sec .ax-field input.ax-bad, .ax-sec .ax-range-row input.ax-bad {
-      border-color: rgba(255,90,90,.65) !important; }
-    .ax-bad:focus { box-shadow: 0 0 0 3px rgba(255,90,90,.16) !important; }
-    /* Aviso ámbar: no impide guardar, avisa que algo no va a tener efecto. */
-    .ax-fe--warn { color: #d9903a; }
-    body:not(.light) .ax-fe--warn { color: var(--yellow); }
-    .ax-fe--warn::before { background: var(--yellow-lo); }
+    .ax-range-note { font-size: .78rem; color: var(--faint); }
 
     .ax-tokens { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; align-items: center; }
     .ax-tok-label { font-size: .76rem; color: var(--faint); }
@@ -388,13 +398,8 @@
       #client-mo .ax-mhead { margin: -22px -18px 16px; padding: 16px 18px 14px; top: -22px; border-radius: 0; }
       .ax-mhead-av { width: 38px; height: 38px; border-radius: 11px; font-size: .95rem; }
       .ax-sec { padding: 14px 14px 2px; border-radius: 14px; }
-      .ax-range-group { padding: 10px 10px 12px; background: var(--surface3); }
-      .ax-range-group:hover { background: var(--surface3); }
       .ax-range-row { grid-template-columns: 1fr 14px 1fr 30px; row-gap: 7px; }
-      .ax-range-name { grid-column: 1 / -1; }
       .ax-range-prod { grid-column: 1 / -1; }
-      .ax-range-fe { grid-column: 1 / -1; }
-      .ax-range-add { margin-left: 0; }
       /* Guardar siempre visible y a dedo, sin buscarlo al final del scroll. */
       #client-mo .ax-modal-actions--sticky { bottom: 0; margin: 14px -18px 0; padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
         border-radius: 0; }
@@ -650,7 +655,33 @@
           <div class="ax-ranges" id="ranges-box"></div>
         <div class="ax-help">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <span>Al armar la orden en la herramienta, la cantidad se elige <b>sola al azar</b> dentro del rango — no un número fijo. Dejalo vacío si no querés autocompletar. Si el tipo tiene varias <b>calidades</b> en el CRM, elegí cuál usar; en automático va la base. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango.</span>
+          <span>Al armar la orden en la herramienta, la cantidad se elige <b>sola al azar</b> dentro del rango — no un número fijo. Dejalo vacío si no querés autocompletar. Si el tipo tiene varias <b>calidades</b> en el CRM, elegí cuál usar; en automático va la base. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango. Con <b>dividido</b> el total se manda en varias partes espaciadas a lo largo del día en vez de todo de una.</span>
+          </div>
+        </div>
+
+        <!-- Cuántos comentarios manda este cliente por post. Va aparte de los
+             rangos de arriba porque no precrea ninguna orden: solo decide
+             cuántos comentarios de la lista se seleccionan y con qué tipo. -->
+        <div class="ax-field">
+          <label>Comentarios por post <span class="ax-hint" id="com-resumen"></span></label>
+          <div class="ax-com">
+            <div class="ax-com-row">
+              <span class="ax-com-tag ax-com-tag--v">✅ Verificados</span>
+              <input type="number" min="0" id="com-verif-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios verificados" oninput="revisarComentarios()" />
+              <span class="ax-range-dash">–</span>
+              <input type="number" min="0" id="com-verif-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios verificados" oninput="revisarComentarios()" />
+            </div>
+            <div class="ax-com-row">
+              <span class="ax-com-tag ax-com-tag--nv">💬 Comunes</span>
+              <input type="number" min="0" max="80" id="com-comunes-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios comunes" oninput="revisarComentarios()" />
+              <span class="ax-range-dash">–</span>
+              <input type="number" min="0" max="80" id="com-comunes-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios comunes" oninput="revisarComentarios()" />
+            </div>
+            <div class="ax-fe" id="com-fe"></div>
+          </div>
+          <div class="ax-help">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Al abrir un post de este cliente, la herramienta <b>autocompleta sola</b> cuántos comentarios mandar de cada tipo, con un número al azar dentro del rango. El vendedor lo puede cambiar antes de publicar. Dejalo vacío si preferís cargarlo a mano cada vez. Los <b>comunes</b> tienen un tope de <b>80 por día</b> porque salen en dos tandas de 40.</span>
           </div>
         </div>
       </section>
@@ -818,6 +849,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785500100"></script>
+  <script src="/static/admin.js?v=1785700000"></script>
 </body>
 </html>

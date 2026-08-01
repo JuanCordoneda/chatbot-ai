@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785600200" />
+  <link rel="stylesheet" href="/static/style.css?v=1785700000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -209,14 +209,27 @@
               <button class="btn-ghost btn-sm" onclick="seleccionarTodos()">Seleccionar todos</button>
               <button class="btn-ghost btn-sm" onclick="deseleccionarTodos()">Limpiar</button>
               <button class="btn-ghost btn-sm" onclick="agregarComentarioManual()">+ Agregar</button>
-              <span class="rand-group">
-                <input id="rand-cantidad" class="rand-input" type="number" min="1" value="25" title="Cantidad aproximada (varía ±20% para no parecer bot)" />
-                <button class="btn-ghost btn-sm" onclick="seleccionAleatoria()" title="Selecciona una cantidad variable de comentarios al azar">🎲 Al azar</button>
-              </span>
               <span class="count-label" id="count-label">0 seleccionados</span>
             </div>
-            <div class="turnos-toggle" id="turnos-toggle" title="Los comentarios NO verificados se reparten 50/50: una tanda ahora y la otra programada para el próximo turno (mañana 10:00 / tarde 19:00). Máximo 80 no verificados.">
-              <span>⏰ Los <b>no verificados</b> se reparten solos en turnos (50/50, mañana/tarde · tope 80)</span>
+
+            <!-- Reparto por cantidad: en vez de contar y togglear V/NV de a uno,
+                 se escribe cuántos de cada tipo y el sistema los elige solo. -->
+            <div class="reparto-row">
+              <span class="reparto-titulo">¿Cuántos comentarios mando?</span>
+              <label class="reparto-campo">
+                <input id="cant-verif" class="reparto-input" type="number" min="0" value="0" placeholder="0" />
+                <span class="reparto-tag reparto-tag--v">verificados</span>
+              </label>
+              <label class="reparto-campo">
+                <input id="cant-noverif" class="reparto-input" type="number" min="0" value="0" placeholder="0" />
+                <span class="reparto-tag reparto-tag--nv">comunes</span>
+              </label>
+              <button class="btn-ghost btn-sm" onclick="repartirPorTipo()">🎲 Elegirlos solo</button>
+              <span class="reparto-hint" id="reparto-hint">Elige al azar cuáles de la lista y los marca por vos</span>
+            </div>
+
+            <div class="turnos-toggle" id="turnos-toggle" title="Los comentarios comunes (no verificados) no se pueden mandar todos juntos: se parten en 2 tandas iguales. Una sale ahora y la otra queda programada para el próximo turno (10:00 si es de tarde, 19:00 si es de mañana). Máximo 80 por día.">
+              <span>⏰ Los <b>comunes</b> salen siempre en <b>2 tandas iguales</b>: la mitad ahora y la mitad programada para el próximo turno. Máximo 80 por día (40 + 40).</span>
             </div>
             <div id="turnos-msg" class="error hidden"></div>
             <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
@@ -480,6 +493,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785500100"></script>
+  <script src="/static/app.js?v=1785700000"></script>
 </body>
 </html>

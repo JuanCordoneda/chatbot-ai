@@ -607,6 +607,16 @@ async function cargarCalidades() {
   return out;
 }
 
+// Espaciado por defecto entre tandas cuando la orden se divide: 2 horas
+// (espeja el backend).
+const DRIP_CADA_DEFAULT = 120;
+
+// Un color por tipo: el ojo agarra la tarjeta correcta sin leer el nombre.
+const RANGE_COLORS = {
+  likes: "#ff6b6b", views: "#7dd3fc", shares: "#86efac",
+  reposts: "#c4b5fd", saves: "#fbcfe8", reach: "#fdba74",
+};
+
 const RANGE_LABELS = {
   likes: "👍 Likes", views: "▶ Views", shares: "↗ Shares",
   reposts: "🔁 Reposts", saves: "🔖 Saves", reach: "📡 Reach",
@@ -630,32 +640,65 @@ function leerRangosDOM() {
     const filas = document.querySelectorAll(`.ax-range-row[data-tipo="${k}"]`);
     out[k] = Array.from(filas).map(f => {
       const sel = f.querySelector(".ax-range-prod");
+      const drip = f.querySelector(".ax-drip-n");
+      const cada = f.querySelector(".ax-drip-min");
       return {
         min: f.querySelector(".ax-range-min").value,
         max: f.querySelector(".ax-range-max").value,
         prod_id: sel ? sel.value : "",
         prod_nombre: sel && sel.value ? (sel.options[sel.selectedIndex]?.text || "") : "",
+        split: drip ? parseInt(drip.value) || 1 : 1,
+        cada_min: cada ? parseInt(cada.value) || DRIP_CADA_DEFAULT : DRIP_CADA_DEFAULT,
       };
     });
   }
   return out;
 }
 
-// Dibuja todas las filas desde rangosState. Un tipo con una sola variante en el
-// CRM no muestra select ni el "+ otra calidad": no hay calidad que elegir.
+// Dibuja el bloque de rangos: arriba los 6 tipos como chips (se prenden y se
+// apagan) y abajo solo los que están prendidos. Antes se mostraban los 6
+// siempre, con su fila y su división en tandas: media pantalla de campos vacíos para un
+// cliente que suele tener dos o tres productos.
 function renderRangos() {
   const box = document.getElementById("ranges-box");
   if (!box) return;
   const prods = _prodsPorTipo || {};
-  const sinCrm = _prodsPorTipo && !RANGE_KEYS.some(k => (prods[k] || []).length);
-  let html = sinCrm
-    ? '<div class="ax-range-note">No se pudieron traer los productos del CRM, así que no hay calidades para elegir. Los rangos se guardan igual.</div>'
-    : "";
+  const activos = RANGE_KEYS.filter(k => (rangosState[k] || []).length);
+
+  let html = '<div class="ax-tipos">';
   for (const k of RANGE_KEYS) {
+    const on = activos.includes(k);
+    const n = (rangosState[k] || []).length;
+    html += `<button type="button" class="ax-chip${on ? " ax-chip--on" : ""}" onclick="toggleTipo('${k}')"
+      aria-pressed="${on}" style="--c:${RANGE_COLORS[k]}"
+      title="${on ? "Sacar" : "Configurar"} ${esc(RANGE_LABELS[k])}">
+      <i class="ax-chip-dot"></i>${RANGE_LABELS[k]}${n > 1 ? `<b class="ax-chip-n">${n}</b>` : ""}
+    </button>`;
+  }
+  html += "</div>";
+
+  if (_prodsPorTipo && !RANGE_KEYS.some(k => (prods[k] || []).length))
+    html += '<div class="ax-range-note">No se pudieron traer los productos del CRM, así que no hay calidades para elegir. Los rangos se guardan igual.</div>';
+
+  if (!activos.length) {
+    html += '<div class="ax-range-empty">Ningún producto con cantidad automática. Tocá uno de arriba para que la herramienta le arme la orden sola.</div>';
+    box.innerHTML = html;
+    revisarRangos();
+    return;
+  }
+
+  for (const k of activos) {
     const lista = prods[k] || [];
-    const entradas = rangosState[k] && rangosState[k].length ? rangosState[k] : [{}];
-    const cargado = entradas.some(e => e.min !== "" && e.min != null && e.max !== "" && e.max != null);
-    html += `<div class="ax-range-group${cargado ? " ax-range-group--on" : ""}" data-tipo="${k}">`;
+    const entradas = rangosState[k];
+    html += `<div class="ax-range-group" data-tipo="${k}" style="--c:${RANGE_COLORS[k]}">
+      <div class="ax-range-ghead">
+        <span class="ax-range-name">${RANGE_LABELS[k]}</span>
+        <span class="ax-range-resumen"></span>
+        ${lista.length >= 2
+          ? `<button type="button" class="ax-range-add" onclick="agregarCalidad('${k}')">+ otra calidad</button>`
+          : ""}
+        <button type="button" class="ax-range-del" title="Sacar ${esc(RANGE_LABELS[k])}" onclick="toggleTipo('${k}')">×</button>
+      </div>`;
     entradas.forEach((e, i) => {
       const actual = e.prod_id ? String(e.prod_id) : "";
       let opts = '<option value="">Calidad automática</option>';
@@ -665,8 +708,9 @@ function renderRangos() {
       if (actual && !lista.some(p => p.id === actual))
         opts += `<option value="${esc(actual)}" selected>${esc(e.prod_nombre || "#" + actual)} (ya no está en el CRM)</option>`;
       const mostrarSel = lista.length >= 2 || actual || entradas.length > 1;
+      const split = [3, 5].includes(Number(e.split)) ? Number(e.split) : 1;
+      const cada = e.cada_min ? Number(e.cada_min) : DRIP_CADA_DEFAULT;
       html += `<div class="ax-range-row" data-tipo="${k}">
-        <span class="ax-range-name">${i === 0 ? RANGE_LABELS[k] : "<em>otra calidad</em>"}</span>
         <input type="number" min="0" class="ax-range-min" value="${esc(e.min ?? "")}" placeholder="mín" aria-label="Mínimo de ${esc(RANGE_LABELS[k])}" />
         <span class="ax-range-dash">–</span>
         <input type="number" min="0" class="ax-range-max" value="${esc(e.max ?? "")}" placeholder="máx" aria-label="Máximo de ${esc(RANGE_LABELS[k])}" />
@@ -674,15 +718,43 @@ function renderRangos() {
         ${entradas.length > 1
           ? `<button type="button" class="ax-range-del" title="Sacar esta calidad" aria-label="Sacar esta calidad" onclick="quitarCalidad('${k}',${i})">×</button>`
           : "<span></span>"}
+        <div class="ax-drip">
+          <select class="ax-drip-n" aria-label="Cómo se manda ${esc(RANGE_LABELS[k])}">
+            <option value="1"${split === 1 ? " selected" : ""}>⚡ Todo junto</option>
+            <option value="3"${split === 3 ? " selected" : ""}>✂ Dividido ×3</option>
+            <option value="5"${split === 5 ? " selected" : ""}>✂ Dividido ×5</option>
+          </select>
+          <span class="ax-drip-cada${split === 1 ? " ax-hidden" : ""}">
+            cada <input type="number" min="5" max="1440" class="ax-drip-min" value="${esc(cada)}" aria-label="Minutos entre tandas" /> min
+            <em class="ax-drip-total"></em>
+          </span>
+        </div>
         <div class="ax-fe ax-range-fe"></div>
       </div>`;
     });
-    if (lista.length >= 2)
-      html += `<button type="button" class="ax-range-add" onclick="agregarCalidad('${k}')">+ otra calidad de ${esc(RANGE_LABELS[k].split(" ")[1] || k)}</button>`;
     html += "</div>";
   }
   box.innerHTML = html;
   revisarRangos();
+}
+
+// Prende o apaga un tipo de producto. Apagarlo borra lo que tuviera cargado:
+// es lo mismo que dejarlo vacío, y así el chip dice la verdad.
+function toggleTipo(tipo) {
+  rangosState = leerRangosDOM();
+  if ((rangosState[tipo] || []).length) rangosState[tipo] = [];
+  else rangosState[tipo] = [{}];
+  renderRangos();
+  const primero = document.querySelector(`.ax-range-group[data-tipo="${tipo}"] .ax-range-min`);
+  if (primero) primero.focus();
+  updatePromptCount();   // refresca el aviso de cambios sin guardar
+}
+
+// "90 min" / "2 h" / "2,5 h": el intervalo en la unidad que se lee mejor.
+function _fmtCada(min) {
+  if (min < 60) return `${min} min`;
+  const h = min / 60;
+  return `${(h % 1 ? h.toFixed(1) : h).toString().replace(".", ",")} h`;
 }
 
 // Valida las filas en vivo y actualiza el resumen del encabezado. Devuelve true
@@ -697,7 +769,29 @@ function revisarRangos() {
     const tieneMin = min.value !== "", tieneMax = max.value !== "";
     let msg = "", warn = false;
 
-    if (tieneMin !== tieneMax) {
+    // El "cada N min" solo tiene sentido si la orden se divide en tandas, y se
+    // muestra en horas para que se entienda cuánto dura el goteo.
+    const drip = fila.querySelector(".ax-drip-n");
+    const n = drip ? parseInt(drip.value) || 1 : 1;
+    const cadaEl = fila.querySelector(".ax-drip-min");
+    const cadaWrap = fila.querySelector(".ax-drip-cada");
+    if (cadaWrap) cadaWrap.classList.toggle("ax-hidden", n === 1);
+    if (n > 1 && cadaEl) {
+      const cada = parseInt(cadaEl.value);
+      if (!cada || cada < 5 || cada > 1440) {
+        msg = "El espaciado va entre 5 y 1440 minutos.";
+        cadaEl.classList.add("ax-bad");
+      } else {
+        cadaEl.classList.remove("ax-bad");
+        const horas = ((n - 1) * cada) / 60;
+        const tot = fila.querySelector(".ax-drip-total");
+        if (tot) tot.textContent = `· termina en ${_fmtCada((n - 1) * cada)}`;
+      }
+    }
+
+    if (msg) {
+      // ya hay error de la división en tandas en esta fila
+    } else if (tieneMin !== tieneMax) {
       msg = "Faltan los dos números: sin mínimo y máximo no se autocompleta nada.";
     } else if (tieneMin && parseInt(min.value) > parseInt(max.value)) {
       msg = "El mínimo es mayor que el máximo.";
@@ -717,12 +811,25 @@ function revisarRangos() {
     min.classList.toggle("ax-bad", malo);
     max.classList.toggle("ax-bad", malo);
     if (malo) ok = false;
-    if (!msg && tieneMin) ordenes++;
+    if (!msg && tieneMin) ordenes += n;
   }
-  // Marca visual del grupo que ya tiene algo cargado.
+  // Resumen vivo de cada tarjeta: lo que va a hacer la herramienta, en criollo.
   for (const g of document.querySelectorAll(".ax-range-group")) {
     const cargado = Array.from(g.querySelectorAll(".ax-range-min")).some(i => i.value !== "");
     g.classList.toggle("ax-range-group--on", cargado);
+    const res = g.querySelector(".ax-range-resumen");
+    if (!res) continue;
+    const partes = [];
+    for (const fila of g.querySelectorAll(".ax-range-row")) {
+      const mn = fila.querySelector(".ax-range-min").value;
+      const mx = fila.querySelector(".ax-range-max").value;
+      if (mn === "" || mx === "") continue;
+      const n = parseInt(fila.querySelector(".ax-drip-n").value) || 1;
+      const cada = parseInt(fila.querySelector(".ax-drip-min").value) || DRIP_CADA_DEFAULT;
+      const num = v => Number(v).toLocaleString("es-AR");
+      partes.push(`${num(mn)}–${num(mx)}` + (n > 1 ? ` en ${n} partes cada ${_fmtCada(cada)}` : ""));
+    }
+    res.textContent = partes.join("  ·  ");
   }
   const resumen = document.getElementById("ranges-resumen");
   if (resumen)
@@ -730,6 +837,67 @@ function revisarRangos() {
       ? `${ordenes} orden${ordenes === 1 ? "" : "es"} se van a precrear solas`
       : "sin rangos: la cantidad se carga a mano";
   return ok;
+}
+
+// ── Comentarios por post ─────────────────────────────────────────────────────
+// Cuántos comentarios de cada tipo manda este cliente. No es un RANGE_KEY: no
+// precrea ninguna orden, solo autocompleta los dos casilleros de la herramienta.
+// Tope de comunes: salen en dos tandas de 40 (espeja _COMENTARIOS_TOPE del backend).
+const COM_TOPE = { verificados: null, comunes: 80 };
+
+const _comEl = (tipo, cual) =>
+  document.getElementById(`com-${tipo === "verificados" ? "verif" : "comunes"}-${cual}`);
+
+function leerComentariosDOM() {
+  const out = {};
+  for (const k of ["verificados", "comunes"]) {
+    out[k] = { min: _comEl(k, "min").value, max: _comEl(k, "max").value };
+  }
+  return out;
+}
+
+function renderComentarios(com) {
+  const c = com || {};
+  for (const k of ["verificados", "comunes"]) {
+    const e = c[k] || {};
+    _comEl(k, "min").value = e.min ?? "";
+    _comEl(k, "max").value = e.max ?? "";
+  }
+  revisarComentarios();
+}
+
+// Valida las dos filas y actualiza el resumen. Devuelve false si algo impide guardar.
+function revisarComentarios() {
+  const fe = document.getElementById("com-fe");
+  if (!fe) return true;
+  let msg = "";
+  const partes = [];
+  for (const k of ["verificados", "comunes"]) {
+    const min = _comEl(k, "min"), max = _comEl(k, "max");
+    const tieneMin = min.value !== "", tieneMax = max.value !== "";
+    let malo = "";
+    if (tieneMin !== tieneMax) {
+      malo = "Faltan los dos números: sin mínimo y máximo no se autocompleta nada.";
+    } else if (tieneMin && parseInt(min.value) > parseInt(max.value)) {
+      malo = "El mínimo es mayor que el máximo.";
+    } else if (tieneMin && parseInt(max.value) === 0) {
+      malo = "El máximo tiene que ser mayor que cero.";
+    } else if (tieneMin && COM_TOPE[k] && parseInt(max.value) > COM_TOPE[k]) {
+      malo = `Los comunes salen en dos tandas de 40: el tope es ${COM_TOPE[k]} por día.`;
+    }
+    min.classList.toggle("ax-bad", !!malo);
+    max.classList.toggle("ax-bad", !!malo);
+    if (malo && !msg) msg = malo;
+    if (!malo && tieneMin) partes.push(`${min.value}–${max.value} ${k}`);
+  }
+  fe.textContent = msg;
+  fe.classList.toggle("ax-on", !!msg);
+  const resumen = document.getElementById("com-resumen");
+  if (resumen)
+    resumen.textContent = partes.length
+      ? partes.join("  ·  ")
+      : "sin cantidad fija: se carga a mano";
+  return !msg;
 }
 
 function agregarCalidad(tipo) {
@@ -764,7 +932,7 @@ function _clientFormState() {
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
     v("client-quality"),
     v("client-venta"), v("client-prompt"),
-    leerRangosDOM(),
+    leerRangosDOM(), leerComentariosDOM(),
   ]);
 }
 
@@ -867,6 +1035,7 @@ function openClientModal(id) {
   document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
   actualizarVentaHint();
   const rg = (c && c.ranges) || {};
+  renderComentarios(rg.comentarios);   // antes de renderCalidades: entra en el snapshot
   renderCalidades(rg);   // async: dibuja las filas y las llena con lo del CRM
   const av = document.getElementById("client-av");
   if (gen) {
@@ -915,12 +1084,13 @@ async function saveClient() {
   const errIg = gen ? "" : validarIg(document.getElementById("client-ig").value);
   setFieldErr("client-ig", errIg);
   const rangosOk = revisarRangos();
-  if (errIg || !rangosOk) {
+  const comOk = revisarComentarios();
+  if (errIg || !rangosOk || !comOk) {
     const primero = document.querySelector("#client-mo .ax-bad");
     if (primero) { primero.focus(); primero.scrollIntoView({ block: "center", behavior: "smooth" }); }
     showErr("client-err", errIg
       ? "Revisá el @usuario para poder guardar."
-      : "Revisá los rangos marcados en rojo para poder guardar.");
+      : "Revisá los números marcados en rojo para poder guardar.");
     return;
   }
   const ranges = {};
@@ -931,6 +1101,7 @@ async function saveClient() {
       if (e.min !== "" && e.max !== "") {
         const fila = { min: parseInt(e.min), max: parseInt(e.max) };
         if (e.prod_id) { fila.prod_id = e.prod_id; fila.prod_nombre = e.prod_nombre; }
+        if (e.split === 3 || e.split === 5) { fila.split = e.split; fila.cada_min = e.cada_min; }
         filas.push(fila);
       } else if (e.prod_id) {
         // La calidad viaja dentro del rango: sin min-max no hay orden precreada
@@ -940,6 +1111,13 @@ async function saveClient() {
     }
     if (filas.length) ranges[k] = filas;
   }
+  // Comentarios por post: viaja adentro de `ranges` (es config de cantidades),
+  // pero como clave propia — el backend no lo mete en el loop de productos.
+  const comentarios = {};
+  for (const [k, e] of Object.entries(leerComentariosDOM())) {
+    if (e.min !== "" && e.max !== "") comentarios[k] = { min: parseInt(e.min), max: parseInt(e.max) };
+  }
+  if (Object.keys(comentarios).length) ranges.comentarios = comentarios;
   if (sinRango.length)
     toast(`Sin rango en ${[...new Set(sinRango)].join(", ")}: esa calidad no se guardó`, "bad");
   const payload = {
