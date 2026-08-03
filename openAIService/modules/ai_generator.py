@@ -161,7 +161,7 @@ def _system_output_format(client_gender) -> str:
     )
 
 
-def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None) -> str:
+def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1) -> str:
     template = _load_template(client_id, account_id)
 
     if not is_video:
@@ -206,6 +206,23 @@ def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str
             "fondo). Nada de comentarios genéricos que servirían para cualquier foto."
         )
 
+    if n_imagenes > 1:
+        # La imagen es una grilla numerada que armamos nosotros, y la descripción
+        # visual viene como lista "1. ... 2. ...". Sin esta aclaración el modelo
+        # lo tomaba literal y escribía "the profile shot in 4 is clean" o "that
+        # hair flip in frame 5" — nadie que mira el post ve numeritos ni frames.
+        que_son = ("capturas de distintos momentos del video"
+                   if is_video else "las fotos del carrusel")
+        prompt += (
+            f"\n\nLA IMAGEN DE ARRIBA ES UN MOSAICO armado por nosotros con {que_son}. "
+            "La grilla y los números NO existen en el post: nadie que lo mira ve eso. "
+            "PROHIBIDO en los comentarios: mencionar frames, capturas, slides, "
+            "\"la foto/imagen N\", \"la primera/segunda/última\", el collage, la grilla "
+            "o cualquier numeración. Comentá como alguien que "
+            + ("miró el video entero de corrido."
+               if is_video else "pasó el carrusel con el dedo.")
+        )
+
     # "Cargar más": el usuario ya tiene una tanda de comentarios. Le pasamos esa
     # tanda para que el modelo NO la repita ni la parafrasee (era la causa de los
     # casi-duplicados entre tandas: cada llamada es stateless y sin esto re-inventa
@@ -237,9 +254,9 @@ _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None) -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1) -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -247,7 +264,7 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
     (el consumidor debe descartar lo emitido hasta ese punto).
@@ -260,7 +277,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     has_image = bool(image_b64)
     modelo = _modelo(client_quality)
     print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}", flush=True)
-    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender)
+    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes)
 
     if has_image:
         content = [

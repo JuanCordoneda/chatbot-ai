@@ -484,6 +484,7 @@ def procesar_post_web():
                 image_media_type=post_data.image_media_type,
                 client_gender=client_gender,
                 client_quality=client_quality,
+                n_imagenes=post_data.n_imagenes,
             ):
                 # Cortar acá deja de consumir el stream de la API: la conexión
                 # se cierra al salir del for y no se generan más comentarios.

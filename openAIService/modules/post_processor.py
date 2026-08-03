@@ -25,6 +25,10 @@ class PostData:
     is_video: bool = False
     image_b64: str = ""          # imagen del post en base64 (visión multimodal)
     image_media_type: str = ""   # ej "image/jpeg"
+    # >1 => image_b64 es un MOSAICO (fotos de un carrusel, o capturas de un
+    # video). Quien genere texto tiene que saberlo para no hablar de "la foto 3"
+    # ni de la grilla, que es un armado nuestro y no algo que el post tenga.
+    n_imagenes: int = 1
     # Motivo (para el vendedor) si la descripción por IA quedó vacía por un error
     # de la IA (saturada / sin crédito). "" si salió bien o no hubo imagen.
     descripcion_error: str = ""
@@ -745,6 +749,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         is_video=bool(is_video),
         image_b64=image_b64,
         image_media_type=image_media_type,
+        n_imagenes=n_imagenes,
         descripcion_error=descripcion_error,
     )
 
