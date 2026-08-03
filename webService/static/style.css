@@ -3484,17 +3484,65 @@ input:focus-visible {
 
 /* Mixto: Hombres y Mujeres lado a lado en 2 columnas (no apilados). Con un solo
    género la lista queda en una columna a todo el ancho (sin .lista-2col). */
-#lista-comentarios.lista-2col {
+.tipo-panel-items.lista-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 18px;
   align-items: start;
 }
-#lista-comentarios.lista-2col .genero-seccion[data-genero="otros"] {
+.tipo-panel-items.lista-2col .genero-seccion[data-genero="otros"] {
   grid-column: 1 / -1;   /* "Sin especificar" ocupa el ancho completo */
 }
 @media (max-width: 768px) {
-  #lista-comentarios.lista-2col { grid-template-columns: 1fr; }  /* apilado en pantallas angostas */
+  .tipo-panel-items.lista-2col { grid-template-columns: 1fr; }  /* apilado en pantallas angostas */
+}
+
+/* ── Dos listas: Verificados y Comunes ───────────────────────────────────────
+   La generación reparte sola según la ficha del cliente (ej. 40 V + 40 NV) y
+   cada lista tiene su propio "+ generar más". Antes era una sola lista mezclada
+   donde el tipo se marcaba comentario por comentario. */
+.tipo-panel {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 4px 14px 12px;
+  margin-bottom: 16px;
+  background: var(--surface);
+}
+.tipo-panel.hidden { display: none; }
+.tipo-panel--verificado { border-color: rgba(74, 222, 128, .35); }
+.tipo-panel--noverif { border-color: var(--border2); }
+.tipo-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 2px;
+  flex-wrap: wrap;
+}
+.tp-icon { font-size: 1rem; }
+.tp-label { font-weight: 800; font-size: .98rem; letter-spacing: -0.01em; }
+.tp-count {
+  font-size: .74rem; font-weight: 800; color: var(--muted);
+  background: var(--surface3); border-radius: 20px; padding: 2px 9px;
+}
+.tp-sel {
+  font-size: .78rem; font-weight: 700; color: var(--muted);
+  margin-right: auto;
+}
+.tp-sel.hidden { display: none; }
+/* Verde cuando lo elegido coincide con lo que pide la ficha del cliente. */
+.tp-sel--ok { color: #4ade80; }
+.tp-all, .tp-mas {
+  background: var(--surface2); border: 1px solid var(--border2); color: var(--muted2);
+  border-radius: 9px; padding: 6px 11px; cursor: pointer;
+  font-family: var(--font); font-size: .78rem; font-weight: 700;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.tp-all:hover, .tp-mas:hover { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
+.tp-all:disabled { opacity: .45; cursor: default; }
+.tp-all:disabled:hover { color: var(--muted2); border-color: var(--border2); background: var(--surface2); }
+@media (max-width: 768px) {
+  .tipo-panel { padding: 2px 10px 10px; }
+  .tp-sel { margin-right: 0; flex-basis: 100%; order: 9; }
 }
 
 /* Mixto: la tarjeta de comentarios rompe el max-width de .main (780px) y usa TODO

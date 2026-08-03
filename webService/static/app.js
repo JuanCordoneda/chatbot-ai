@@ -6,6 +6,13 @@ let esMixto = false;              // cliente mixto → 2 columnas desde el arran
 let generoFijo = null;            // cliente male/female → "hombres"/"mujeres": UNA sola sección
 let ultimoEsVideo = false;        // último post: ¿es video? (para el bloque de transcripción)
 let tiposGenerados = [];          // "verificado" (default) | "noverif" por índice
+// Reparto automático V/NV al generar. Los objetivos salen de la ficha del
+// cliente (rangos de comentarios): "generame 40 verificados y 40 comunes". Los
+// que entran dentro del objetivo se marcan solos; el resto queda de reserva.
+let objetivoV = 0, objetivoNV = 0;
+let asignadosV = 0, asignadosNV = 0;
+// Mientras corre "+ generar más" de una lista, TODO lo que llega va a esa lista.
+let tipoForzado = null;
 let currentJobId = null;
 let streamOffset = 0;
 let streamProgresoOffset = 0;
@@ -308,10 +315,12 @@ function manejarEvento(evento) {
     generosGenerados = [];
     generoActual = generoFijo;
     tiposGenerados = [];
+    asignadosV = 0;
+    asignadosNV = 0;
     pendingComentarios = [];
     streamOffset = 0;
     // El reset borró el DOM: si es mixto, re-armamos las 2 columnas vacías.
-    if (esMixto) { _seccionItems("hombres"); _seccionItems("mujeres"); _refrescarSecciones(); }
+    if (esMixto) { _prepararPaneles(); }
     actualizarConteo();
   } else if (evento.tipo === "cancelado") {
     // El backend confirma que cortó: no reconectamos ni mostramos nada más.
@@ -474,11 +483,22 @@ function mostrarScrape(data) {
   // y la otra columna nunca aparece.
   generoFijo = g === "male" ? "hombres" : (g === "female" ? "mujeres" : null);
   generoActual = generoFijo;
+  _prepararPaneles();
+}
+
+// Arma los paneles (y, si el cliente es mixto, las 2 columnas de género) vacíos
+// antes de que llegue el primer comentario: así la pantalla no salta.
+function _prepararPaneles() {
+  if (objetivoV || !objetivoNV) _panelTipo("verificado");
+  if (objetivoNV) _panelTipo("noverif");
   if (esMixto) {
-    _seccionItems("hombres");   // sección vacía a la izquierda
-    _seccionItems("mujeres");   // sección vacía a la derecha
-    _refrescarSecciones();      // aplica lista-2col + wide y mantiene ambas visibles
+    for (const t of ["verificado", "noverif"]) {
+      if (!document.querySelector(`.tipo-panel[data-tipo="${t}"]`)) continue;
+      _seccionItems("hombres", t);
+      _seccionItems("mujeres", t);
+    }
   }
+  _refrescarSecciones();
 }
 
 function mostrarEstadoTranscripcion(texto) {
@@ -509,9 +529,45 @@ const _SECCIONES = [
   { key: "otros",   label: "Sin especificar", icon: "•" },
 ];
 
-function _seccionItems(genero) {
-  const key = (genero === "hombres" || genero === "mujeres") ? genero : "otros";
+// Panel de una de las dos listas (verificados / comunes). Cada una acumula sus
+// propias secciones de género y tiene su "+ generar más".
+const _TIPOS_PANEL = [
+  { key: "verificado", label: "Verificados", icon: "✅", corto: "V" },
+  { key: "noverif",    label: "Comunes",     icon: "💬", corto: "NV" },
+];
+
+function _panelTipo(tipo) {
+  const key = tipo === "noverif" ? "noverif" : "verificado";
   const lista = document.getElementById("lista-comentarios");
+  let panel = lista.querySelector(`.tipo-panel[data-tipo="${key}"]`);
+  if (!panel) {
+    const meta = _TIPOS_PANEL.find(t => t.key === key);
+    panel = document.createElement("div");
+    panel.className = `tipo-panel tipo-panel--${key}`;
+    panel.dataset.tipo = key;
+    panel.innerHTML = `
+      <div class="tipo-panel-header">
+        <span class="tp-icon">${meta.icon}</span>
+        <span class="tp-label">${meta.label}</span>
+        <span class="tp-count">0</span>
+        <span class="tp-sel hidden">0 elegidos</span>
+        <button type="button" class="tp-all" onclick="togglePanel('${key}')">Todos</button>
+        <button type="button" class="tp-mas" onclick="cargarMas('${key}')">+ generar más</button>
+      </div>
+      <div class="tipo-panel-items"></div>`;
+    // Verificados arriba, comunes abajo — el mismo orden del reparto.
+    const siguiente = key === "verificado"
+      ? lista.querySelector('.tipo-panel[data-tipo="noverif"]')
+      : null;
+    lista.insertBefore(panel, siguiente || null);
+  }
+  return panel;
+}
+
+function _seccionItems(genero, tipo) {
+  const key = (genero === "hombres" || genero === "mujeres") ? genero : "otros";
+  const tipoKey = tipo === "noverif" ? "noverif" : "verificado";
+  const lista = _panelTipo(tipoKey).querySelector(".tipo-panel-items");
   let sec = lista.querySelector(`.genero-seccion[data-genero="${key}"]`);
   if (!sec) {
     const meta = _SECCIONES.find(s => s.key === key);
@@ -523,7 +579,7 @@ function _seccionItems(genero) {
         <span class="gs-sec-icon">${meta.icon}</span>
         <span class="gs-sec-label">${meta.label}</span>
         <span class="gs-sec-sel hidden">0 sel.</span>
-        <button type="button" class="gs-sec-all" onclick="toggleSeccion('${key}')">Todos</button>
+        <button type="button" class="gs-sec-all" onclick="toggleSeccion('${key}', '${tipoKey}')">Todos</button>
         <span class="gs-sec-count">0</span>
       </div>
       <div class="genero-seccion-items"></div>
@@ -531,9 +587,9 @@ function _seccionItems(genero) {
     // Orden fijo en pantalla: Hombres → Mujeres → Sin especificar.
     const orden = _SECCIONES.map(s => s.key);
     const pos = orden.indexOf(key);
-    const siguiente = [...lista.querySelectorAll(".genero-seccion")]
+    const siguienteSec = [...lista.querySelectorAll(".genero-seccion")]
       .find(s => orden.indexOf(s.dataset.genero) > pos);
-    lista.insertBefore(sec, siguiente || null);
+    lista.insertBefore(sec, siguienteSec || null);
   }
   return sec.querySelector(".genero-seccion-items");
 }
@@ -543,6 +599,15 @@ function _seccionItems(genero) {
 function _refrescarSecciones() {
   const lista = document.getElementById("lista-comentarios");
   let n = 0;
+  // Los paneles vacíos no se muestran: recién aparecen cuando cae el primer
+  // comentario de esa lista (o cuando el objetivo de la ficha dice que va).
+  lista.querySelectorAll(".tipo-panel").forEach((panel) => {
+    const total = panel.querySelectorAll(".comentario-item").length;
+    const cnt = panel.querySelector(".tp-count");
+    if (cnt) cnt.textContent = total;
+    const objetivo = panel.dataset.tipo === "noverif" ? objetivoNV : objetivoV;
+    panel.classList.toggle("hidden", total === 0 && !objetivo);
+  });
   lista.querySelectorAll(".genero-seccion").forEach((sec) => {
     const items = sec.querySelectorAll(".comentario-item");
     const cnt = sec.querySelector(".gs-sec-count");
@@ -562,11 +627,16 @@ function _refrescarSecciones() {
       if (e) e.textContent = n;
     });
   });
-  // 2 columnas si el cliente es mixto (desde el arranque) o si ya hay ambos géneros.
-  const hayH = lista.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
-  const hayM = lista.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
-  const mixto = esMixto || !!(hayH && hayM);
-  lista.classList.toggle("lista-2col", mixto);
+  // 2 columnas (Hombres | Mujeres) dentro de cada panel, si el cliente es mixto
+  // o si ese panel ya tiene los dos géneros.
+  let mixto = esMixto;
+  lista.querySelectorAll(".tipo-panel-items").forEach((cont) => {
+    const hayH = cont.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
+    const hayM = cont.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
+    const dos = esMixto || !!(hayH && hayM);
+    cont.classList.toggle("lista-2col", dos);
+    mixto = mixto || dos;
+  });
   // En mixto la tarjeta rompe el ancho de .main y usa todo el ancho visible.
   const card = lista.closest(".comments-card");
   if (card) card.classList.toggle("comments-card--wide", mixto);
@@ -589,6 +659,25 @@ function agregarComentarioFiltrado(texto, index) {
   agregarComentario(texto, index);
 }
 
+// A qué lista va el comentario que acaba de llegar: primero se completa el
+// objetivo de verificados, después el de comunes, y lo que sobra se reparte
+// alternado como reserva de las dos listas.
+function _tipoParaNuevo() {
+  if (tipoForzado) {
+    if (tipoForzado === "verificado") asignadosV++; else asignadosNV++;
+    return tipoForzado;
+  }
+  if (asignadosV < objetivoV) { asignadosV++; return "verificado"; }
+  if (asignadosNV < objetivoNV) { asignadosNV++; return "noverif"; }
+  // Sin objetivos cargados en la ficha no hay nada que repartir: todo entra
+  // como verificado y el vendedor mueve lo que quiera, como venía siendo.
+  if (!objetivoV && !objetivoNV) { asignadosV++; return "verificado"; }
+  // Cubiertos los dos objetivos, lo que sobra queda de reserva, alternado.
+  if (asignadosV - objetivoV <= asignadosNV - objetivoNV) { asignadosV++; return "verificado"; }
+  asignadosNV++;
+  return "noverif";
+}
+
 function agregarComentario(texto, index) {
   // Los encabezados de género (hombres:/mujeres:) marcan la sección: no se
   // muestran como comentarios, pero se guardan para reinyectarlos al enviar.
@@ -604,18 +693,22 @@ function agregarComentario(texto, index) {
   const i = index;
   comentariosGenerados[i] = texto;
   generosGenerados[i] = generoActual;
-  if (tiposGenerados[i] === undefined) tiposGenerados[i] = "verificado";
+  if (tiposGenerados[i] === undefined) tiposGenerados[i] = _tipoParaNuevo();
   const tipo = tiposGenerados[i];
+  // Dentro del objetivo de la ficha: viene marcado. El vendedor destilda lo que
+  // no le guste en vez de tener que elegir 80 comentarios a mano.
+  const autoElegido = !tipoForzado &&
+    (tipo === "verificado" ? asignadosV <= objetivoV : asignadosNV <= objetivoNV);
 
   const item = document.createElement("div");
-  item.className = "comentario-item";
+  item.className = "comentario-item" + (autoElegido ? " selected" : "");
   item.dataset.index = i;
   const switchGenero = generoActual
     ? `<button type="button" class="genero-switch genero-switch--${generoActual}" id="gen-${i}" title="Hombre / Mujer — click para cambiar" onclick="toggleGenero(event, ${i})"><span class="gs-knob">${generoActual === "hombres" ? "H" : "M"}</span></button>`
     : "";
   item.innerHTML = `
     <span class="comentario-num">${i + 1}</span>
-    <input type="checkbox" id="chk-${i}" onchange="onCheckChange(${i})" />
+    <input type="checkbox" id="chk-${i}" ${autoElegido ? "checked" : ""} onchange="onCheckChange(${i})" />
     <span class="comentario-texto" id="txt-${i}">${escapeHtml(texto)}</span>
     ${switchGenero}
     <button type="button" class="tipo-switch tipo-switch--${tipo}" id="tipo-${i}" title="Verificado / No verificado — click para cambiar" onclick="toggleTipo(event, ${i})"><span class="ts-knob">${tipo === "verificado" ? "V" : "NV"}</span></button>
@@ -632,8 +725,9 @@ function agregarComentario(texto, index) {
   const skeleton = document.getElementById("skeleton-list");
   if (skeleton) skeleton.remove();
 
-  // Va a la sección de su género (se crea sola la primera vez).
-  _seccionItems(generoActual).appendChild(item);
+  // Va a la lista de su tipo y, dentro, a la sección de su género (las dos se
+  // crean solas la primera vez).
+  _seccionItems(generoActual, tipo).appendChild(item);
 
   // Numeración corrida 1..N en el orden visual (los encabezados hombres:/mujeres:
   // no son items, así que no deben dejar huecos en la numeración).
@@ -671,7 +765,7 @@ function toggleGenero(e, index) {
     // (si no, el agrupado quedaría inconsistente).
     const item = sw.closest(".comentario-item");
     if (item) {
-      _seccionItems(nuevo).appendChild(item);
+      _seccionItems(nuevo, tiposGenerados[index]).appendChild(item);
       _refrescarSecciones();
     }
   }
@@ -680,6 +774,7 @@ function toggleGenero(e, index) {
 // Fija el tipo de un comentario (verificado = producto 94, noverif = 95) y
 // sincroniza el switch.
 function _setTipo(index, nuevo) {
+  const anterior = tiposGenerados[index];
   tiposGenerados[index] = nuevo;
   const sw = document.getElementById(`tipo-${index}`);
   if (sw) {
@@ -687,6 +782,15 @@ function _setTipo(index, nuevo) {
     sw.classList.toggle("tipo-switch--noverif", nuevo === "noverif");
     const knob = sw.querySelector(".ts-knob");
     if (knob) knob.textContent = nuevo === "verificado" ? "V" : "NV";
+    // Cambiar el tipo lo muda de lista: si no, el panel diría una cosa y el
+    // switch otra.
+    if (anterior !== nuevo) {
+      const item = sw.closest(".comentario-item");
+      if (item) {
+        _seccionItems(generosGenerados[index], nuevo).appendChild(item);
+        _refrescarSecciones();
+      }
+    }
   }
 }
 
@@ -804,10 +908,15 @@ function finalizarStream(meta) {
   if (btnCargar) btnCargar.classList.remove("hidden");
 }
 
-async function cargarMas() {
-  const btn = document.getElementById("btn-cargar-mas");
-  btn.disabled = true;
-  btn.textContent = "Cargando...";
+// tipo: "verificado" | "noverif" para que la tanda nueva caiga entera en esa
+// lista ("generame más comunes"). Sin tipo, se reparte como la tanda inicial.
+async function cargarMas(tipo) {
+  const btn = tipo
+    ? document.querySelector(`.tipo-panel[data-tipo="${tipo}"] .tp-mas`)
+    : document.getElementById("btn-cargar-mas");
+  const textoBtn = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Generando…"; }
+  tipoForzado = tipo || null;
 
   try {
     // Le mandamos al backend los comentarios ya generados (sin encabezados) para
@@ -877,9 +986,9 @@ async function cargarMas() {
     if (!streamCancelado) console.error("cargarMas error:", e);
   }
 
+  tipoForzado = null;
   actualizarConteo();
-  btn.disabled = false;
-  btn.textContent = "+ Cargar más";
+  if (btn) { btn.disabled = false; btn.textContent = textoBtn || "+ Cargar más"; }
 }
 
 
@@ -890,8 +999,11 @@ function contarSeleccionados() {
 
 // Selecciona / deselecciona toda una columna de género de un click: con 2
 // columnas de ~30 comentarios, tildarlos uno por uno era lo más tedioso.
-function toggleSeccion(key) {
-  const sec = document.querySelector(`.genero-seccion[data-genero="${key}"]`);
+function toggleSeccion(key, tipo) {
+  // Hay una sección por género DENTRO de cada lista (V y NV): sin el tipo, el
+  // botón de una tildaba la de la otra.
+  const sec = document.querySelector(
+    `.tipo-panel[data-tipo="${tipo || "verificado"}"] .genero-seccion[data-genero="${key}"]`);
   if (!sec) return;
   const checks = [...sec.querySelectorAll("input[type=checkbox]")];
   if (!checks.length) return;
@@ -903,8 +1015,31 @@ function toggleSeccion(key) {
   actualizarConteo();
 }
 
+// Contador "N elegidos" de cada lista (V / NV) + estado de su botón Todos.
+function _refrescarConteoPaneles() {
+  document.querySelectorAll("#lista-comentarios .tipo-panel").forEach((panel) => {
+    const checks = [...panel.querySelectorAll("input[type=checkbox]")];
+    const sel = checks.filter(c => c.checked).length;
+    const badge = panel.querySelector(".tp-sel");
+    if (badge) {
+      const objetivo = panel.dataset.tipo === "noverif" ? objetivoNV : objetivoV;
+      badge.textContent = objetivo ? `${sel} de ${objetivo} elegidos` : `${sel} elegidos`;
+      badge.classList.toggle("hidden", checks.length === 0);
+      // Verde cuando coincide con lo que pide la ficha del cliente.
+      badge.classList.toggle("tp-sel--ok", !!objetivo && sel === objetivo);
+    }
+    const btn = panel.querySelector(".tp-all");
+    if (btn) {
+      const todos = checks.length > 0 && sel === checks.length;
+      btn.textContent = todos ? "Ninguno" : "Todos";
+      btn.disabled = checks.length === 0;
+    }
+  });
+}
+
 // Contador "N sel." por sección + estado del botón Todos.
 function _refrescarConteoSecciones() {
+  _refrescarConteoPaneles();
   document.querySelectorAll("#lista-comentarios .genero-seccion").forEach((sec) => {
     const checks = [...sec.querySelectorAll("input[type=checkbox]")];
     const sel = checks.filter(c => c.checked).length;
@@ -921,6 +1056,19 @@ function _refrescarConteoSecciones() {
       btn.disabled = checks.length === 0;
     }
   });
+}
+
+// Marca o desmarca toda una lista de una.
+function togglePanel(tipo) {
+  const panel = document.querySelector(`.tipo-panel[data-tipo="${tipo}"]`);
+  if (!panel) return;
+  const checks = [...panel.querySelectorAll("input[type=checkbox]")];
+  const marcar = checks.some(c => !c.checked);
+  checks.forEach((c) => {
+    c.checked = marcar;
+    c.closest(".comentario-item").classList.toggle("selected", marcar);
+  });
+  actualizarConteo();
 }
 
 // Cuenta los comentarios seleccionados separados por tipo (V / NV).
@@ -1017,6 +1165,14 @@ function _autocompletarComentarios(clienteLabel) {
   set("cant-verif", verif);
   set("cant-noverif", comunes);
 
+  // Estos son los objetivos del reparto automático: la generación va a marcar
+  // sola esa cantidad de cada tipo. Sin ficha cargada no se reparte nada y el
+  // vendedor elige a mano, como antes.
+  objetivoV = verif || 0;
+  objetivoNV = comunes || 0;
+  asignadosV = 0;
+  asignadosNV = 0;
+
   // El vendedor tiene que saber que el número no lo puso él, y de dónde salió.
   const hint = document.getElementById("reparto-hint");
   if (hint) {
@@ -1042,37 +1198,37 @@ function repartirPorTipo() {
     const raw = parseInt(document.getElementById(id)?.value, 10);
     return Math.max(0, Number.isFinite(raw) ? raw : 0);
   };
-  const nVerif   = leer("cant-verif");
-  const nNoVerif = leer("cant-noverif");
+  const pedido = { verificado: leer("cant-verif"), noverif: leer("cant-noverif") };
 
-  const items = [...document.querySelectorAll("#lista-comentarios .comentario-item")];
-  if (nVerif + nNoVerif === 0) {
+  if (pedido.verificado + pedido.noverif === 0) {
     return error("Escribí cuántos comentarios verificados y cuántos comunes querés mandar.");
   }
-  if (nVerif + nNoVerif > items.length) {
-    return error(`Pediste ${nVerif + nNoVerif} comentarios pero solo hay ${items.length} generados. Tocá "+ Cargar más" para generar más, o bajá la cantidad.`);
-  }
-  if (nNoVerif > TURNOS_MAX) {
-    return error(`Los comunes tienen un tope de ${TURNOS_MAX} por día (40 + 40) y pediste ${nNoVerif}. Bajá a ${TURNOS_MAX} o menos.`);
+  if (pedido.noverif > TURNOS_MAX) {
+    return error(`Los comunes tienen un tope de ${TURNOS_MAX} por día (40 + 40) y pediste ${pedido.noverif}. Bajá a ${TURNOS_MAX} o menos.`);
   }
 
-  // Barajamos los items y cortamos: los primeros nVerif van como V, los
-  // siguientes nNoVerif como NV, el resto queda sin seleccionar.
-  const orden = items.map((_, k) => k);
-  for (let k = orden.length - 1; k > 0; k--) {
-    const j = Math.floor(Math.random() * (k + 1));
-    [orden[k], orden[j]] = [orden[j], orden[k]];
+  // Cada lista se reparte por su cuenta: se eligen al azar CUÁLES de esa lista
+  // van (para no mandar siempre los mismos), respetando la cantidad pedida.
+  for (const [tipo, n] of Object.entries(pedido)) {
+    const panel = document.querySelector(`.tipo-panel[data-tipo="${tipo}"]`);
+    const items = panel ? [...panel.querySelectorAll(".comentario-item")] : [];
+    const nombre = tipo === "verificado" ? "verificados" : "comunes";
+    if (n > items.length) {
+      return error(`Pediste ${n} ${nombre} y hay ${items.length} generados. Tocá "+ generar más" en esa lista, o bajá la cantidad.`);
+    }
+    const orden = items.map((_, k) => k);
+    for (let k = orden.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [orden[k], orden[j]] = [orden[j], orden[k]];
+    }
+    orden.forEach((k, pos) => {
+      const item = items[k];
+      const elegido = pos < n;
+      const chk = item.querySelector("input[type=checkbox]");
+      if (chk) chk.checked = elegido;
+      item.classList.toggle("selected", elegido);
+    });
   }
-
-  orden.forEach((k, pos) => {
-    const item = items[k];
-    const idx = parseInt(item.dataset.index, 10);
-    const elegido = pos < nVerif + nNoVerif;
-    if (elegido) _setTipo(idx, pos < nVerif ? "verificado" : "noverif");
-    const chk = item.querySelector("input[type=checkbox]");
-    if (chk) chk.checked = elegido;
-    item.classList.toggle("selected", elegido);
-  });
 
   actualizarConteo();
 }

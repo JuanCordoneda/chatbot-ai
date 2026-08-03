@@ -316,6 +316,19 @@ def _growi_request(method, path, account_id=None, **kwargs):
     )
 
 
+def _growi_relogin(account_id=None):
+    """Tira la sesión guardada del CRM y abre una nueva. Para los casos que
+    _growi_request no detecta como 'sesión caída': el CRM contesta 200 pero con
+    HTML/vacío en vez del JSON esperado."""
+    if account_id is None:
+        account_id = session.get("account_id")
+    _growi_sessions.pop(account_id, None)
+    cfg = _account_crm_cfg(account_id)
+    entry = {"session": _growi_login_with(cfg), "cfg": cfg}
+    _growi_sessions[account_id] = entry
+    return entry
+
+
 def _authenticate_db_user(identifier, password):
     """Login local contra la DB, para CUALQUIER rol (admin y vendedor).
     El admin opera sobre varias cuentas (elige el vendedor con ?vendedor=<id>), así
@@ -781,16 +794,27 @@ def demora():
 @require_login
 def productos():
     rrss_id = request.args.get("rrss", "1")
-    try:
+
+    def _traer():
         resp = _growi_request(
             "GET", "/paginas/obtener_productos_con_precios.php",
             params={"rrss": rrss_id},
             headers={"referer": f"{_crm_base()}/paginas/trafico.php"},
         )
         resp.raise_for_status()
-        return jsonify(resp.json())
+        return resp.json()   # si el CRM devolvió HTML (sesión rara), esto revienta
+
+    try:
+        return jsonify(_traer())
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # Segundo intento con login fresco: el CRM a veces contesta 200 con una
+        # página en vez del JSON, y eso _growi_request no lo ve como sesión caída.
+        print(f"[growi-web] productos falló ({e}); relogueo y reintento", flush=True)
+        try:
+            _growi_relogin()
+            return jsonify(_traer())
+        except Exception as e2:
+            return jsonify({"error": str(e2)}), 500
 
 
 @app.route("/api/server_time_ar", methods=["GET"])

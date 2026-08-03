@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785700000" />
+  <link rel="stylesheet" href="/static/style.css?v=1785500700" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -160,6 +160,26 @@
     .ax-modal--lg { max-width: 1120px; padding: 34px 36px; }
     .ax-modal--lg h3 { font-size: 1.4rem; }
     .ax-modal--lg .ax-msub { font-size: .9rem; margin-bottom: 22px; }
+    /* Cabecera fija de la ficha: se pega arriba mientras el modal scrollea, así
+       nunca se pierde de vista a quién se está editando. Va "sangrada" con
+       márgenes negativos para tocar los bordes del modal pese al padding. */
+    .ax-mhead { position: sticky; top: -34px; z-index: 3; display: flex; align-items: center; gap: 13px;
+      margin: -34px -36px 18px; padding: 18px 36px 16px; background: var(--surface);
+      border-bottom: 1px solid var(--border); border-radius: 22px 22px 0 0; }
+    /* Iniciales del cliente. El color de fondo lo pone el JS (avatarStyle), uno
+       distinto por @usuario, para reconocer la ficha de un vistazo. */
+    .ax-mhead-av { flex-shrink: 0; width: 46px; height: 46px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
+    .ax-mhead-txt { min-width: 0; margin-right: auto; }
+    /* Dentro de la cabecera el subtítulo no lleva el margen de abajo que usa
+       suelto en el cuerpo del modal: acá alinea con el avatar. */
+    .ax-mhead h3, .ax-modal--lg .ax-mhead h3 { margin-bottom: 1px; }
+    .ax-mhead .ax-msub, .ax-modal--lg .ax-mhead .ax-msub { margin-bottom: 0; }
+    .ax-mclose { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; border: 1px solid transparent;
+      background: transparent; color: var(--faint); font-size: 1.3rem; line-height: 1; cursor: pointer;
+      transition: background .13s, color .13s, border-color .13s; }
+    .ax-mclose:hover { background: var(--surface3); border-color: var(--border2); color: var(--text); }
     .ax-modal--lg .ax-field { margin-bottom: 18px; }
     .ax-modal--lg .ax-field label { font-size: .86rem; }
     .ax-modal--lg .ax-field input, .ax-modal--lg .ax-field select { padding: 12px 14px; font-size: .95rem; }
@@ -254,6 +274,38 @@
     .ax-prefixed input { padding-left: 26px !important; font-family: ui-monospace, Menlo, monospace; }
     .ax-field textarea { min-height: 210px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: .84rem; line-height: 1.55; }
     .ax-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── Secciones de la ficha ──────────────────────────────────────────
+       La ficha es larga (identidad + comentarios + tráfico + prompt): sin
+       agrupar en tarjetas queda una pila de campos donde no se distingue
+       dónde termina un tema y empieza el otro. */
+    .ax-sec { background: var(--surface2); border: 1px solid var(--border); border-radius: 16px;
+      padding: 18px 20px 6px; margin-bottom: 14px; }
+    .ax-sec:last-child { margin-bottom: 0; }
+    /* Título + bajada en una línea: el "qué es" y el "para qué sirve" juntos
+       ocupan la mitad del alto que apilados. */
+    .ax-sec-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
+      margin-bottom: 15px; padding-bottom: 11px; border-bottom: 1px solid var(--border); }
+    .ax-sec-h h4 { font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; color: var(--text); }
+    .ax-sec-sub { font-size: .81rem; color: var(--faint); }
+    /* El último campo de la sección no necesita el margen de abajo: ya lo pone
+       el padding de la tarjeta. */
+    .ax-sec > .ax-field:last-child { margin-bottom: 12px; }
+
+    /* Error de un campo. Oculto hasta que la validación lo prende, si no la
+       ficha arranca con huecos vacíos entre todos los campos. */
+    .ax-fe { display: none; margin-top: 6px; font-size: .78rem; font-weight: 600;
+      color: #ff6b6b; line-height: 1.4; }
+    .ax-fe.ax-on { display: block; }
+    /* Aviso ámbar: no impide guardar, avisa que algo no se va a guardar. */
+    .ax-fe--warn { color: var(--yellow); }
+    /* Pie de los modales chicos (usuario, vendedor): cancelar y guardar a la derecha. */
+    .ax-mo-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    /* Campo en rojo: el error tiene que verse en el input, no solo en el texto
+       de abajo (con la ficha scrolleada el mensaje puede quedar fuera de vista). */
+    .ax-field input.ax-bad, .ax-range-row input.ax-bad, .ax-com-row input.ax-bad {
+      border-color: #ff6b6b; box-shadow: 0 0 0 3px rgba(255,107,107,.13); }
+
     /* ── Rangos por producto ────────────────────────────────────────────
        Chips arriba para prender/apagar tipos, y una tarjeta por tipo prendido
        con una fila por calidad (rango · calidad del CRM · división en tandas). */
@@ -280,7 +332,12 @@
        dos filas fijas (verificados / comunes) porque no hay calidades ni tandas. */
     .ax-com { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 13px; }
-    .ax-com-row { display: grid; grid-template-columns: 1.5fr 1fr 14px 1fr; align-items: center; gap: 8px; }
+    /* Anchos fijos para los números: con fracciones, en el modal ancho los dos
+       casilleros quedaban enormes y separadísimos de su etiqueta. */
+    .ax-com-row { display: grid; grid-template-columns: 148px 96px 12px 96px 1fr; align-items: center; gap: 10px; }
+    /* Cómo sale ese tipo (todo junto / en tandas). Es fijo, no configurable:
+       se muestra al lado del rango para no tener que buscarlo en otra sección. */
+    .ax-com-modo { font-size: .78rem; color: var(--faint); }
     .ax-com-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
       border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
       transition: border-color .13s, box-shadow .13s; }
@@ -288,8 +345,10 @@
     .ax-com-tag { font-size: .84rem; font-weight: 700; }
     .ax-com-tag--v  { color: #34c759; }
     .ax-com-tag--nv { color: var(--muted); }
-    @media (max-width: 720px) { .ax-com-row { grid-template-columns: 1fr; row-gap: 5px; }
-      .ax-com-row .ax-range-dash { display: none; } }
+    @media (max-width: 900px) { .ax-com-row { grid-template-columns: 1.2fr 1fr 14px 1fr; }
+      .ax-com-modo { grid-column: 2 / -1; } }
+    @media (max-width: 720px) { .ax-com-row { grid-template-columns: 1fr 14px 1fr; }
+      .ax-com-tag, .ax-com-modo { grid-column: 1 / -1; } }
 
     .ax-range-group { position: relative; display: flex; flex-direction: column; gap: 8px;
       padding: 12px 14px 12px 17px; background: var(--surface); border: 1px solid var(--border);
@@ -615,36 +674,63 @@
         </div>
       </section>
 
+      <!-- Todo lo de comentarios en un solo lugar: con qué modelo se generan,
+           cuántos manda de cada tipo y cómo salen. Antes la calidad estaba acá,
+           la cantidad abajo en Tráfico y la división escondida en otra fila:
+           para configurar un cliente había que saltar entre tres secciones. -->
       <section class="ax-sec">
-        <div class="ax-sec-h"><h4>Generación de comentarios</h4><span class="ax-sec-sub">con qué modelo y con qué instrucciones</span></div>
-        <div class="ax-field">
-          <label>Calidad del motor</label>
-          <select id="client-quality">
-            <option value="standard">Estándar — comentarios muy buenos, costo normal</option>
-            <option value="pro">Pro — comentarios más elaborados, mayor costo</option>
-          </select>
-          <div class="ax-help">
-            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <span>Con qué modelo de IA se le generan los comentarios. <b>Pro</b> para las cuentas clave o muy exigentes; <b>estándar</b> alcanza para el resto.</span>
+        <div class="ax-sec-h"><h4>Comentarios</h4><span class="ax-sec-sub">con qué modelo se generan, cuántos manda y cómo salen</span></div>
+        <div class="ax-grid2">
+          <div class="ax-field">
+            <label>Calidad del motor</label>
+            <select id="client-quality">
+              <option value="standard">Estándar — muy buenos, costo normal</option>
+              <option value="pro">Pro — más elaborados, mayor costo</option>
+            </select>
+          </div>
+          <!-- El prompt no se muestra acá: ocupa media pantalla y casi nunca se
+               toca de entrada. Se abre a pantalla completa con este botón. -->
+          <div class="ax-field">
+            <label>Instrucciones para la IA</label>
+            <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
+              <span class="ax-prompt-teaser-ico">✎</span>
+              <span class="ax-prompt-teaser-txt">
+                <b>Ver prompt</b>
+                <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
+              </span>
+              <span class="ax-prompt-teaser-go">⤢</span>
+            </button>
           </div>
         </div>
-        <!-- El prompt no se muestra acá: ocupa media pantalla y casi nunca se
-             toca de entrada. Se abre a pantalla completa con este botón. -->
+
         <div class="ax-field">
-          <label>Instrucciones para la IA</label>
-          <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
-            <span class="ax-prompt-teaser-ico">✎</span>
-            <span class="ax-prompt-teaser-txt">
-              <b>Ver prompt</b>
-              <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
-            </span>
-            <span class="ax-prompt-teaser-go">⤢</span>
-          </button>
+          <label>Cuántos manda por post <span class="ax-hint" id="com-resumen"></span></label>
+          <div class="ax-com">
+            <div class="ax-com-row">
+              <span class="ax-com-tag ax-com-tag--v">✅ Verificados</span>
+              <input type="number" min="0" id="com-verif-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios verificados" oninput="revisarComentarios()" />
+              <span class="ax-range-dash">–</span>
+              <input type="number" min="0" id="com-verif-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios verificados" oninput="revisarComentarios()" />
+              <span class="ax-com-modo">⚡ salen todos juntos, ahora</span>
+            </div>
+            <div class="ax-com-row">
+              <span class="ax-com-tag ax-com-tag--nv">💬 Comunes</span>
+              <input type="number" min="0" max="80" id="com-comunes-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios comunes" oninput="revisarComentarios()" />
+              <span class="ax-range-dash">–</span>
+              <input type="number" min="0" max="80" id="com-comunes-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios comunes" oninput="revisarComentarios()" />
+              <span class="ax-com-modo">✂ en 2 tandas · tope 80 por día</span>
+            </div>
+            <div class="ax-fe" id="com-fe"></div>
+          </div>
+          <div class="ax-help">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Al abrir un post de este cliente, la herramienta <b>autocompleta sola</b> cuántos comentarios mandar de cada tipo, con un número al azar dentro del rango — el vendedor lo puede cambiar antes de publicar. Dejalo vacío para cargarlo a mano cada vez. Los <b>comunes</b> no se pueden mandar todos juntos: salen en <b>dos tandas</b> (una ahora y otra en el próximo turno), por eso el tope de 80 por día.</span>
+          </div>
         </div>
       </section>
 
       <section class="ax-sec">
-        <div class="ax-sec-h"><h4>Tráfico</h4><span class="ax-sec-sub">de dónde sale la plata y cuánto se manda</span></div>
+        <div class="ax-sec-h"><h4>Tráfico</h4><span class="ax-sec-sub">de dónde sale la plata y cuánto engagement se manda</span></div>
         <div class="ax-field">
           <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
           <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
@@ -659,31 +745,6 @@
           </div>
         </div>
 
-        <!-- Cuántos comentarios manda este cliente por post. Va aparte de los
-             rangos de arriba porque no precrea ninguna orden: solo decide
-             cuántos comentarios de la lista se seleccionan y con qué tipo. -->
-        <div class="ax-field">
-          <label>Comentarios por post <span class="ax-hint" id="com-resumen"></span></label>
-          <div class="ax-com">
-            <div class="ax-com-row">
-              <span class="ax-com-tag ax-com-tag--v">✅ Verificados</span>
-              <input type="number" min="0" id="com-verif-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios verificados" oninput="revisarComentarios()" />
-              <span class="ax-range-dash">–</span>
-              <input type="number" min="0" id="com-verif-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios verificados" oninput="revisarComentarios()" />
-            </div>
-            <div class="ax-com-row">
-              <span class="ax-com-tag ax-com-tag--nv">💬 Comunes</span>
-              <input type="number" min="0" max="80" id="com-comunes-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios comunes" oninput="revisarComentarios()" />
-              <span class="ax-range-dash">–</span>
-              <input type="number" min="0" max="80" id="com-comunes-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios comunes" oninput="revisarComentarios()" />
-            </div>
-            <div class="ax-fe" id="com-fe"></div>
-          </div>
-          <div class="ax-help">
-            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <span>Al abrir un post de este cliente, la herramienta <b>autocompleta sola</b> cuántos comentarios mandar de cada tipo, con un número al azar dentro del rango. El vendedor lo puede cambiar antes de publicar. Dejalo vacío si preferís cargarlo a mano cada vez. Los <b>comunes</b> tienen un tope de <b>80 por día</b> porque salen en dos tandas de 40.</span>
-          </div>
-        </div>
       </section>
       </div><!-- /.ax-split-datos -->
 
@@ -849,6 +910,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785700000"></script>
+  <script src="/static/admin.js?v=1785500700"></script>
 </body>
 </html>
