@@ -968,7 +968,6 @@ body.light .orden-btn-agregar {
 
 .comments-header {
   padding: 20px 24px 14px;
-  border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
 }
 body.light .comments-header { background: linear-gradient(180deg, rgba(0,0,0,0.015), transparent); }
@@ -3058,8 +3057,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
   /* ── Header ── */
   .header {
-    padding: 0 16px;
-    height: 56px;
+    padding: 0 12px;
+    height: 46px;
   }
 
   .header-tag, .header-sep { display: none; }
@@ -3071,7 +3070,7 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   .header-user-name { display: none; }
   .header-user-av { width: 22px; height: 22px; font-size: 0.64rem; }
 
-  .logo { height: 30px; }
+  .logo { height: 22px; }
 
   .header-actions { gap: 6px; }
 
@@ -3098,7 +3097,16 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
     padding: 0 18px 100px;
     display: flex;
     flex-direction: column;
-    min-height: calc(100dvh - 58px);
+    min-height: calc(100dvh - 48px);
+  }
+
+  /* .main no lleva padding-top en mobile (el home se centra en la pantalla),
+     así que cada step que arranca con contenido arriba tiene que dejar libre el
+     alto del header fixed: si no, el header le come los primeros 46px. */
+  #step-comentarios,
+  #step-resultado,
+  #step-ordenes {
+    padding-top: 58px;
   }
 
   /* ── Step input: centrado vertical ── */
@@ -3656,8 +3664,6 @@ input:focus-visible {
 .tp-all:disabled:hover { color: var(--muted2); border-color: var(--border2); background: var(--surface2); }
 @media (max-width: 768px) {
   .tipo-panel { margin-bottom: 20px; }
-  .tipo-panel-header { padding: 10px 12px; }
-  .tp-sel { margin-right: 0; flex-basis: 100%; order: 9; }
 }
 
 /* Mixto: la tarjeta de comentarios rompe el max-width de .main (780px) y usa TODO
@@ -4192,7 +4198,7 @@ input:focus-visible {
 
 /* En mobile el header de la app es más bajo. */
 @media (max-width: 768px) {
-  .tipo-panel-header { top: 56px; }
+  .tipo-panel-header { top: 46px; }
 }
 
 /* ── Pista del Shift+click ── */
@@ -4367,4 +4373,157 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   /* El texto del botón de tema es corto y su emoji hace de ícono, así que se
      queda; los demás quedan en ícono solo (ver .header-action-btn span). */
   #btn-theme { font-size: 0.72rem; padding: 0 8px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE — listas de comentarios sin cajas anidadas
+   En una pantalla de 390px, card + panel + sección + fila eran cuatro marcos
+   uno adentro del otro: cada uno se comía ancho y el texto del comentario,
+   que es lo único que importa leer, quedaba en una columna de 200px.
+   Acá los contenedores intermedios se convierten en encabezados y el
+   contenido usa todo el ancho.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* La card de comentarios pierde su respiro lateral: lo aportan las filas. */
+  #lista-comentarios { padding: 0; }
+  .comments-header { padding: 14px 14px 12px; }
+
+  /* ── Panel (Verificados / Comunes): de caja a barra ── */
+  .tipo-panel { margin-bottom: 18px; }
+  .tipo-panel-header {
+    border: none;
+    border-radius: 0;
+    background: var(--surface2);
+    padding: 10px 14px;
+    gap: 8px;
+    flex-wrap: nowrap;          /* una sola línea: antes eran tres */
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  /* El verde queda sólo como acento a la izquierda: teñir toda la barra en una
+     pantalla angosta dominaba la lista entera. */
+  .tipo-panel--verificado .tipo-panel-header {
+    background: linear-gradient(90deg, rgba(74,222,128,0.07), var(--surface2) 34%);
+  }
+  .tp-icon { font-size: 0.9rem; }
+  .tp-label { font-size: 0.85rem; }
+  .tp-count { font-size: 0.7rem; padding: 2px 8px; }
+
+  /* "0 elegidos" no justifica un renglón propio: va chico, pegado al contador,
+     y el detalle fino ya lo da la barra de progreso. */
+  .tp-sel {
+    font-size: 0.68rem;
+    font-weight: 700;
+    margin-right: auto;
+    white-space: nowrap;
+  }
+
+  /* Los dos botones se acortan para entrar en la misma línea. */
+  .tp-all, .tp-mas {
+    padding: 6px 10px;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .tp-mas { font-size: 0; }
+  .tp-mas::after { content: "+ más"; font-size: 0.72rem; font-weight: 700; }
+
+  .tp-progreso { margin: 8px 14px 0; width: auto; }
+
+  /* ── Sección de género: de caja a encabezado ── */
+  .genero-seccion {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+    overflow: visible;
+  }
+  .genero-seccion:has(.comentario-item.selected) {
+    border: none;
+    box-shadow: none;
+  }
+  .genero-seccion-header {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 9px 14px 9px 16px;
+    background: transparent;
+  }
+  .genero-seccion[data-genero="hombres"] .genero-seccion-header,
+  .genero-seccion[data-genero="mujeres"] .genero-seccion-header { background: transparent; }
+  .gs-sec-label { font-size: 0.72rem; }
+  .genero-seccion-items { padding: 0; }
+  .genero-seccion-empty { margin: 10px 14px; }
+
+  /* ── Fila del comentario: todo el ancho para el texto ── */
+  .comentario-item {
+    /* Sin sangría a la izquierda: el número arranca pegado al borde de la card,
+       alineado con el título de la sección. */
+    padding: 11px 12px 11px 4px;
+    gap: 8px;
+    border-radius: 0;
+    /* Vuelve al grid: con flex-wrap los switches bajaban de línea y cada fila
+       terminaba midiendo distinto. Son 6 columnas porque la fila tiene 6 hijos
+       (nº, check, texto, género, tipo, lápiz): con 5, el lápiz se iba solo a un
+       segundo renglón. */
+    display: grid;
+    grid-template-columns: 16px 19px minmax(0, 1fr) auto auto auto;
+    row-gap: 0;
+  }
+  .comentario-texto { font-size: 0.9rem; line-height: 1.45; }
+
+  /* Los switches ocupaban casi un tercio del ancho de la fila. */
+  .genero-switch, .tipo-switch { transform: scale(0.82); transform-origin: right center; }
+  /* El lápiz se achica pero NO se oculta: es la vía descubrible para editar
+     (el doble tap sobre el texto hace lo mismo). En touch no hay hover que lo
+     revele, así que va visible siempre. */
+  .comentario-edit {
+    font-size: 0.9rem;
+    padding: 4px 2px;
+    opacity: 0.5;
+    width: 22px;
+    justify-self: end;
+  }
+}
+
+/* Muy angosto: el switch de género es el que más se puede ceder, porque el
+   color de la sección ya dice si es Hombres o Mujeres. */
+@media (max-width: 380px) {
+  .comentario-item { grid-template-columns: 14px 18px minmax(0, 1fr) auto auto auto; gap: 6px; padding-left: 2px; }
+  .genero-switch, .tipo-switch { transform: scale(0.74); transform-origin: right center; }
+  .tp-all { display: none; }   /* queda el "Todos" de cada sección de género */
+}
+
+/* ── Mobile: ajustes finos de la fila ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* El divisor seguía el padding viejo de la fila y quedaba flotando. */
+  .comentario-item::after { left: 4px; right: 12px; }
+
+  /* La sección y el panel arrancan a la misma altura que el número. */
+  .genero-seccion-header { padding-left: 12px; }
+  .genero-seccion-header::before { width: 2px; }
+
+  /* El número deja de ser una columna centrada con aire de sobra. */
+  .comentario-num { min-width: 16px; text-align: right; }
+
+  /* El check pegado al número, que es lo que se toca. */
+  .comentario-item input[type="checkbox"] { margin-left: 2px; }
+}
+
+/* ── Mobile: el header se retira al bajar ─────────────────────────────────── */
+/* Es fixed y se lleva 46px de una pantalla de 700. Al scrollear hacia abajo se
+   esconde y al primer gesto hacia arriba vuelve: mientras se leen comentarios
+   no hace falta, y cuando hace falta está a un gesto. */
+@media (max-width: 768px) {
+  .header {
+    transition: transform 0.22s ease;
+    will-change: transform;
+  }
+  body.header-oculto .header { transform: translateY(-100%); }
+  /* Con el header afuera, el encabezado del panel ocupa su lugar. */
+  body.header-oculto .tipo-panel-header { top: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .header { transition: none; }
 }

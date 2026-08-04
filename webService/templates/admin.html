@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785801200" />
+  <link rel="stylesheet" href="/static/style.css?v=1785802100" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -474,8 +474,18 @@
     @container ax-sec (max-width: 720px) {
       .ax-range-row { grid-template-columns: 1fr 12px 1fr 26px; row-gap: 8px; }
       .ax-range-row > :nth-child(5) { grid-column: 4; grid-row: 1; }
-      .ax-range-prod { grid-column: 1 / -1; }
-      .ax-range-row > .ax-drip { grid-column: 1 / -1; grid-row: auto; }
+      /* La calidad y el reparto en tandas comparten renglón: apilados, una sola
+         fila de rango se llevaba tres renglones y con seis tipos de producto la
+         ficha se volvía interminable. */
+      .ax-range-prod { grid-column: 1 / 3; }
+      .ax-range-row > .ax-drip { grid-column: 3 / -1; grid-row: auto; justify-content: flex-end; }
+      .ax-range-row > .ax-drip select { width: 100%; }
+    }
+    /* Muy angosto no hay lugar para los dos: vuelven a apilarse. */
+    @container ax-sec (max-width: 400px) {
+      .ax-range-prod,
+      .ax-range-row > .ax-drip { grid-column: 1 / -1; }
+      .ax-range-row > .ax-drip { justify-content: flex-start; }
     }
     .ax-range-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
       border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
@@ -779,7 +789,7 @@
       .ax-kpis { grid-template-columns: repeat(2, 1fr); }
       /* En mobile no hace falta escalar: el ancho ya es el limitante. */
       .ax-wrap, .ax-modal { zoom: 1; }
-      .ax-wrap { padding: 84px 14px 60px; }
+      .ax-wrap { padding: 58px 14px 60px; }
       .ax-uso-row { grid-template-columns: 110px 1fr 44px; gap: 8px; }
       .ax-grid2 { grid-template-columns: 1fr; }
       .ax-modal--lg { padding: 22px 18px; }
@@ -908,6 +918,96 @@
     /* La bajada de la sección se despega del título en pantallas anchas; que no
        se vaya al otro extremo de una fila de 1300px. */
     .ax-modal--lg .ax-sec-sub { max-width: 46ch; }
+
+    /* ═══ Mobile: la lista de clientes ═════════════════════════════════════
+       En 390px la fila tenía avatar + nombre + hasta 4 pastillas + @usuario +
+       chips de config + chip de plata + 4 botones. Se reordena por lo que
+       realmente se hace desde el teléfono: ver quién es, ver si tiene plata y
+       pausar/borrar. */
+    @media (max-width: 620px) {
+      /* iOS hace zoom al enfocar cualquier campo de menos de 16px. */
+      .ax-search input,
+      .ax-field input,
+      .ax-field select,
+      .ax-field textarea,
+      .ax-range-row input,
+      .ax-range-prod,
+      .ax-drip select,
+      .ax-drip-min,
+      .ax-com-card input { font-size: 16px; }
+
+      .ax-card { gap: 10px; padding: 12px 13px; align-items: flex-start; }
+      .ax-avatar { width: 34px; height: 34px; border-radius: 10px; font-size: .82rem; }
+      .ax-card .ax-name { font-size: .94rem; }
+      .ax-card .ax-sub { font-size: .78rem; }
+
+      /* Tercer renglón de la fila: a la izquierda de qué campaña sale la plata,
+         a la derecha qué hacer con el cliente. Comparten renglón porque son
+         pocos elementos y estirarlos a todo el ancho hacía que "Pausar"
+         midiera media pantalla para una acción secundaria. */
+      .ax-side-venta {
+        order: 3;
+        flex: 1 1 auto;
+        min-width: 0;
+        padding-left: 44px;
+        font-size: .76rem;
+      }
+
+      /* La fila entera ya abre la ficha (role=button): "Editar" repite esa
+         acción y era el botón que más ancho se llevaba. */
+      .ax-card .ax-acts .ax-btn:not(.ax-btn--icon):first-child { display: none; }
+      .ax-card .ax-acts {
+        order: 4;
+        flex: 0 0 auto;
+        gap: 6px;
+        align-items: center;
+      }
+      /* Tamaño natural, no estirado: son acciones secundarias. */
+      .ax-card .ax-acts .ax-btn {
+        flex: 0 0 auto;
+        padding: 7px 12px;
+        font-size: .78rem;
+        border-radius: 9px;
+      }
+      .ax-card .ax-acts .ax-btn--icon { flex: 0 0 32px; padding: 7px 0; justify-content: center; }
+
+      /* La barra de pestañas y la de herramientas se apilan. */
+      /* El label es flex con space-between: en una pantalla angosta el título y
+         su aclaración quedaban pegados a los bordes opuestos, leyéndose como
+         dos cosas sin relación. Apilados, la aclaración es lo que es. */
+      .ax-field label { flex-direction: column; align-items: flex-start; gap: 2px; }
+      .ax-modal--lg .ax-field label .ax-hint { font-size: .78rem; }
+
+      /* La nota al pie de los rangos es un párrafo largo dentro de una ficha ya
+         densa: se achica y el ícono se alinea con la primera línea. */
+      .ax-modal--lg .ax-help { font-size: .78rem; line-height: 1.5; }
+      .ax-help svg { margin-top: 1px; flex-shrink: 0; }
+
+      .ax-toolbar { flex-wrap: wrap; gap: 8px; }
+      .ax-search { max-width: none; flex: 1 1 100%; }
+      .ax-seg .ax-tab { padding: 8px 13px; font-size: .84rem; }
+      .ax-kpi { padding: 12px 14px; }
+      .ax-kpi .ax-k-num { font-size: 1.5rem; }
+    }
+
+    /* Muy angosto: el nombre manda y las pastillas de estado pasan abajo. */
+    @media (max-width: 420px) {
+      .ax-kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .ax-card { padding: 11px; }
+      .ax-side-venta { padding-left: 0; flex-basis: 100%; }
+      /* Sin ancho para compartir renglón, las acciones bajan solas y quedan
+         pegadas a la derecha. */
+      .ax-card .ax-acts { flex-basis: 100%; justify-content: flex-end; }
+      .ax-card .ax-name { flex-wrap: wrap; row-gap: 4px; }
+      /* "Pedir ajuste" es la etiqueta más larga de la fila y acá compite con
+         Pausar y con el chip de plata. */
+      .ax-card .ax-acts .ax-btn[title^="Pedirle al administrador"] { font-size: 0; padding: 7px 10px; }
+      .ax-card .ax-acts .ax-btn[title^="Pedirle al administrador"]::after {
+        content: "Ajuste";
+        font-size: .78rem;
+        font-weight: 600;
+      }
+    }
   </style>
 </head>
 <body class="ax" data-is-admin="{{ 'true' if is_admin else 'false' }}" data-account="{{ account_id }}">
@@ -1404,6 +1504,6 @@
        eran invisibles para un lector de pantalla. `assertive` porque varios
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
-  <script src="/static/admin.js?v=1785700200"></script>
+  <script src="/static/admin.js?v=1785801900"></script>
 </body>
 </html>

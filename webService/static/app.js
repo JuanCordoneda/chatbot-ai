@@ -1038,6 +1038,13 @@ function agregarComentario(texto, index) {
     <button type="button" class="tipo-switch tipo-switch--${tipo}" id="tipo-${i}" title="Verificado / No verificado — click para cambiar" onclick="toggleTipo(event, ${i})"><span class="ts-knob">${tipo === "verificado" ? "V" : "NV"}</span></button>
     <button type="button" class="comentario-edit" title="Editar" onclick="editarComentario(event, ${i})">✎</button>
   `;
+  // Doble click/tap sobre el texto abre la edición, además del lápiz: en mobile
+  // el lápiz es un blanco chico y el texto es todo el ancho de la fila.
+  item.addEventListener("dblclick", (e) => {
+    if (!e.target.classList.contains("comentario-texto")) return;
+    e.preventDefault();
+    editarComentario(e, i);
+  });
   item.addEventListener("click", (e) => {
     if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
     if (e.target.classList.contains("comentario-texto") && e.target.isContentEditable) return;
@@ -3332,3 +3339,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
   actualizarConteo();
 });
+
+// ── Header que se retira al bajar (solo mobile) ───────────────────────────
+// El header es fixed y en un teléfono se lleva 46px de alto útil. Se esconde al
+// scrollear hacia abajo y vuelve al primer gesto hacia arriba.
+(function () {
+  const MOBILE = () => window.matchMedia("(max-width: 768px)").matches;
+  const UMBRAL = 8;          // ruido de scroll que no cuenta como gesto
+  const DESDE = 90;          // arriba de todo el header siempre se ve
+  let ultimo = window.scrollY;
+  let pedido = false;
+
+  function revisar() {
+    pedido = false;
+    const y = window.scrollY;
+    const dy = y - ultimo;
+    if (Math.abs(dy) < UMBRAL) return;
+    ultimo = y;
+    if (!MOBILE()) { document.body.classList.remove("header-oculto"); return; }
+    document.body.classList.toggle("header-oculto", dy > 0 && y > DESDE);
+  }
+
+  window.addEventListener("scroll", () => {
+    if (pedido) return;
+    pedido = true;
+    requestAnimationFrame(revisar);
+  }, { passive: true });
+})();

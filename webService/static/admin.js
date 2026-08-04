@@ -2247,3 +2247,30 @@ function undoAiPrompt() {
     loadClients();
   }
 })();
+
+// ── Header que se retira al bajar (solo mobile) ───────────────────────────
+// Mismo criterio que en el generador: el header es fixed y en un teléfono se
+// lleva alto útil de la lista de clientes.
+(function () {
+  const MOBILE = () => window.matchMedia("(max-width: 768px)").matches;
+  const UMBRAL = 8;
+  const DESDE = 90;
+  let ultimo = window.scrollY;
+  let pedido = false;
+
+  function revisar() {
+    pedido = false;
+    const y = window.scrollY;
+    const dy = y - ultimo;
+    if (Math.abs(dy) < UMBRAL) return;
+    ultimo = y;
+    if (!MOBILE()) { document.body.classList.remove("header-oculto"); return; }
+    document.body.classList.toggle("header-oculto", dy > 0 && y > DESDE);
+  }
+
+  window.addEventListener("scroll", () => {
+    if (pedido) return;
+    pedido = true;
+    requestAnimationFrame(revisar);
+  }, { passive: true });
+})();
