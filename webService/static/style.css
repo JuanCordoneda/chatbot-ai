@@ -322,8 +322,10 @@ body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
   max-width: 780px;
   width: 100%;
   margin: 0 auto;
-  /* +75px arriba para compensar el header fixed (fuera del flujo) */
-  padding: 147px 28px 120px;
+  /* El header es fixed (fuera del flujo): arriba va su alto (~72px con el zoom
+     de .app) + un respiro. Antes había 147px, que empujaba el formulario del
+     home fuera de la primera pantalla. */
+  padding: 96px 28px 72px;
 }
 
 #step-comentarios,
@@ -3632,12 +3634,10 @@ input:focus-visible {
    arranca por el título y baja al campo. */
 #step-input .hero,
 #step-input .ig-form,
-#step-input .tool-sep,
 #step-input .tool-cta {
   animation: homeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 #step-input .ig-form { animation-delay: 0.06s; }
-#step-input .tool-sep { animation-delay: 0.12s; }
 #step-input .tool-cta { animation-delay: 0.14s; }
 
 @keyframes homeIn {
@@ -3646,27 +3646,13 @@ input:focus-visible {
 }
 
 #step-input .hero { margin-bottom: 30px; }
-#step-input .hero-features { margin-top: 22px; }
 
 .hero-eyebrow { transition: border-color 0.2s, background 0.2s; }
 
-.feature-pill { transition: border-color 0.15s, color 0.15s; }
-.feature-pill:hover { border-color: var(--yellow-md); color: var(--text); }
 
-/* El formulario deja de ser campos sueltos y pasa a ser un bloque: el borde
-   suave lo separa del fondo sin robarle protagonismo al botón amarillo. */
-#step-input .ig-form {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  padding: 18px;
-  gap: 12px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.28);
-}
-body.light #step-input .ig-form {
-  background: var(--surface);
-  box-shadow: 0 8px 30px rgba(0,0,0,0.08);
-}
+/* Los campos van directo sobre el fondo: encerrarlos en una tarjeta creaba una
+   caja dentro de la caja y le sacaba peso al botón amarillo. */
+#step-input .ig-form { gap: 10px; }
 
 .ig-form-labelrow {
   display: flex;
@@ -3716,25 +3702,8 @@ body.light #step-input .ig-form {
 .ig-clear:hover { background: var(--yellow); color: #1a1a1a; }
 .ig-field .ig-input { padding-right: 44px; }
 
-/* Separador entre la herramienta principal y la secundaria. */
-.tool-sep {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 18px 0 14px;
-  color: var(--faint);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-}
-.tool-sep::before,
-.tool-sep::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
+/* El acceso a followers respira del formulario sin necesitar un separador. */
+#step-input .tool-cta { margin-top: 22px; }
 
 .tool-cta-arrow { transition: transform 0.15s; }
 
@@ -3749,16 +3718,13 @@ body.light #step-input .ig-form {
 
 @media (max-width: 768px) {
   #step-input .hero { margin-bottom: 22px; }
-  #step-input .ig-form { padding: 14px; border-radius: 18px; }
   .hero-title { font-size: 2.4rem; }
   .hero-sub { font-size: 0.97rem; line-height: 1.6; }
-  .tool-sep { margin: 14px 0 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   #step-input .hero,
   #step-input .ig-form,
-  #step-input .tool-sep,
   #step-input .tool-cta { animation: none; }
   .eyebrow-dot { animation: none; }
   .accent { animation: none; }
@@ -3845,4 +3811,150 @@ body.light #step-input .ig-form {
 @media (hover: none), (max-width: 768px) {
   .ig-btn-kbd { display: none; }
   .ig-reciente { max-width: 120px; }
+}
+
+/* ── Followers: campo de perfil, cantidades rápidas ───────────────────────── */
+/* Acá el borde vive en el .orden-input, no en el wrap, así que la validación
+   se pinta desde el wrap hacia adentro. */
+.orden-input-icon-wrap.ig-field--ok .orden-input {
+  border-color: rgba(60,190,120,0.6);
+}
+.orden-input-icon-wrap.ig-field--ok .orden-input:focus {
+  border-color: rgba(60,190,120,0.95);
+  box-shadow: 0 0 0 3px rgba(60,190,120,0.13);
+}
+.orden-input-icon-wrap.ig-field--warn .orden-input {
+  border-color: rgba(240,160,60,0.65);
+}
+.orden-input-icon-wrap.ig-field--warn .orden-input:focus {
+  border-color: rgba(240,160,60,0.95);
+  box-shadow: 0 0 0 3px rgba(240,160,60,0.13);
+}
+
+/* Acciones dentro del campo del perfil, apiladas a la derecha. El input les
+   reserva el espacio con padding para que el texto no pase por debajo. */
+.fw-link-acts {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fw-clear { position: static; }
+#fw-link { padding-right: 108px; }
+
+.fw-inbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.fw-inbtn:hover {
+  color: var(--yellow);
+  border-color: var(--yellow-md);
+  background: var(--yellow-lo);
+}
+.fw-inbtn:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+#fw-recientes { margin-top: 8px; }
+
+/* Cantidades que más se venden: evitan tipear ceros (y equivocarse en uno). */
+.fw-qty-chips {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+}
+.fw-qty {
+  flex: 1;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 0;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.fw-qty:hover {
+  color: var(--text);
+  border-color: var(--yellow-md);
+  background: var(--yellow-lo);
+}
+.fw-qty:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+/* Entrada escalonada, igual que el home. */
+.fw-main .hero,
+.fw-main .orden-form-card,
+.fw-main .tool-cta {
+  animation: homeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.fw-main .orden-form-card { animation-delay: 0.06s; }
+.fw-main .tool-cta { animation-delay: 0.12s; }
+
+
+.fw-main .ig-btn:focus-visible,
+.fw-main .ig-clear:focus-visible,
+.fw-main .tool-cta:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .fw-main .hero-title { font-size: 2.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-main .hero,
+  .fw-main .orden-form-card,
+  .fw-main .tool-cta { animation: none; }
+}
+
+/* ── Compactado del home: todo el paso 1 tiene que entrar en una pantalla ──
+   El hero era el que empujaba el formulario abajo del fold en notebooks de
+   768px de alto (con el zoom 1.2 de .app, el alto útil es ~640px). */
+#step-input .hero-eyebrow { margin-bottom: 16px; padding: 5px 12px; }
+#step-input .hero-title { font-size: 3rem; margin-bottom: 14px; }
+#step-input .hero-sub { font-size: 0.98rem; line-height: 1.6; max-width: 440px; }
+#step-input .hero { margin-bottom: 22px; }
+
+/* Pantallas bajas: el hero se reduce a lo mínimo (el título sigue mandando,
+   la bajada y las pills se van) para que el campo quede a la vista. */
+@media (max-height: 760px) and (min-width: 769px) {
+  .main { padding-top: 88px; }
+  #step-input .hero-title { font-size: 2.5rem; margin-bottom: 10px; }
+  #step-input .hero-sub { display: none; }
+  #step-input .hero { margin-bottom: 18px; }
+}
+
+/* Followers: mismo criterio, el formulario es más largo todavía. */
+.fw-main .hero-eyebrow { margin-bottom: 16px; }
+.fw-main .hero-title { font-size: 3rem; margin-bottom: 14px; }
+.fw-main .hero-sub { font-size: 0.98rem; line-height: 1.6; }
+.fw-main .hero { margin-bottom: 22px; }
+
+@media (max-height: 760px) and (min-width: 769px) {
+  .fw-main .hero-title { font-size: 2.5rem; margin-bottom: 10px; }
+  .fw-main .hero-sub { display: none; }
+  .fw-main .hero { margin-bottom: 18px; }
+}
+
+@media (max-width: 768px) {
+  .main { padding-top: 84px; padding-bottom: 56px; }
+  #step-input .hero-title,
+  .fw-main .hero-title { font-size: 2.2rem; }
+  #step-input .hero-eyebrow,
+  .fw-main .hero-eyebrow { margin-bottom: 12px; }
 }

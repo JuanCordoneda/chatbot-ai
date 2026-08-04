@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785600200" />
+  <link rel="stylesheet" href="/static/style.css?v=1785800400" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <style>
     /* Herramienta hermana del generador de comentarios: mismo layout y mismos
@@ -101,15 +101,29 @@
           </div>
           <div class="orden-row">
             <div class="orden-field orden-field--grow">
-              <label class="orden-label">Link del perfil</label>
-              <div class="orden-input-icon-wrap">
+              <label class="orden-label" for="fw-link">Link del perfil</label>
+              <!-- Pegar y borrar van DENTRO del campo: en la fila del label
+                   quedaban a mitad de camino del select de al lado y parecían
+                   suyos, además de desalinear los dos labels. -->
+              <div class="orden-input-icon-wrap" id="fw-link-wrap">
                 <span class="orden-input-icon">🔗</span>
                 <input type="text" id="fw-link" class="orden-input orden-input--has-icon"
-                       placeholder="https://www.instagram.com/usuario" autocomplete="off" spellcheck="false"
+                       placeholder="instagram.com/usuario o @usuario" autocomplete="off" spellcheck="false"
                        oninput="onLinkInput()" />
+                <span class="fw-link-acts">
+                  <button type="button" class="ig-clear fw-clear hidden" id="fw-clear" onclick="limpiarPerfil()" title="Borrar" aria-label="Borrar link">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+                  </button>
+                  <button type="button" class="fw-inbtn" onclick="pegarPerfil()" title="Pegar desde el portapapeles" aria-label="Pegar desde el portapapeles">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="4" y="2.5" width="8" height="11.5" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 2.5V2a1 1 0 011-1h1.6a1 1 0 011 1v.5" stroke="currentColor" stroke-width="1.4"/></svg>
+                    Pegar
+                  </button>
+                </span>
               </div>
               <span id="fw-link-error" class="orden-field-error hidden">Pegá el link del perfil</span>
               <span id="fw-cliente-hint" class="orden-field-hint hidden"></span>
+              <!-- Últimos perfiles a los que se mandó tráfico desde este navegador. -->
+              <div id="fw-recientes" class="ig-recientes hidden"></div>
             </div>
             <div class="orden-field orden-field--grow">
               <label class="orden-label">…o elegí un cliente tuyo</label>
@@ -137,6 +151,13 @@
             <div class="orden-field orden-field--qty">
               <label class="orden-label">Cantidad</label>
               <input type="number" id="fw-cantidad" class="orden-input" min="1" placeholder="1000" oninput="onCantidadInput()" />
+              <!-- Las cantidades que más se venden, para no tipear ceros. -->
+              <div class="fw-qty-chips">
+                <button type="button" class="fw-qty" onclick="setCantidad(500)">500</button>
+                <button type="button" class="fw-qty" onclick="setCantidad(1000)">1K</button>
+                <button type="button" class="fw-qty" onclick="setCantidad(5000)">5K</button>
+                <button type="button" class="fw-qty" onclick="setCantidad(10000)">10K</button>
+              </div>
               <span id="fw-cantidad-error" class="orden-field-error hidden">Cantidad inválida</span>
             </div>
             <div class="orden-field orden-field--costo">
@@ -201,6 +222,6 @@
   </div>
 
   <div id="copy-toast" class="copy-toast"></div>
-  <script src="/static/followers.js?v=1785600100"></script>
+  <script src="/static/followers.js?v=1785800400"></script>
 </body>
 </html>

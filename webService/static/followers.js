@@ -97,7 +97,109 @@ function onLinkInput() {
   if (c && !$("fw-link").value.toLowerCase().includes(c.ig_username)) $("fw-cliente").value = "";
   $("fw-link-error").classList.add("hidden");
   hideError();
+  refrescarClearPerfil();
+  validarPerfilVivo();
   revisarPerfil();
+}
+
+// ── Campo del perfil: pegar, limpiar, validar ─────────────────────────────
+
+// Verde cuando de lo escrito sale un usuario; ámbar cuando no (típico: se pegó
+// el link de un post en vez del del perfil). No bloquea el botón: la validación
+// dura sigue estando en pedirFollowers().
+function validarPerfilVivo() {
+  const wrap = $("fw-link-wrap");
+  if (!wrap) return;
+  const txt = $("fw-link").value.trim();
+  const u = igUsernameDe(txt);
+  wrap.classList.toggle("ig-field--ok", !!u);
+  wrap.classList.toggle("ig-field--warn", !!txt && !u);
+}
+
+function refrescarClearPerfil() {
+  const btn = $("fw-clear");
+  if (btn) btn.classList.toggle("hidden", $("fw-link").value.trim() === "");
+}
+
+function limpiarPerfil() {
+  const input = $("fw-link");
+  input.value = "";
+  onLinkInput();
+  input.focus();
+}
+
+// El navegador puede negar el portapapeles (permiso, http): no rompemos nada,
+// sólo dejamos el foco en el campo para pegar a mano.
+async function pegarPerfil() {
+  const input = $("fw-link");
+  try {
+    const texto = (await navigator.clipboard.readText()).trim();
+    if (texto) input.value = texto;
+  } catch (e) {
+    /* sin permiso de portapapeles */
+  }
+  onLinkInput();
+  input.focus();
+}
+
+function setCantidad(n) {
+  $("fw-cantidad").value = n;
+  onCantidadInput();
+}
+
+// ── Perfiles recientes ────────────────────────────────────────────────────
+// Al mismo perfil se le manda tráfico en varias tandas; volver a buscar el link
+// cada vez es el paso con más fricción.
+const FW_RECIENTES_KEY = "growi_perfiles_recientes";
+const FW_RECIENTES_MAX = 5;
+
+function leerPerfilesRecientes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FW_RECIENTES_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter(u => typeof u === "string") : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function guardarPerfilReciente(usuario) {
+  try {
+    const lista = [usuario, ...leerPerfilesRecientes().filter(u => u !== usuario)].slice(0, FW_RECIENTES_MAX);
+    localStorage.setItem(FW_RECIENTES_KEY, JSON.stringify(lista));
+  } catch (e) {
+    /* localStorage lleno o bloqueado: los recientes son un extra */
+  }
+}
+
+function usarPerfilReciente(usuario) {
+  $("fw-link").value = "https://www.instagram.com/" + usuario;
+  $("fw-cliente").value = "";
+  onLinkInput();
+  $("fw-link").focus();
+}
+
+function pintarPerfilesRecientes() {
+  const wrap = $("fw-recientes");
+  if (!wrap) return;
+  const lista = leerPerfilesRecientes();
+  wrap.innerHTML = "";
+  wrap.classList.toggle("hidden", lista.length === 0);
+  if (!lista.length) return;
+
+  const titulo = document.createElement("span");
+  titulo.className = "ig-recientes-label";
+  titulo.textContent = "Recientes";
+  wrap.appendChild(titulo);
+
+  lista.forEach(u => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "ig-reciente";
+    chip.title = "@" + u;
+    chip.textContent = "@" + u;
+    chip.onclick = () => usarPerfilReciente(u);
+    wrap.appendChild(chip);
+  });
 }
 
 // El perfil decide de dónde sale la plata: si es cliente, el backend resuelve su
@@ -310,6 +412,8 @@ async function enviarFollowers() {
     if (!r.ok || d.error || (d.errors && d.errors.length)) {
       throw new Error(d.error || (d.errors || []).join(" | ") || `Error ${r.status}`);
     }
+    guardarPerfilReciente(usuario);
+    pintarPerfilesRecientes();
     mostrarResultado(true, usuario, cant, prod.nombre, d);
     toast("✓ Orden enviada");
   } catch (e) {
@@ -335,9 +439,43 @@ function mostrarResultado(ok, usuario, cant, calidad, data, err) {
   box.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarConfirm(); });
+function confirmAbierto() {
+  return !$("fw-confirm").classList.contains("hidden");
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { cerrarConfirm(); return; }
+
+  // Con el resumen abierto, Enter confirma: es el único paso que falta y ya se
+  // leyó lo que se va a gastar.
+  if (e.key === "Enter" && confirmAbierto()) {
+    e.preventDefault();
+    if (!$("fw-confirm-ok").disabled) enviarFollowers();
+    return;
+  }
+
+  // "/" enfoca el campo del perfil, igual que en el home.
+  if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey && !confirmAbierto()) {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    e.preventDefault();
+    $("fw-link").focus();
+    $("fw-link").select();
+  }
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   cargarClientes();
   cargarCalidades();
+  pintarPerfilesRecientes();
+  refrescarClearPerfil();
+  validarPerfilVivo();
+  $("fw-link").focus();
+
+  // Enter en cualquier campo del formulario abre el resumen, no recarga.
+  ["fw-link", "fw-cantidad"].forEach(id => {
+    $(id).addEventListener("keydown", e => {
+      if (e.key === "Enter" && !confirmAbierto()) { e.preventDefault(); pedirFollowers(); }
+    });
+  });
 });
