@@ -3056,7 +3056,14 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   html, body { overflow-x: clip; }
 
   /* ── Header ── */
+  /* sticky (no fixed): fixed está fuera del flujo, así que cada pantalla tenía
+     que reservarle 46px a mano — y la que se olvidaba quedaba con el contenido
+     tapado debajo del header. Sticky ocupa su lugar y sigue quedando a la vista
+     al scrollear. En mobile el zoom de .app es 1, que era lo que rompía sticky
+     en desktop. */
   .header {
+    position: sticky;
+    top: 0;
     padding: 0 12px;
     height: 46px;
   }
@@ -3098,16 +3105,7 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
     padding: 0 18px 100px;
     display: flex;
     flex-direction: column;
-    min-height: calc(100dvh - 48px);
-  }
-
-  /* .main no lleva padding-top en mobile (el home se centra en la pantalla),
-     así que cada step que arranca con contenido arriba tiene que dejar libre el
-     alto del header fixed: si no, el header le come los primeros 46px. */
-  #step-comentarios,
-  #step-resultado,
-  #step-ordenes {
-    padding-top: 58px;
+    min-height: calc(100dvh - 46px);   /* 46px = alto del header sticky */
   }
 
   /* ── Step input: centrado vertical ── */
@@ -4512,22 +4510,6 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   .comentario-item input[type="checkbox"] { margin-left: 2px; }
 }
 
-/* ── Mobile: el header se retira al bajar ─────────────────────────────────── */
-/* Es fixed y se lleva 46px de una pantalla de 700. Al scrollear hacia abajo se
-   esconde y al primer gesto hacia arriba vuelve: mientras se leen comentarios
-   no hace falta, y cuando hace falta está a un gesto. */
-@media (max-width: 768px) {
-  .header {
-    transition: transform 0.22s ease;
-    will-change: transform;
-  }
-  body.header-oculto .header { transform: translateY(-100%); }
-  /* Con el header afuera, el encabezado del panel ocupa su lugar. */
-  body.header-oculto .tipo-panel-header { top: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .header { transition: none; }
-}
 
 /* ══════════════════════════════════════════════════════════════════════════
    MOBILE — menú hamburguesa del header
@@ -4615,8 +4597,7 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
     color: #ff8080;
   }
 
-  .header { position: fixed; }   /* el panel se ancla al header */
-  .header-actions { position: static; }
+  .header-actions { position: static; }   /* el panel del menú se ancla al header */
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785802500" />
+  <link rel="stylesheet" href="/static/style.css?v=1785802800" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -789,7 +789,9 @@
       .ax-kpis { grid-template-columns: repeat(2, 1fr); }
       /* En mobile no hace falta escalar: el ancho ya es el limitante. */
       .ax-wrap, .ax-modal { zoom: 1; }
-      .ax-wrap { padding: 58px 14px 60px; }
+      /* El header es sticky en mobile: ocupa su lugar, no hay que reservarle
+         espacio acá arriba. */
+      .ax-wrap { padding: 16px 14px 60px; }
       .ax-uso-row { grid-template-columns: 110px 1fr 44px; gap: 8px; }
       .ax-grid2 { grid-template-columns: 1fr; }
       .ax-modal--lg { padding: 22px 18px; }
@@ -812,9 +814,22 @@
       .ax-range-row > :nth-child(5) { grid-column: 4; grid-row: 1; }
       .ax-range-prod { grid-column: 1 / -1; }
       .ax-range-row > .ax-drip { grid-column: 1 / -1; grid-row: auto; }
-      /* Guardar siempre visible y a dedo, sin buscarlo al final del scroll. */
-      #client-mo .ax-modal-actions--sticky { bottom: 0; margin: 14px -18px 0; padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
-        border-radius: 0; }
+      /* Guardar siempre visible y a dedo, sin buscarlo al final del scroll.
+         Anclada al borde de la pantalla (no sticky dentro del contenido): con
+         sticky quedaba flotando a media hoja y por debajo asomaba el resto del
+         formulario recortado, como si la barra estuviera encima de todo. */
+      #client-mo .ax-modal-actions--sticky {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        margin: 0;
+        padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+        border-radius: 0;
+        z-index: 6;
+      }
+      /* El contenido termina arriba de la barra, no debajo. */
+      #client-mo .ax-modal { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
       .ax-modal-actions--sticky .ax-btn { flex: 1; justify-content: center; }
       .ax-mo-foot { flex-basis: 100%; margin: 0 0 8px; }
     }
@@ -941,35 +956,54 @@
       .ax-card .ax-name { font-size: .94rem; }
       .ax-card .ax-sub { font-size: .78rem; }
 
-      /* Tercer renglón de la fila: a la izquierda de qué campaña sale la plata,
-         a la derecha qué hacer con el cliente. Comparten renglón porque son
-         pocos elementos y estirarlos a todo el ancho hacía que "Pausar"
-         midiera media pantalla para una acción secundaria. */
+      /* La tarjeta pasa a grilla: avatar | datos | acciones.
+         Con flex, los chips y el chip de plata se llevaban un renglón entero
+         cada uno y dejaban medio ancho vacío a su derecha, mientras las
+         acciones ocupaban un cuarto renglón. Con la grilla, las acciones viven
+         en su propia columna a lo alto de la tarjeta y ese hueco desaparece. */
+      .ax-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        column-gap: 10px;
+        row-gap: 6px;
+        align-items: start;
+      }
+      .ax-avatar { grid-column: 1; grid-row: 1; }
+      .ax-card .ax-main { grid-column: 2; grid-row: 1; min-width: 0; }
+
+      /* De qué campaña sale la plata, debajo de los datos y alineado con ellos. */
       .ax-side-venta {
-        order: 3;
-        flex: 1 1 auto;
-        min-width: 0;
-        padding-left: 44px;
+        grid-column: 2;
+        grid-row: 2;
+        padding-left: 0;
+        margin-left: 0;
         font-size: .76rem;
       }
 
       /* La fila entera ya abre la ficha (role=button): "Editar" repite esa
          acción y era el botón que más ancho se llevaba. */
       .ax-card .ax-acts .ax-btn:not(.ax-btn--icon):first-child { display: none; }
+      /* Columna propia, a lo alto de la tarjeta. */
       .ax-card .ax-acts {
-        order: 4;
-        flex: 0 0 auto;
+        grid-column: 3;
+        grid-row: 1 / -1;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
         gap: 6px;
-        align-items: center;
+        width: 92px;
       }
-      /* Tamaño natural, no estirado: son acciones secundarias. */
       .ax-card .ax-acts .ax-btn {
-        flex: 0 0 auto;
-        padding: 7px 12px;
+        width: 100%;
+        justify-content: center;
+        padding: 8px 10px;
         font-size: .78rem;
         border-radius: 9px;
       }
-      .ax-card .ax-acts .ax-btn--icon { flex: 0 0 32px; padding: 7px 0; justify-content: center; }
+      /* El tacho compartía alto con "Pausar" pero era mucho más angosto y
+         quedaba como un apéndice. Mismo ancho, y el rojo sólo en el ícono. */
+      .ax-card .ax-acts .ax-btn--icon { padding: 8px 0; }
+      .ax-card .ax-acts .ax-btn--icon svg { width: 15px; height: 15px; }
 
       /* El label es flex con space-between: en una pantalla angosta el título y
          su aclaración quedaban pegados a los bordes opuestos, leyéndose como
@@ -1032,10 +1066,9 @@
     @media (max-width: 420px) {
       .ax-kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
       .ax-card { padding: 11px; }
-      .ax-side-venta { padding-left: 0; flex-basis: 100%; }
-      /* Sin ancho para compartir renglón, las acciones bajan solas y quedan
-         pegadas a la derecha. */
-      .ax-card .ax-acts { flex-basis: 100%; justify-content: flex-end; }
+      /* La columna de acciones se achica antes que los datos. */
+      .ax-card .ax-acts { width: 78px; }
+      .ax-card { column-gap: 8px; }
       .ax-card .ax-name { flex-wrap: wrap; row-gap: 4px; }
       /* "Pedir ajuste" es la etiqueta más larga de la fila y acá compite con
          Pausar y con el chip de plata. */
@@ -1542,7 +1575,7 @@
        eran invisibles para un lector de pantalla. `assertive` porque varios
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
-  <script src="/static/header-menu.js?v=1785802500"></script>
-  <script src="/static/admin.js?v=1785801900"></script>
+  <script src="/static/header-menu.js?v=1785802800"></script>
+  <script src="/static/admin.js?v=1785802800"></script>
 </body>
 </html>

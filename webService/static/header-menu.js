@@ -1,4 +1,4 @@
-// Header en mobile: menú hamburguesa + el header que se retira al bajar.
+// Header en mobile: menú hamburguesa.
 // Vive en un archivo aparte porque las tres pantallas (generador, followers y
 // panel de clientes) comparten exactamente el mismo header.
 
@@ -63,31 +63,6 @@
     const btn = document.getElementById("btn-menu");
     if (btn) btn.setAttribute("aria-expanded", abrir ? "true" : "false");
   }
-
-  // ── El header se retira al bajar ────────────────────────────────────────
-  // Es fixed y en un teléfono se lleva 46px de alto útil.
-  const UMBRAL = 8;   // ruido de scroll que no cuenta como gesto
-  const DESDE = 90;   // arriba de todo el header siempre se ve
-  let ultimo = window.scrollY;
-  let pedido = false;
-
-  function revisar() {
-    pedido = false;
-    const y = window.scrollY;
-    const dy = y - ultimo;
-    if (Math.abs(dy) < UMBRAL) return;
-    ultimo = y;
-    if (!MOBILE()) { document.body.classList.remove("header-oculto"); return; }
-    // Con el menú abierto, esconder el header se lleva el menú puesto.
-    if (document.body.classList.contains("menu-abierto")) return;
-    document.body.classList.toggle("header-oculto", dy > 0 && y > DESDE);
-  }
-
-  window.addEventListener("scroll", () => {
-    if (pedido) return;
-    pedido = true;
-    requestAnimationFrame(revisar);
-  }, { passive: true });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", armarMenu);
