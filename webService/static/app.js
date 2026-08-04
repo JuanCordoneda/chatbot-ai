@@ -3339,30 +3339,3 @@ document.addEventListener("DOMContentLoaded", () => {
 
   actualizarConteo();
 });
-
-// ── Header que se retira al bajar (solo mobile) ───────────────────────────
-// El header es fixed y en un teléfono se lleva 46px de alto útil. Se esconde al
-// scrollear hacia abajo y vuelve al primer gesto hacia arriba.
-(function () {
-  const MOBILE = () => window.matchMedia("(max-width: 768px)").matches;
-  const UMBRAL = 8;          // ruido de scroll que no cuenta como gesto
-  const DESDE = 90;          // arriba de todo el header siempre se ve
-  let ultimo = window.scrollY;
-  let pedido = false;
-
-  function revisar() {
-    pedido = false;
-    const y = window.scrollY;
-    const dy = y - ultimo;
-    if (Math.abs(dy) < UMBRAL) return;
-    ultimo = y;
-    if (!MOBILE()) { document.body.classList.remove("header-oculto"); return; }
-    document.body.classList.toggle("header-oculto", dy > 0 && y > DESDE);
-  }
-
-  window.addEventListener("scroll", () => {
-    if (pedido) return;
-    pedido = true;
-    requestAnimationFrame(revisar);
-  }, { passive: true });
-})();

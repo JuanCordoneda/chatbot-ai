@@ -3081,7 +3081,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
     gap: 0;
   }
 
-  .header-action-btn span { display: none; }
+  /* El texto SÍ se muestra: dentro del menú hay lugar y una fila de íconos sin
+     nombre no se entiende. Ver .header-btn-group más abajo. */
   .header-action-btn svg { width: 15px; height: 15px; }
 
   .header-action-btn--icon { padding: 0 8px; }
@@ -4526,4 +4527,98 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
 }
 @media (prefers-reduced-motion: reduce) {
   .header { transition: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE — menú hamburguesa del header
+   El header llega a tener 6 botones (tema, followers, admin/clientes,
+   refrescar, salir). En un teléfono no entran, y dejarlos como íconos sin
+   nombre no se entiende. Se agrupan detrás del ☰ y ahí se muestran con su
+   etiqueta, que es donde sobra el ancho.
+   ══════════════════════════════════════════════════════════════════════════ */
+.header-menu-btn { display: none; }
+
+@media (max-width: 768px) {
+  .header-menu-btn {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 30px;
+    border: 1px solid var(--border2);
+    border-radius: 9px;
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .header-menu-btn:active { transform: scale(0.96); }
+  body.menu-abierto .header-menu-btn {
+    color: var(--yellow);
+    border-color: var(--yellow);
+    background: var(--yellow-lo);
+  }
+
+  /* El grupo pasa de fila en el header a panel colgado abajo. */
+  .header-btn-group {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 12px;
+    left: auto;
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 200px;
+    padding: 6px;
+    gap: 2px;
+    border: 1px solid var(--border2);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 18px 40px -12px rgba(0,0,0,0.75);
+    overflow: hidden;
+
+    /* Cerrado: fuera de pantalla para el mouse y para el lector, sin animar
+       display (que no transiciona). */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  }
+  body.menu-abierto .header-btn-group {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+
+  /* Dentro del menú los botones son filas: ícono + etiqueta, alineados. */
+  .header-btn-group .header-action-btn {
+    height: auto;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 11px 12px;
+    border-radius: 9px;
+    font-size: 0.86rem;
+    box-shadow: none !important;   /* el divisor vertical del grupo no aplica */
+  }
+  .header-btn-group .header-action-btn svg { width: 16px; height: 16px; opacity: 0.85; }
+  .header-btn-group .header-action-btn:active { background: var(--surface3); }
+
+  /* El de tema no tiene svg: su emoji hace de ícono y necesita el mismo sangrado
+     que el resto para que las etiquetas queden alineadas. */
+  #btn-theme { justify-content: flex-start; font-size: 0.86rem; padding: 11px 12px; }
+
+  /* "Salir" cierra sesión: se separa del resto y no se confunde con navegar. */
+  .header-btn-group .header-action-btn[href="/logout"] {
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 9px 9px;
+    color: #ff8080;
+  }
+
+  .header { position: fixed; }   /* el panel se ancla al header */
+  .header-actions { position: static; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-btn-group { transition: none; }
 }
