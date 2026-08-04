@@ -4,23 +4,66 @@
 function toggleTheme() {
   const isLight = document.body.classList.toggle("light");
   localStorage.setItem("theme", isLight ? "light" : "dark");
-  document.getElementById("btn-theme").textContent = isLight ? "🌙 Dark" : "☀ Light";
+  const btn = document.getElementById("btn-theme");
+  if (btn) btn.textContent = isLight ? "🌙 Dark" : "☀ Light";
+  // Los avatares se pintan distinto en cada tema (ver avatarStyle) y su color
+  // va inline: sin redibujar, cambiar de tema dejaba las iniciales del tema
+  // anterior sobre el fondo nuevo.
+  if (clientsCache.length || sistemaCache.length) renderClients();
+  if (usuariosCache.length) renderUsuarios();
+  if (vendedoresCache.length) renderVendedores();
 }
 (function () {
   if (localStorage.getItem("theme") === "light") document.body.classList.add("light");
   document.addEventListener("DOMContentLoaded", () => {
-    if (document.body.classList.contains("light"))
-      document.getElementById("btn-theme").textContent = "🌙 Dark";
-    const n = (document.getElementById("me-name").textContent || "A").trim();
-    document.getElementById("me-av").textContent = (n[0] || "A").toUpperCase();
+    const btn = document.getElementById("btn-theme");
+    if (btn && document.body.classList.contains("light")) btn.textContent = "🌙 Dark";
+    // El bloque del usuario solo se pinta si hay sesión con nombre. Sin la
+    // guarda, el TypeError cortaba el listener acá y se llevaba puesto también
+    // el orden guardado de más abajo.
+    const nameEl = document.getElementById("me-name");
+    const avEl = document.getElementById("me-av");
+    if (nameEl && avEl) {
+      const n = (nameEl.textContent || "A").trim();
+      avEl.textContent = (n[0] || "A").toUpperCase();
+    }
+    // El orden elegido la vez pasada (el filtro lo toma renderClients solo).
+    const orden = localStorage.getItem("admin_cli_orden");
+    const sel = document.getElementById("cli-sort");
+    if (orden && sel && [...sel.options].some(o => o.value === orden)) sel.value = orden;
   });
 })();
 
 // ── Helpers ──
+// Techo de espera de cualquier llamada. Sin esto, una request colgada (VPN que
+// se cae, backend trabado) dejaba el botón en "Guardando…" para siempre y sin
+// una sola pista de qué pasó.
+const API_TIMEOUT = 25000;
+
 async function api(method, url, body) {
   const opts = { method, headers: {} };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-  const r = await fetch(url, opts);
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timer = null;
+  if (ctrl) { opts.signal = ctrl.signal; timer = setTimeout(() => ctrl.abort(), API_TIMEOUT); }
+  let r;
+  try {
+    r = await fetch(url, opts);
+  } catch (e) {
+    // fetch solo rechaza por red o abort: el mensaje del navegador ("Failed to
+    // fetch") no le dice nada a nadie.
+    throw new Error(e && e.name === "AbortError"
+      ? "El servidor tardó demasiado en responder. Probá de nuevo."
+      : "Sin conexión con el servidor. Revisá la red y probá de nuevo.");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  // La sesión vencida devuelve el login: sin este caso, el usuario ve "Error
+  // 401" y no entiende que tiene que volver a entrar.
+  if (r.status === 401 || r.status === 403) {
+    let d = {}; try { d = await r.json(); } catch (e) {}
+    throw new Error(d.error || "Se cerró la sesión. Volvé a entrar para seguir.");
+  }
   let data = {}; try { data = await r.json(); } catch (e) {}
   if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
   return data;
@@ -30,9 +73,17 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function hue(str) { let h = 0; for (const c of String(str)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+// Un tono por @usuario para reconocer la fila de un vistazo, pero apagado: a
+// 62% de saturación ocho tarjetas seguidas eran ocho gradientes chillones que
+// tapaban al propio nombre y peleaban con el amarillo de la marca.
 function avatarStyle(seed) {
   const h = hue(seed);
-  return `background:linear-gradient(135deg,hsl(${h},62%,52%),hsl(${(h + 40) % 360},62%,44%))`;
+  const claro = document.body.classList.contains("light");
+  return claro
+    // En claro el bloque saturado manchaba una lista que es casi toda blanca:
+    // pastilla suave con las iniciales en el mismo tono, más oscuro.
+    ? `background:hsl(${h},46%,92%);color:hsl(${h},52%,32%)`
+    : `background:linear-gradient(135deg,hsl(${h},34%,44%),hsl(${(h + 30) % 360},34%,37%))`;
 }
 function initials(name, handle) {
   const s = (name || handle || "?").trim();
@@ -41,7 +92,9 @@ function initials(name, handle) {
 }
 
 let toastTimer = null;
-function toast(msg, kind = "") {
+// `accion` (opcional) agrega un botón al toast: {label, run}. Es para las cosas
+// que se hacen de un clic y se arrepienten al segundo siguiente (pausar).
+function toast(msg, kind = "", accion = null) {
   const t = document.getElementById("toast");
   const ico = kind === "bad"
     ? '<svg class="ax-ti" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="#ff6b6b" stroke-width="1.6"/><path d="M7 7l6 6M13 7l-6 6" stroke="#ff6b6b" stroke-width="1.6" stroke-linecap="round"/></svg>'
@@ -50,8 +103,16 @@ function toast(msg, kind = "") {
     : "";
   t.className = "ax-toast ax-on" + (kind ? " ax-" + kind : "");
   t.innerHTML = ico + esc(msg);
+  if (accion) {
+    const b = document.createElement("button");
+    b.className = "ax-toast-a";
+    b.textContent = accion.label;
+    b.onclick = () => { t.classList.remove("ax-on"); accion.run(); };
+    t.appendChild(b);
+  }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("ax-on"), 2400);
+  // Con acción dura más: 2,4s no alcanzan para leer y decidir.
+  toastTimer = setTimeout(() => t.classList.remove("ax-on"), accion ? 6000 : 2400);
 }
 
 function switchTab(name) {
@@ -64,16 +125,41 @@ function switchTab(name) {
 }
 
 // ── Modales ──
+// Mientras haya un modal abierto la página de atrás no scrollea: con el modal
+// de cliente a pantalla completa, la rueda del mouse movía la lista de abajo y
+// al cerrar aparecías en otro lado.
+function _sincronizarScrollLock() {
+  document.body.classList.toggle("ax-locked", !!document.querySelector(".ax-mo.ax-on"));
+}
+
+// Primer control de verdad del modal, para arrancar el tab adentro y no en el
+// botón de cerrar.
+function _primerFoco(mo) {
+  return mo.querySelector(
+    'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not(.ax-seg-src):not([disabled]), .ax-opt-b[aria-checked="true"], .ax-btn--primary, button:not([disabled])'
+  );
+}
+
 function openMo(id) {
   const mo = document.getElementById(id);
+  if (!mo) return;
   // Quién tenía el foco antes de abrir: al cerrar se lo devolvemos, si no el
   // tab arranca de cero arriba de la página.
   mo._focoPrevio = document.activeElement;
   mo.classList.add("ax-on");
+  _sincronizarScrollLock();
+  // Los modales que enfocan un campo concreto lo hacen ellos (con su setTimeout);
+  // el resto arranca en el primer control en vez de dejar el foco en el body.
+  if (!mo.dataset.focoPropio) {
+    const el = _primerFoco(mo);
+    if (el) setTimeout(() => { if (mo.classList.contains("ax-on")) el.focus(); }, 50);
+  }
 }
 function closeMo(id) {
   const mo = document.getElementById(id);
+  if (!mo) return;
   mo.classList.remove("ax-on");
+  _sincronizarScrollLock();
   const prev = mo._focoPrevio;
   mo._focoPrevio = null;
   // El botón que abrió el modal puede haber desaparecido (lista redibujada).
@@ -165,7 +251,9 @@ document.addEventListener("click", e => {
   if (!e.target.classList.contains("ax-mo")) return;
   // El de cliente pasa por su propia guarda de cambios sin guardar.
   if (e.target.id === "client-mo") { closeClientModal(); return; }
-  e.target.classList.remove("ax-on");
+  // Por closeMo y no a mano: es el único que devuelve el foco y suelta el
+  // scroll de la página.
+  closeMo(e.target.id);
 });
 document.addEventListener("keydown", e => {
   const enClienteEditor = document.getElementById("client-mo").classList.contains("ax-on");
@@ -199,14 +287,17 @@ document.addEventListener("keydown", e => {
     // Estando en pantalla completa, el primer Esc solo vuelve al modal normal.
     if (enClienteEditor && modal.classList.contains("ax-modal--full")) { togglePromptFull(); return; }
     if (enClienteEditor) { closeClientModal(); return; }
-    document.querySelectorAll(".ax-mo.ax-on").forEach(m => m.classList.remove("ax-on"));
+    [...document.querySelectorAll(".ax-mo.ax-on")].forEach(m => closeMo(m.id));
   }
   if (e.key === "Enter" && !e.shiftKey) {
-    const open = document.querySelector(".ax-mo.ax-on");
+    // El ÚLTIMO abierto, no el primero del DOM: con el confirm encima de la
+    // ficha, `querySelector` devolvía client-mo y Enter apretaba "Guardar
+    // cliente" en vez de confirmar lo que se estaba preguntando.
+    const open = [...document.querySelectorAll(".ax-mo.ax-on")].pop();
     if (!open) return;
     if (document.activeElement && document.activeElement.tagName === "TEXTAREA") return;
-    const save = open.querySelector(".ax-btn--primary, #confirm-ok");
-    if (save) { e.preventDefault(); save.click(); }
+    const save = open.querySelector("#confirm-ok, .ax-btn--primary");
+    if (save && !save.disabled) { e.preventDefault(); save.click(); }
   }
 });
 
@@ -316,10 +407,19 @@ function cliUrl(path = "") {
   return `/api/admin/clients${path}?vendedor=${selectedVendedor}`;
 }
 
+// Cada carga se lleva un número. Si mientras vuelve la respuesta se pidió otra
+// (cambiar de vendedor dos veces seguidas, guardar y refrescar), la vieja se
+// descarta: si no, la respuesta lenta del vendedor A pisaba la lista del B.
+let _cargaClientes = 0;
+
 async function loadClients() {
   const list = document.getElementById("clientes-list");
+  const token = ++_cargaClientes;
   if (!selectedVendedor) {
     clientsCache = [];
+    invalidarFondos();
+    // Sin vendedor no hay nada que filtrar: las chips del anterior no quedan.
+    document.getElementById("cli-filtros").innerHTML = "";
     list.innerHTML = emptyState("Elegí un vendedor",
       vendedoresCache.length ? "Seleccioná un vendedor arriba para ver y editar sus clientes."
                              : "Creá primero un vendedor en la pestaña Vendedores.");
@@ -332,12 +432,19 @@ async function loadClients() {
     // Las ventas del CRM se piden en paralelo: la tarjeta de cada cliente muestra
     // el nombre y el saldo de la suya, no solo el id.
     const [{ clients }] = await Promise.all([api("GET", cliUrl()), loadVentas()]);
+    if (token !== _cargaClientes) return;   // llegó tarde: ya hay otra carga en curso
     // El genérico viaja en la misma respuesta (solo para el admin) pero se
     // guarda aparte: no es un cliente del vendedor y no cuenta en los KPIs.
     sistemaCache = clients.filter(c => c.reserved);
     clientsCache = clients.filter(c => !c.reserved);
+    invalidarFondos();
     renderClients(); renderKpis();
-  } catch (e) { toast(e.message, "bad"); }
+  } catch (e) {
+    if (token !== _cargaClientes) return;
+    // Dejar los esqueletos girando para siempre es peor que decir qué pasó.
+    list.innerHTML = emptyState("No se pudo cargar la lista", e.message);
+    toast(e.message, "bad");
+  }
 }
 
 // Selector de vendedor: repuebla el <select> y aplica el elegido (localStorage).
@@ -368,6 +475,10 @@ function onVendedorChange() {
   const v = parseInt(document.getElementById("vendedor-select").value || "0");
   selectedVendedor = v || null;
   if (selectedVendedor) localStorage.setItem("admin_vendedor", String(selectedVendedor));
+  // Otro vendedor, otra lista: un filtro heredado que no deja a nadie se lee
+  // como "este vendedor no tiene clientes". (Guardar o pausar no lo resetea:
+  // ahí se está trabajando sobre el filtro puesto a propósito.)
+  cliFiltro = "todos";
   loadClients();
   loadUsuarios();
 }
@@ -384,6 +495,29 @@ const GENDER_ICON = {
 // para todos los clientes). Cada cliente apunta ahora a la suya.
 let ventasCache = [];
 let ventasError = "";
+// Índices de la corrida: `ventasCache` se recorría entero por cada llamada a
+// ventasDe()/ventaById(), y esas dos se llaman una vez por tarjeta, una por
+// chip de filtro y DOS POR COMPARACIÓN del sort. Con 200 clientes y 500
+// campañas eso son cientos de miles de recorridas por tecla tipeada.
+let _ventasPorIg = new Map();
+let _ventasPorId = new Map();
+// estadoFondos() es puro respecto de (cliente, ventas): se memoiza por cliente
+// y se tira el cache cuando cambia cualquiera de los dos lados.
+let _fondosMemo = new Map();
+
+function _reindexarVentas() {
+  _ventasPorIg = new Map();
+  _ventasPorId = new Map();
+  for (const v of ventasCache) {
+    _ventasPorId.set(String(v.idventa), v);
+    const ig = (v.ig_username || "").trim().toLowerCase();
+    if (!_ventasPorIg.has(ig)) _ventasPorIg.set(ig, []);
+    _ventasPorIg.get(ig).push(v);
+  }
+  invalidarFondos();
+}
+
+function invalidarFondos() { _fondosMemo = new Map(); }
 
 async function loadVentas() {
   try {
@@ -394,6 +528,7 @@ async function loadVentas() {
     ventasCache = [];
     ventasError = e.message || "No se pudieron leer las ventas del CRM";
   }
+  _reindexarVentas();
   renderVentaSelect();
 }
 
@@ -402,7 +537,7 @@ async function loadVentas() {
 const VENTA_SALDO_BAJO = 5;
 
 function ventaById(id) {
-  return ventasCache.find(v => String(v.idventa) === String(id)) || null;
+  return _ventasPorId.get(String(id)) || null;
 }
 
 function saldoDe(v) { return parseFloat((v && v.disponible) || 0) || 0; }
@@ -410,10 +545,11 @@ function saldoDe(v) { return parseFloat((v && v.disponible) || 0) || 0; }
 // Campañas de un cliente: se agrupan por el PERFIL de IG que trae el CRM, no por
 // el nombre — el mismo cliente figura como "Peter J Fouernier", "Peter Fournier"
 // y "Peter Fouernier" según quién la cargó.
+const _SIN_VENTAS = [];
 function ventasDe(igUsername) {
   const ig = (igUsername || "").trim().toLowerCase();
-  if (!ig) return [];
-  return ventasCache.filter(v => v.ig_username === ig);
+  if (!ig) return _SIN_VENTAS;
+  return _ventasPorIg.get(ig) || _SIN_VENTAS;
 }
 
 function fmtSaldo(n) { return `$${n.toFixed(2)}`; }
@@ -438,6 +574,22 @@ function ventaSugerida(igUsername) {
 // Estado de fondos de un cliente, en un solo lugar: lo usan la tarjeta, el
 // modal y el contador de "faltan asignar".
 function estadoFondos(c) {
+  const memo = _fondosMemo.get(c.id);
+  if (memo) return memo;
+  const f = _estadoFondos(c);
+  _fondosMemo.set(c.id, f);
+  return f;
+}
+
+function _estadoFondos(c) {
+  // CRM caído: no sabemos nada de las campañas. Marcarlos a todos como "sin
+  // campaña propia" era mentir — y encendía el aviso de arriba y el filtro
+  // "Ojo con la plata" con la lista entera adentro.
+  if (ventasError) {
+    return { propias: _SIN_VENTAS, total: 0, venta: null, auto: false, sinDatos: true,
+      nivel: "ok", texto: "sin datos del CRM",
+      detalle: "No se pudieron leer las campañas: " + ventasError };
+  }
   const propias = ventasDe(c.ig_username);
   const total = propias.reduce((a, v) => a + saldoDe(v), 0);
   const id = (c.crm_idventa || "").trim();
@@ -465,6 +617,8 @@ function estadoFondos(c) {
 // castellano, no un id suelto.
 function ventaBadge(c) {
   const f = estadoFondos(c);
+  if (f.sinDatos)
+    return `<span class="ax-venta ax-venta--sindatos" title="${esc(f.detalle)}">— sin datos del CRM</span>`;
   const icono = f.nivel === "ok" ? "💰" : "⚠";
   const resumen = f.propias.length > 1
     ? `<span class="ax-venta-extra" title="Este cliente tiene ${f.propias.length} campañas en el CRM, sumando ${fmtSaldo(f.total)}">+${f.propias.length - 1} camp. · ${fmtSaldo(f.total)} en total</span>`
@@ -485,6 +639,10 @@ function renderVentaSelect(igUsername) {
   const sel = document.getElementById("client-venta");
   if (!sel) return;
   const actual = sel.value;
+  // loadVentas() la llama sin argumento. Tomando "" como el @usuario, las
+  // campañas propias del cliente abierto se iban al grupo "otras" y la elegida
+  // podía quedar fuera de la lista, borrando la selección en silencio.
+  if (igUsername === undefined) igUsername = document.getElementById("client-ig")?.value || "";
   const ig = (igUsername || "").trim().toLowerCase();
   const propias = ventasDe(ig);
   const otras = ventasCache.filter(v => v.ig_username !== ig);
@@ -574,8 +732,10 @@ function usarVentaSugerida() {
 // borrar ni pausar ni renombrar. Lo único editable es el prompt (y género/rangos).
 function genericCard(c) {
   return `
-    <div class="ax-card">
-      <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">${c.system_icon || "🌐"}</div>
+    <div class="ax-card ax-card--go" role="button" tabindex="0"
+         aria-label="Editar ${esc(c.display_name)}"
+         onclick="abrirDesdeCard(event, ${c.id})" onkeydown="cardKey(event, ${c.id})">
+      <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">${esc(c.system_icon || "🌐")}</div>
       <div class="ax-main">
         <div class="ax-name">${esc(c.display_name)}
           <span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Siempre activo</span>
@@ -589,24 +749,74 @@ function genericCard(c) {
     </div>`;
 }
 
+// Segundo renglón: cómo está configurado, en números. Antes había que abrir la
+// ficha de cada uno para saber si tenía cantidades cargadas o no.
+function clientMeta(c) {
+  const rg = c.ranges || {};
+  const com = rg.comentarios || {};
+  const chips = [];
+  for (const [k, ico, txt] of [["verificados", "✅", "verif."], ["comunes", "💬", "comunes"]]) {
+    const e = com[k];
+    chips.push(e && e.min != null && e.max != null
+      ? `<span class="ax-chip">${ico} <b>${e.min}–${e.max}</b> ${txt}</span>`
+      : `<span class="ax-chip ax-chip--off" title="Sin cantidad fija: el vendedor la carga a mano">${ico} ${txt} a mano</span>`);
+  }
+  const conRango = RANGE_KEYS.filter(k => (rg[k] || []).length);
+  chips.push(conRango.length
+    ? `<span class="ax-chip" title="Tipos con cantidad automática: ${conRango.join(", ")}">📈 <b>${conRango.length}</b> tipo${conRango.length === 1 ? "" : "s"} de tráfico</span>`
+    : `<span class="ax-chip ax-chip--off" title="Ningún producto con cantidad automática">📈 sin tráfico automático</span>`);
+  return `<div class="ax-meta">${chips.join("")}</div>`;
+}
+
+// Resalta en el texto lo que se escribió en el buscador. Escapa primero y
+// marca después: lo que se busca nunca entra como HTML.
+function marcar(txt, q) {
+  const s = esc(txt);
+  if (!q) return s;
+  const i = s.toLowerCase().indexOf(esc(q).toLowerCase());
+  if (i < 0) return s;
+  const n = esc(q).length;
+  return `${s.slice(0, i)}<mark class="ax-mark">${s.slice(i, i + n)}</mark>${s.slice(i + n)}`;
+}
+
 function clientCard(c) {
   if (c.reserved) return genericCard(c);
+  const sinPrompt = !c.keyword_mode && !(c.prompt || "").trim();
+  const q = (document.getElementById("cli-search")?.value || "").trim();
+  // La fila entera abre la ficha: es lo que todos intentan primero, y apuntarle
+  // al botón "Editar" de 60px es trabajo de puntería.
   return `
-    <div class="ax-card ${c.status === "paused" ? "ax-dimmed" : ""}">
+    <div class="ax-card ax-card--go ${c.status === "paused" ? "ax-dimmed" : ""}"
+         role="button" tabindex="0" aria-label="Editar ${esc(c.display_name || c.ig_username)}"
+         onclick="abrirDesdeCard(event, ${c.id})" onkeydown="cardKey(event, ${c.id})">
       <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">${esc(initials(c.display_name, c.ig_username))}</div>
       <div class="ax-main">
-        <div class="ax-name">${esc(c.display_name) || '<span style="color:var(--faint)">(sin nombre)</span>'}
+        <div class="ax-name">${marcar(c.display_name, q) || '<span class="ax-sinnombre">(sin nombre)</span>'}
           ${c.status === "active"
             ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Activo</span>'
             : '<span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pausado</span>'}
           ${c.quality === "pro"
             ? '<span class="ax-pill ax-pill--pro" title="Corre con el modelo de IA más potente">Pro</span>'
             : ""}
+          ${c.keyword_mode
+            ? '<span class="ax-pill ax-pill--kw" title="Sus comentarios son una sola palabra repetida, sacada del post: el prompt no se usa">🔑 Palabra clave</span>'
+            : ""}
+          ${sinPrompt
+            ? '<span class="ax-pill ax-pill--falta" title="Sin instrucciones propias: genera solo con las reglas generales del sistema">Sin prompt</span>'
+            : ""}
         </div>
-        <div class="ax-sub"><span class="ax-handle" title="Copiar" onclick="copyHandle('${esc(c.ig_username)}')">@${esc(c.ig_username)}</span>
-          · ${(c.prompt || "").length} car. de prompt
-          · ${ventaBadge(c)}</div>
+        <div class="ax-sub"><span class="ax-handle" role="button" tabindex="0"
+            title="Copiar @${esc(c.ig_username)}" aria-label="Copiar @${esc(c.ig_username)}"
+            data-handle="${esc(c.ig_username)}">@${marcar(c.ig_username, q)}</span>
+          ${c.keyword_mode ? "" : `<span class="ax-sep">·</span> ${(c.prompt || "").length} car. de prompt`}
+          ${clientMeta(c)}</div>
       </div>
+      <!-- A la derecha va solo la plata: es el único dato de la fila que se lee
+           en vertical, comparando un cliente contra otro. La configuración se
+           quedó en el renglón del @usuario porque crece con el contenido y así
+           la fila se llena sola, en vez de dejar medio metro de vacío en el
+           medio cuando el nombre es corto. -->
+      <div class="ax-side-venta">${ventaBadge(c)}</div>
       <div class="ax-acts">
         <button class="ax-btn ax-btn--sm" onclick="openClientModal(${c.id})">Editar</button>
         ${IS_ADMIN ? "" : `<button class="ax-btn ax-btn--sm" title="Pedirle al administrador que ajuste el prompt" onclick="openPedidoModal(${c.id})">Pedir ajuste</button>`}
@@ -622,6 +832,13 @@ function clientCard(c) {
 function renderFondosAlert() {
   const box = document.getElementById("fondos-alert");
   if (!box) return;
+  // Que el CRM no conteste es en sí la noticia: sin esto la barra desaparecía y
+  // parecía que estaba todo en orden.
+  if (ventasError) {
+    box.innerHTML = `⚠ <b>No se pudieron leer las campañas del CRM.</b> Los saldos de la lista no se están mostrando. <span class="ax-venta-extra">${esc(ventasError)}</span>`;
+    box.classList.add("ax-on");
+    return;
+  }
   const activos = clientsCache.filter(c => c.status === "active");
   const estados = activos.map(estadoFondos);
   const sinPropia = estados.filter(f => !f.venta).length;   // caen en la por defecto
@@ -634,19 +851,117 @@ function renderFondosAlert() {
   box.classList.add("ax-on");
 }
 
+// ── Filtros rápidos de la lista ──────────────────────────────────────────────
+// Cada uno es una pregunta concreta sobre la lista. `test` decide quién entra;
+// el contador de la chip sale de aplicarlo sobre todos los clientes.
+const CLI_FILTROS = [
+  { key: "todos",     label: "Todos",         test: () => true },
+  { key: "activos",   label: "Activos",       test: c => c.status === "active" },
+  { key: "pausados",  label: "Pausados",      test: c => c.status === "paused" },
+  { key: "pro",       label: "Pro",           test: c => c.quality === "pro" },
+  { key: "kw",        label: "Palabra clave", test: c => !!c.keyword_mode },
+  { key: "sinprompt", label: "Sin prompt",    test: c => !c.keyword_mode && !(c.prompt || "").trim() },
+  // Los que van a fallar al mandar tráfico: sin campaña propia o con la campaña
+  // casi sin saldo / vencida.
+  { key: "fondos",    label: "Ojo con la plata", test: c => estadoFondos(c).nivel !== "ok" },
+];
+// Filtro y orden sobreviven al F5: quien trabaja con "los que piden atención"
+// no quiere volver a elegirlo cada vez que entra.
+let cliFiltro = localStorage.getItem("admin_cli_filtro") || "todos";
+
+function setCliFiltro(k) {
+  cliFiltro = (cliFiltro === k && k !== "todos") ? "todos" : k;
+  localStorage.setItem("admin_cli_filtro", cliFiltro);
+  renderClients();
+}
+
+function setCliOrden() {
+  localStorage.setItem("admin_cli_orden", document.getElementById("cli-sort").value);
+  renderClients();
+}
+
+// Cada tecla redibujaba la lista entera (filtrar + ordenar + innerHTML de todas
+// las tarjetas). Escribir "peter" son seis redibujos de los que cinco no se
+// llegan a ver: se espera a que la mano pare.
+let _busquedaTimer = null;
+function buscarClientes() {
+  const inp = document.getElementById("cli-search");
+  // El botón de limpiar sí responde al toque: es feedback del propio campo.
+  document.getElementById("cli-search-x")?.classList.toggle("ax-hidden", !inp.value.trim());
+  clearTimeout(_busquedaTimer);
+  _busquedaTimer = setTimeout(renderClients, 120);
+}
+
+function limpiarBusqueda() {
+  const inp = document.getElementById("cli-search");
+  inp.value = "";
+  clearTimeout(_busquedaTimer);
+  renderClients();
+  inp.focus();
+}
+
+function renderFiltros(visibles, total) {
+  const box = document.getElementById("cli-filtros");
+  if (!box) return;
+  box.innerHTML = CLI_FILTROS.map(f => {
+    const n = f.key === "todos" ? clientsCache.length : clientsCache.filter(f.test).length;
+    // Un filtro que no deja a nadie no se esconde: que esté en cero también es
+    // información (0 pausados, 0 sin prompt).
+    return `<button type="button" class="ax-filtro${cliFiltro === f.key ? " ax-on" : ""}${n ? "" : " ax-filtro--vacio"}"
+      aria-pressed="${cliFiltro === f.key}" onclick="setCliFiltro('${f.key}')">${esc(f.label)}<span class="ax-filtro-c">${n}</span></button>`;
+  }).join("") +
+    `<span class="ax-filtro-res">${visibles === total ? `${total} cliente${total === 1 ? "" : "s"}` : `${visibles} de ${total}`}</span>`;
+}
+
+// Comparadores del <select> de orden. Todos caen en el nombre como desempate,
+// así que dos recargas seguidas muestran siempre lo mismo.
+const CLI_ORDEN = {
+  nombre: (a, b) => (a.display_name || a.ig_username).localeCompare(b.display_name || b.ig_username),
+  handle: (a, b) => a.ig_username.localeCompare(b.ig_username),
+  prompt: (a, b) => (b.prompt || "").length - (a.prompt || "").length,
+  saldo: (a, b) => estadoFondos(a).total - estadoFondos(b).total,
+  // "Lo que hay que mirar": primero lo que no funciona bien (sin prompt, sin
+  // plata), después lo pausado, al final lo que anda.
+  atencion: (a, b) => _atencion(b) - _atencion(a),
+};
+
+function _atencion(c) {
+  let p = 0;
+  if (!c.keyword_mode && !(c.prompt || "").trim()) p += 4;
+  if (estadoFondos(c).nivel !== "ok") p += 3;
+  if (c.status === "paused") p += 1;
+  return p;
+}
+
 function renderClients() {
   renderFondosAlert();
   const q = (document.getElementById("cli-search").value || "").trim().toLowerCase();
+  document.getElementById("cli-search-x")?.classList.toggle("ax-hidden", !q);
   const list = document.getElementById("clientes-list");
-  const items = clientsCache.filter(c =>
-    !q || c.ig_username.includes(q) || (c.display_name || "").toLowerCase().includes(q));
+  const filtro = (CLI_FILTROS.find(f => f.key === cliFiltro) || CLI_FILTROS[0]).test;
+  const items = clientsCache.filter(c => filtro(c) &&
+    (!q || c.ig_username.toLowerCase().includes(q) || (c.display_name || "").toLowerCase().includes(q)));
+  const orden = CLI_ORDEN[document.getElementById("cli-sort")?.value] || CLI_ORDEN.nombre;
+  items.sort((a, b) => orden(a, b) ||
+    (a.display_name || a.ig_username).localeCompare(b.display_name || b.ig_username));
+  renderFiltros(items.length, clientsCache.length);
+  setTxt("cli-live", clientsCache.length
+    ? `${items.length} de ${clientsCache.length} clientes a la vista`
+    : "");
   // El genérico va siempre al final, en su propia sección y sin filtrar por el
   // buscador (es del sistema, no uno más de la lista).
   const sistema = sistemaCache.length
     ? `<div class="ax-group">🌐<span class="ax-group-t">Del sistema</span><span class="ax-group-c">${sistemaCache.length}</span><span class="ax-group-line"></span></div>${sistemaCache.map(genericCard).join("")}`
     : "";
   if (!clientsCache.length) { list.innerHTML = emptyState("Todavía no hay clientes", "Creá el primero con su @usuario y su prompt.") + sistema; return; }
-  if (!items.length) { list.innerHTML = emptyState("Sin resultados", "Probá con otro nombre o @usuario.") + sistema; return; }
+  if (!items.length) {
+    const porFiltro = cliFiltro !== "todos";
+    list.innerHTML = emptyState(
+      porFiltro ? "Ninguno entra en este filtro" : "Sin resultados",
+      porFiltro ? "Tocá el filtro de nuevo o elegí «Todos» para ver la lista entera."
+                : "Probá con otro nombre o @usuario.") + sistema;
+    return;
+  }
 
   // Agrupación por género del cliente: Hombres, Mujeres, Sin especificar.
   const GROUPS = [
@@ -655,6 +970,24 @@ function renderClients() {
     { key: "none", label: "Mixto" },
   ];
   const inGroup = (c, key) => key === "none" ? (c.gender !== "male" && c.gender !== "female") : c.gender === key;
+
+  // Los grupos por género solo tienen sentido con el orden alfabético: pedir
+  // "los que piden atención" y recibir tres bloques por género es no recibir
+  // ningún orden. Con cualquier otro criterio va una sola lista, y el
+  // encabezado dice por qué está en ese orden.
+  const clave = document.getElementById("cli-sort")?.value || "nombre";
+  const POR_ORDEN = {
+    atencion: ["⚠", "Primero los que piden atención"],
+    saldo: ["💰", "De menos a más saldo"],
+    prompt: ["✎", "Del prompt más largo al más corto"],
+  };
+  if (POR_ORDEN[clave]) {
+    const [ico, txt] = POR_ORDEN[clave];
+    list.innerHTML =
+      `<div class="ax-group">${ico}<span class="ax-group-t">${txt}</span><span class="ax-group-c">${items.length}</span><span class="ax-group-line"></span></div>` +
+      items.map(clientCard).join("") + sistema;
+    return;
+  }
 
   let html = "";
   for (const g of GROUPS) {
@@ -672,8 +1005,56 @@ function emptyState(t, s) {
     <div class="ax-et">${esc(t)}</div><div>${esc(s)}</div></div>`;
 }
 
-function copyHandle(h) {
-  navigator.clipboard?.writeText("@" + h).then(() => toast("@" + h + " copiado", "ok")).catch(() => {});
+// "/" enfoca el buscador y Esc lo limpia, como en cualquier lista larga. No se
+// pisa con nada: solo corre si no hay un modal abierto ni se está escribiendo.
+document.addEventListener("keydown", e => {
+  const inp = document.getElementById("cli-search");
+  if (!inp || !document.getElementById("panel-clientes").classList.contains("ax-on")) return;
+  if (document.querySelector(".ax-mo.ax-on")) return;
+  const escribiendo = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
+  if (e.key === "/" && !escribiendo) { e.preventDefault(); inp.focus(); inp.select(); return; }
+  if (e.key === "Escape" && document.activeElement === inp && inp.value) {
+    e.stopPropagation();
+    limpiarBusqueda();
+  }
+});
+
+// Por delegación y con data-*: el @usuario ya no viaja interpolado dentro de un
+// atributo onclick, así que no hay forma de que un nombre raro rompa el HTML.
+document.addEventListener("click", e => {
+  const h = e.target.closest?.(".ax-handle[data-handle]");
+  if (h) copyHandle(h.dataset.handle, e);
+});
+document.addEventListener("keydown", e => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const h = e.target.closest?.(".ax-handle[data-handle]");
+  if (!h) return;
+  e.preventDefault();
+  copyHandle(h.dataset.handle, e);
+});
+
+function copyHandle(h, ev) {
+  ev?.stopPropagation();   // copiar el @ no abre la ficha
+  if (!navigator.clipboard) { toast("El navegador no deja copiar desde acá", "bad"); return; }
+  navigator.clipboard.writeText("@" + h)
+    .then(() => toast("@" + h + " copiado", "ok"))
+    // Sin permiso de portapapeles el clic no hacía absolutamente nada.
+    .catch(() => toast("No se pudo copiar al portapapeles", "bad"));
+}
+
+// Clic en la fila = editar, salvo que se haya tocado un botón (pausar, borrar,
+// pedir ajuste) o se esté seleccionando texto para copiarlo.
+function abrirDesdeCard(ev, id) {
+  if (ev.target.closest(".ax-acts, .ax-handle, button, a")) return;
+  if ((window.getSelection()?.toString() || "").length) return;
+  openClientModal(id);
+}
+
+function cardKey(ev, id) {
+  if (ev.target !== ev.currentTarget) return;   // el foco está en un botón de adentro
+  if (ev.key !== "Enter" && ev.key !== " ") return;
+  ev.preventDefault();
+  openClientModal(id);
 }
 
 // Snapshot del formulario al abrir: sirve para avisar si se cierra con cambios
@@ -1025,12 +1406,19 @@ function quitarCalidad(tipo, i) {
   renderRangos();
 }
 
+// Cada apertura de ficha se lleva un número, por el mismo motivo que loadClients:
+// cargarCalidades() sale a la red y, cerrando y abriendo otro cliente rápido, la
+// vuelta de la primera redibujaba los rangos del cliente anterior sobre la ficha
+// nueva — y encima pisaba el snapshot, dejándola en falso "sin cambios".
+let _aperturaFicha = 0;
+
 // Trae las calidades del CRM y redibuja con ellas. Se llama al abrir la ficha.
-async function renderCalidades(rg) {
+async function renderCalidades(rg, token) {
   rangosState = {};
   for (const k of RANGE_KEYS) rangosState[k] = _entradasDeRango(rg[k]);
   renderRangos();                 // primero sin calidades: los rangos ya se ven
   await cargarCalidades();
+  if (token !== _aperturaFicha) return;
   renderRangos();
   // Los selects se llenan async, después de que openClientModal tomó la foto
   // del formulario: sin esto la ficha arranca marcada como "con cambios".
@@ -1163,6 +1551,7 @@ function findClient(id) {
 
 function openClientModal(id) {
   if (!selectedVendedor) { toast("Elegí un vendedor primero", "bad"); return; }
+  const token = ++_aperturaFicha;
   hideErr("client-err");
   const c = id ? findClient(id) : null;
   const gen = !!(c && c.reserved);
@@ -1195,7 +1584,7 @@ function openClientModal(id) {
   actualizarVentaHint();
   const rg = (c && c.ranges) || {};
   renderComentarios(rg.comentarios);   // antes de renderCalidades: entra en el snapshot
-  renderCalidades(rg);   // async: dibuja las filas y las llena con lo del CRM
+  renderCalidades(rg, token);   // async: dibuja las filas y las llena con lo del CRM
   const av = document.getElementById("client-av");
   if (gen) {
     // El genérico no es una persona: ícono, no iniciales.
@@ -1328,11 +1717,23 @@ async function saveClient() {
   finally { btn.disabled = false; btn.classList.remove("ax-btn--busy"); btn.textContent = btnTxt; }
 }
 
-async function togglePause(id) {
+function togglePause(id) {
   const c = clientsCache.find(x => x.id === id); if (!c) return;
+  setClientStatus(id, c.status === "active" ? "paused" : "active");
+}
+
+// El estado va explícito (y no "el contrario del que tenía"): el Deshacer se
+// ejecuta después de recargar la lista, y ahí "el contrario" ya es otro.
+async function setClientStatus(id, status, silencioso = false) {
+  const c = clientsCache.find(x => x.id === id); if (!c) return;
+  const previo = c.status;
   try {
-    await api("PATCH", cliUrl(`/${id}`), { status: c.status === "active" ? "paused" : "active" });
-    toast(c.status === "active" ? "Cliente pausado" : "Cliente activado", "ok");
+    await api("PATCH", cliUrl(`/${id}`), { status });
+    // Pausar es un clic en una fila de una lista larga: errarle al cliente de al
+    // lado es fácil y, sin deshacer, se descubre horas después.
+    if (!silencioso)
+      toast(`@${c.ig_username} ${status === "paused" ? "pausado" : "activado"}`, "ok",
+        { label: "Deshacer", run: () => setClientStatus(id, previo, true) });
     loadClients();
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -1593,6 +1994,19 @@ async function saveUser() {
   } else if (pass) {
     payload.password = pass;   // en edición, vacía = no tocar
   }
+  // Validación acá y no en el 400: alta sin usuario o con pass corta se sabe sin
+  // salir a la red, y no se pierde lo tipeado.
+  if (!id) {
+    if (!(payload.username || "").trim()) { showErr("usr-err", "Poné un nombre de usuario"); return; }
+    if ((pass || "").length < 4) { showErr("usr-err", "La contraseña tiene que tener al menos 4 caracteres"); return; }
+  } else if (pass && pass.length < 4) {
+    showErr("usr-err", "La contraseña tiene que tener al menos 4 caracteres"); return;
+  }
+  hideErr("usr-err");
+  // Enter en el modal dispara el botón primario: sin deshabilitarlo, dos Enter
+  // seguidos creaban el usuario dos veces.
+  const btn = document.getElementById("usr-save");
+  if (btn) { if (btn.disabled) return; btn.disabled = true; }
   try {
     if (id) await api("PATCH", `/api/admin/usuarios/${id}?vendedor=${selectedVendedor}`, payload);
     else await api("POST", usrUrl(), payload);
@@ -1600,6 +2014,7 @@ async function saveUser() {
     toast(id ? "Usuario actualizado" : "Usuario creado", "ok");
     await loadUsuarios();
   } catch (e) { showErr("usr-err", e.message); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function toggleUserActive(id) {

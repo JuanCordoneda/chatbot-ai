@@ -10,6 +10,28 @@
     body { overflow-y: scroll; }
     .ax a { text-decoration: none; color: inherit; }
 
+    /* ── Contraste del texto secundario ────────────────────────────────────
+       --faint es el color de la mitad de lo que se lee acá: el @usuario, los
+       largos de prompt, las bajadas de los KPI, el contador de resultados.
+       Los valores de style.css lo dejaban en 1.9:1 sobre blanco (claro) y
+       4.2:1 sobre la tarjeta (oscuro): en claro directamente no se leía.
+       Se corrige solo dentro del panel (body.ax) para no tocar de rebote el
+       generador de comentarios, que no es parte de este pedido. */
+    body.ax        { --faint: #9a9a9a; }   /* 5.1:1 sobre --surface */
+    body.ax.light  { --faint: #6f6e6a; }   /* 4.9:1 sobre blanco */
+
+    /* Todo lo que es número en una lista va con cifras de ancho fijo: sin esto
+       las columnas de saldos y de rangos bailan de fila en fila. */
+    .ax-k-num, .ax-uso-total, .ax-cnt, .ax-filtro-c, .ax-group-c,
+    .ax-venta, .ax-card .ax-chip, .ax-filtro-res, .ax-chip-n {
+      font-variant-numeric: tabular-nums; }
+
+    /* El glow amarillo del fondo (style.css) está pensado para el home, que
+       arranca con mucho aire. Acá cae justo sobre el header y los KPI y los
+       tiñe de mostaza: se baja a un tercio, alcanza para que no sea un plano
+       liso sin ensuciar el contenido. */
+    body.ax::after { opacity: .3; }
+
     /* El header usa las clases compartidas de style.css (mismas que el home).
        En el home vive dentro de .app, que tiene zoom 1.2: sin replicarlo acá se
        vería ~17% más chico que en la herramienta. El zoom obliga a compensar el
@@ -36,7 +58,9 @@
        zoom 1.1: al 100% del navegador todo se veía chico (el header ya va a 1.2
        por venir del home). Los modales llevan el mismo zoom aparte, porque son
        fixed y quedan fuera de este contenedor. */
-    .ax-wrap { zoom: 1.1; max-width: 1160px; margin: 0 auto; padding: 98px 24px 80px; position: relative; z-index: 1; }
+    /* Más ancho: las tarjetas tienen mucho que contar (campaña, saldo, prompt,
+       cantidades) y a 1160 el subtítulo se cortaba en pantallas grandes. */
+    .ax-wrap { zoom: 1.1; max-width: 1440px; margin: 0 auto; padding: 98px 24px 80px; position: relative; z-index: 1; }
     .ax-page-h { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
     .ax-page-h h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; }
     .ax-page-h p { color: var(--faint); font-size: .9rem; margin-top: 3px; }
@@ -56,12 +80,41 @@
     .ax-seg .ax-tab.ax-on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
     .ax-seg .ax-tab.ax-on .ax-cnt { background: var(--yellow); color: #1a1a1a; }
 
-    .ax-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 14px; flex-wrap: wrap; }
+    /* Los campos con etiqueta arriba (Vendedor, Ordenar por) son más altos que
+       el buscador y el botón: centrados, sus <select> quedaban un renglón más
+       abajo. Se alinean por abajo y todos los controles miden lo mismo. */
+    .ax-toolbar { display: flex; align-items: flex-end; gap: 12px; margin: 18px 0 14px; flex-wrap: wrap; }
+    .ax-toolbar > .ax-btn,
+    .ax-toolbar .ax-search input,
+    .ax-toolbar .ax-field select { height: 40px; }
+    .ax-toolbar > .ax-btn { padding-top: 0; padding-bottom: 0; }
+    /* Los filtros quedan pegados entre sí a la izquierda y el botón de crear se
+       va solo al extremo: con space-between el buscador flotaba en el medio. */
+    .ax-toolbar > .ax-btn:last-child { margin-left: auto; }
     .ax-search { position: relative; flex: 1; max-width: 340px; }
     .ax-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); opacity: .5; width: 16px; height: 16px; }
     .ax-search input { width: 100%; background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
       border-radius: 11px; padding: 10px 12px 10px 36px; font-family: var(--font); font-size: .9rem; }
     .ax-search input:focus { outline: none; border-color: var(--yellow); }
+
+    .ax-search-x { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--surface3);
+      color: var(--muted); font-size: 1rem; line-height: 1; cursor: pointer; }
+    .ax-search-x:hover { color: var(--text); }
+
+    /* Filtros rápidos: chips, no un <select>. Se ve de una cuántos hay de cada
+       cosa sin tener que abrir nada. */
+    .ax-filtros { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 0 0 12px; }
+    .ax-filtro { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px;
+      border: 1px solid var(--border2); background: var(--surface); color: var(--muted);
+      font-family: var(--font); font-size: .82rem; font-weight: 600; cursor: pointer; transition: .13s; }
+    .ax-filtro:hover { color: var(--text); border-color: var(--muted); }
+    .ax-filtro .ax-filtro-c { font-size: .72rem; font-weight: 800; background: var(--surface3);
+      border-radius: 20px; padding: 0 6px; }
+    .ax-filtro.ax-on { background: var(--yellow); border-color: var(--yellow); color: #1a1a1a; }
+    .ax-filtro.ax-on .ax-filtro-c { background: rgba(0,0,0,.16); color: inherit; }
+    .ax-filtro--vacio { opacity: .4; cursor: default; }
+    .ax-filtro-res { margin-left: auto; font-size: .8rem; color: var(--faint); }
 
     .ax-panel { display: none; }
     .ax-panel.ax-on { display: block; animation: axfade .18s ease; }
@@ -77,6 +130,14 @@
     .ax-card { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--border);
       border-radius: 14px; padding: 13px 16px; transition: border-color .13s, background .13s; }
     .ax-card:hover { border-color: var(--border2); }
+    /* La fila entera abre la ficha. Se nota con el cursor y un realce suave;
+       el foco de teclado se ve igual que el hover, con el anillo del sistema. */
+    .ax-card--go { cursor: pointer; }
+    .ax-card--go:hover { background: var(--surface2); }
+    .ax-card--go:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px;
+      border-color: var(--yellow); }
+    /* Lo que se está buscando, resaltado dentro del nombre y del @usuario. */
+    .ax-mark { background: var(--yellow-lo); color: inherit; border-radius: 3px; padding: 0 1px; }
     .ax-card.ax-dimmed { opacity: .55; }
     .ax-avatar { width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0; display: grid; place-items: center;
       font-weight: 800; font-size: 1rem; color: #fff; }
@@ -103,6 +164,23 @@
        poner un chip en cada tarjeta sería ruido. */
     .ax-pill--pro { background: var(--yellow-lo); color: var(--yellow-dk); }
     body:not(.light) .ax-pill--pro { color: var(--yellow); }
+
+    /* Modo palabra clave: cambia por completo lo que sale publicado, así que va
+       marcado en la tarjeta y no escondido adentro de la ficha. */
+    .ax-pill--kw { background: rgba(125,211,252,.16); color: #2a86b8; }
+    body:not(.light) .ax-pill--kw { color: #7dd3fc; }
+    /* Algo le falta para funcionar bien (sin prompt, sin cantidades). */
+    .ax-pill--falta { background: rgba(255,107,107,.13); color: #d2564f; }
+    body:not(.light) .ax-pill--falta { color: #ff8f8f; }
+
+    /* Segundo renglón de la tarjeta: la config en números, ahora que el ancho da. */
+    .ax-card .ax-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin-top: 5px; font-size: .76rem; color: var(--faint); }
+    .ax-card .ax-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
+      border-radius: 7px; background: var(--surface2); border: 1px solid var(--border);
+      white-space: nowrap; }
+    .ax-card .ax-chip b { color: var(--muted2); font-weight: 700; }
+    .ax-card .ax-chip--off { border-style: dashed; opacity: .8; }
 
     /* Campaña del CRM asociada al cliente (de dónde sale la plata). */
     .ax-venta { font-weight: 700; color: var(--muted2); background: var(--surface3);
@@ -445,6 +523,15 @@
       border-radius: 11px; margin-bottom: 15px; font-size: .86rem; display: none; }
     .ax-err.ax-on { display: block; }
     .ax-hidden { display: none !important; }
+    /* Con un modal abierto la página de atrás no scrollea: con la ficha a
+       pantalla completa, la rueda movía la lista de abajo y al cerrar aparecías
+       en otro lado. El scrollbar se deja reservado (body ya es overflow-y:
+       scroll) para que el layout no pegue el salto de 15px al abrir. */
+    body.ax-locked { overflow-y: hidden; scrollbar-gutter: stable; }
+    /* Sin datos del CRM no es ni bueno ni malo: es "no sé". En gris, no en rojo
+       —marcarlos a todos en rojo hacía perder de vista a los que sí tienen un
+       problema real de saldo. */
+    .ax-venta--sindatos { color: var(--faint); background: var(--surface2); font-weight: 600; }
     /* Bandeja de pedidos: el texto del vendedor, tal cual lo escribió. */
     .ax-ped-txt { white-space: pre-wrap; background: var(--surface2); border: 1px solid var(--border);
                   border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: .88rem; line-height: 1.5; }
@@ -461,8 +548,17 @@
     .ax-toast.ax-ok { border-color: rgba(74,222,128,.5); }
     .ax-toast.ax-bad { border-color: rgba(255,90,90,.5); }
     .ax-toast .ax-ti { width: 18px; height: 18px; flex-shrink: 0; }
+    /* Botón de deshacer dentro del toast. */
+    /* El toast entero es pointer-events:none (no tapa la pantalla); el botón
+       tiene que volver a aceptar clics o el Deshacer no se puede tocar. */
+    .ax-toast-a { pointer-events: auto; margin-left: 4px; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--border2);
+      background: transparent; color: var(--yellow); font-family: var(--font); font-size: .82rem;
+      font-weight: 700; cursor: pointer; }
+    .ax-toast-a:hover { background: var(--yellow-lo); }
 
-    .ax-skeleton { height: 68px; border-radius: 14px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+    /* Alto real de la tarjeta (ahora lleva el renglón de configuración): si es
+       más bajo, la lista da un salto al llegar los datos. */
+    .ax-skeleton { height: 92px; border-radius: 14px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
       background-size: 200% 100%; animation: axsk 1.3s infinite; }
     @keyframes axsk { to { background-position: -200% 0; } }
 
@@ -712,6 +808,106 @@
       .ax-modal-actions--sticky .ax-btn { flex: 1; justify-content: center; }
       .ax-mo-foot { flex-basis: 100%; margin: 0 0 8px; }
     }
+
+    /* ═══ Pasada de densidad y de ancho sobre la lista ══════════════════════
+       La fila medía 128px y todo su contenido vivía apilado en el 40% izquierdo:
+       el 60% derecho era vacío, entraban seis clientes en pantalla y había que
+       scrollear para comparar dos. Ahora la fila es una grilla de cuatro
+       columnas —quién es · cómo está configurado · de dónde sale la plata · qué
+       hacer con él— que es exactamente el orden en que se lee. Dos renglones en
+       vez de tres, ~76px, y la configuración de todos alineada en la misma
+       columna para poder barrerla con la vista. */
+    .ax-card { gap: 13px; padding: 11px 15px; }
+    .ax-avatar { width: 38px; height: 38px; border-radius: 11px; font-size: .92rem; }
+    .ax-card .ax-name { font-size: 1rem; font-weight: 700; letter-spacing: -0.015em; gap: 7px; }
+    .ax-card .ax-sub { font-size: .82rem; margin-top: 1px; }
+    /* Los puntos que separan los datos del subtítulo: son andamiaje, no dato. */
+    .ax-card .ax-sep { opacity: .45; }
+    .ax-sinnombre { color: var(--faint); font-weight: 500; }
+
+    /* Los chips de configuración viven en el mismo renglón que el @usuario: es
+       un renglón que crece con lo que dice, así que la fila se llena sola. En
+       una columna propia alineada a la derecha se veía prolijo con nombres
+       largos y se abría un pozo de 600px con un nombre corto. */
+    .ax-card .ax-sub { flex-wrap: wrap; row-gap: 4px; }
+    .ax-card .ax-meta { display: contents; }
+    /* El chip de plata sí se lee en vertical (comparando clientes), así que se
+       queda a la derecha, pegado a las acciones. */
+    .ax-side-venta { display: flex; align-items: center; gap: 7px; flex-shrink: 0;
+      margin-left: auto; padding-left: 14px; font-size: .78rem; }
+
+    /* Las acciones estaban en opacity:0 hasta el hover: además de no descubrirse
+       solas, dejaban ese hueco enorme a la derecha sin explicación. Ahora están
+       siempre, atenuadas, y se encienden en la fila que se está mirando. */
+    .ax-card .ax-acts { opacity: .48; transition: opacity .13s; }
+    .ax-card:hover .ax-acts, .ax-card:focus-within .ax-acts { opacity: 1; }
+    @media (hover: none) { .ax-card .ax-acts { opacity: 1; } }
+
+    /* Angosto: la columna de configuración vuelve abajo, a lo ancho de la fila,
+       en lugar de exprimirse contra las acciones. */
+    /* Angosto: el chip de plata baja al renglón del @usuario junto a los demás,
+       en vez de exprimirse contra las acciones. */
+    @media (max-width: 1080px) {
+      .ax-card { flex-wrap: wrap; }
+      .ax-card .ax-main { flex: 1 1 240px; }
+      .ax-side-venta { order: 3; flex-basis: 100%; margin-left: 0; padding-left: 52px; }
+      .ax-card .ax-acts { order: 2; }
+    }
+
+    /* Un chip "off" es la ausencia de configuración: en caja punteada y con el
+       mismo peso que un valor cargado, un cliente sin nada configurado mostraba
+       tres cajas gritando lo que NO tiene. Sin caja y en gris, se lee como lo
+       que es —un hueco— y los valores de verdad resaltan solos. */
+    .ax-card .ax-chip--off { background: none; border-color: transparent;
+      color: var(--faint); padding-left: 2px; padding-right: 2px; opacity: 1; }
+
+    /* ── Avatares ──────────────────────────────────────────────────────────
+       El color salía de un hsl(h,62%,52%): ocho filas daban ocho gradientes
+       saturados (carmín, violeta, magenta, verde) que gritaban más que el
+       propio nombre y peleaban con el amarillo de la marca. La tonalidad por
+       @usuario se mantiene —sirve para reconocer la fila— pero apagada, para
+       que sea un color de fondo y no el protagonista. */
+    .ax-avatar { font-weight: 700; letter-spacing: -0.01em;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.09); }
+
+    /* ── KPIs ──────────────────────────────────────────────────────────────
+       El número es el dato; la etiqueta y la bajada eran casi del mismo peso
+       visual y competían. Se achica el bloque y se separan las jerarquías. */
+    .ax-kpi { padding: 15px 17px; }
+    .ax-kpi .ax-k-label { font-size: .72rem; letter-spacing: .06em; color: var(--muted); }
+    .ax-kpi .ax-k-num { font-size: 1.85rem; }
+
+    /* ── Foco, unificado ───────────────────────────────────────────────────
+       Convivían tres estilos distintos (outline sólido, box-shadow amarillo,
+       solo border-color) según dónde cayera el tab. Uno solo, y siempre visible
+       sobre cualquier fondo del panel. */
+    .ax :focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+    .ax-card--go:focus-visible { outline-offset: -2px; }
+
+    /* Pausado se atenuaba bajando la opacidad de la fila entera al 55%, y eso
+       se comía justo la alerta que hay que ver: un cliente pausado con $2.10 de
+       saldo es el caso más urgente de la lista. Como la opacidad del padre crea
+       un grupo, ningún hijo puede recuperarse desde adentro — así que la fila
+       se apaga por color y no por opacidad, y el chip de plata y las pastillas
+       de estado se quedan a full. */
+    .ax-card--go.ax-dimmed { opacity: 1; }
+    .ax-card--go.ax-dimmed .ax-name { color: var(--muted); }
+    .ax-card--go.ax-dimmed .ax-sub  { color: var(--faint); }
+    .ax-card--go.ax-dimmed .ax-avatar { opacity: .45; }
+    .ax-card--go.ax-dimmed .ax-meta { opacity: .55; }
+
+    /* ── Ancho de los controles dentro de la ficha ─────────────────────────
+       El modal mide hasta 1320px y los campos se estiraban a todo el ancho:
+       "Calidad del motor" eran dos botones de 660px cada uno para elegir entre
+       dos palabras, y los casilleros de "cuántos manda" quedaban perdidos en
+       tarjetas gigantes. Un control no tiene por qué medir lo que mide la
+       ventana: se acotan al ancho que su contenido justifica. */
+    .ax-modal--lg .ax-opt { max-width: 520px; }
+    .ax-modal--lg .ax-opt--wide { max-width: 660px; }
+    .ax-modal--lg .ax-com { max-width: 760px; }
+    /* La bajada de la sección se despega del título en pantallas anchas; que no
+       se vaya al otro extremo de una fila de 1300px. */
+    .ax-modal--lg .ax-sec-sub { max-width: 46ch; }
   </style>
 </head>
 <body class="ax" data-is-admin="{{ 'true' if is_admin else 'false' }}" data-account="{{ account_id }}">
@@ -796,20 +992,42 @@
       <div class="ax-toolbar">
         {% if is_admin %}
         <div class="ax-field" style="margin:0;min-width:220px;">
-          <label style="font-size:.72rem;">Vendedor</label>
+          <label for="vendedor-select" style="font-size:.72rem;">Vendedor</label>
           <select id="vendedor-select" onchange="onVendedorChange()"></select>
         </div>
         {% endif %}
         <div class="ax-search">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <input id="cli-search" placeholder="Buscar por nombre o @usuario…" oninput="renderClients()" />
+          <!-- type="text" a propósito: con type="search" el navegador agrega su
+               propia X y quedan dos botones de limpiar, uno encima del otro. -->
+          <input id="cli-search" autocomplete="off" aria-label="Buscar clientes por nombre o @usuario"
+                 placeholder="Buscar por nombre o @usuario…   /" oninput="buscarClientes()" />
+          <button type="button" class="ax-search-x ax-hidden" id="cli-search-x" title="Limpiar (Esc)" aria-label="Limpiar búsqueda" onclick="limpiarBusqueda()">×</button>
+        </div>
+        <div class="ax-field" style="margin:0;min-width:170px;">
+          <label for="cli-sort" style="font-size:.72rem;">Ordenar por</label>
+          <select id="cli-sort" onchange="setCliOrden()">
+            <option value="nombre">Nombre (A-Z)</option>
+            <option value="handle">@usuario (A-Z)</option>
+            <option value="atencion">Los que piden atención</option>
+            <option value="saldo">Menos saldo primero</option>
+            <option value="prompt">Prompt más largo</option>
+          </select>
         </div>
         <button class="ax-btn ax-btn--primary" id="btn-new-client" onclick="openClientModal()">
           <svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           Nuevo cliente
         </button>
       </div>
+      <!-- Filtros rápidos: son las preguntas que uno le hace a esta lista todo
+           el tiempo ("¿cuáles están pausados?", "¿a cuáles les falta plata?"),
+           y hasta ahora había que leerla entera para responderlas. -->
+      <div class="ax-filtros" id="cli-filtros" role="group" aria-label="Filtrar clientes"></div>
       <div class="ax-fondos-alert" id="fondos-alert"></div>
+      <!-- Región viva propia y persistente para el resultado de filtrar/buscar:
+           el contador de las chips se redibuja entero en cada render, y un
+           aria-live que se destruye y se recrea no anuncia nada. -->
+      <div class="ax-seg-src" id="cli-live" role="status" aria-live="polite"></div>
       <div class="ax-list" id="clientes-list"></div>
     </section>
 
@@ -819,7 +1037,7 @@
     <section class="ax-panel" id="panel-pedidos">
       <div class="ax-toolbar">
         <div class="ax-field" style="margin:0;min-width:200px;">
-          <label style="font-size:.72rem;">Estado</label>
+          <label for="ped-status" style="font-size:.72rem;">Estado</label>
           <select id="ped-status" onchange="loadPedidos()">
             <option value="pending">Pendientes</option>
             <option value="done">Resueltos</option>
@@ -873,7 +1091,9 @@
   </div>
 
   <!-- Modal cliente -->
-  <div class="ax-mo" id="client-mo">
+  <!-- data-foco-propio: este modal decide él a qué campo va el foco al abrir
+       (el @usuario, o el prompt si es una ficha del sistema). -->
+  <div class="ax-mo" id="client-mo" data-foco-propio="1">
     <div class="ax-modal ax-modal--lg" role="dialog" aria-modal="true" aria-labelledby="client-title">
       <!-- Cabecera fija: quién se está editando, siempre a la vista aunque el
            modal scrollee, con el cierre a mano (antes solo Esc o el botón del pie). -->
@@ -897,12 +1117,12 @@
              sentido gastar dos renglones (y el ancho sobra) en apilarlos. -->
         <div class="ax-gridq">
           <div class="ax-field">
-            <label>@usuario de Instagram</label>
+            <label for="client-ig">@usuario de Instagram</label>
             <div class="ax-prefixed"><span>@</span><input id="client-ig" placeholder="peterjfournier" autocomplete="off" aria-describedby="fe-client-ig" /></div>
             <div class="ax-fe" id="fe-client-ig"></div>
           </div>
           <div class="ax-field">
-            <label>Nombre para mostrar</label>
+            <label for="client-name">Nombre para mostrar</label>
             <input id="client-name" placeholder="Peter Fournier" autocomplete="off" />
             <div class="ax-fe" id="fe-client-name"></div>
           </div>
@@ -989,7 +1209,7 @@
       <section class="ax-sec ax-sec--trafico">
         <div class="ax-sec-h"><span class="ax-sec-ico" aria-hidden="true">📈</span><h4>Tráfico</h4><span class="ax-sec-sub">de dónde sale la plata y cuánto engagement se manda</span></div>
         <div class="ax-field">
-          <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
+          <label for="client-venta">¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
           <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
           <div id="client-venta-detalle" class="ax-venta-detalle"></div>
         </div>
@@ -1007,7 +1227,7 @@
 
       <div class="ax-split-prompt">
         <div class="ax-field ax-field--editor">
-          <label>
+          <label for="client-prompt">
             <span>Instrucciones para la IA</span>
             <span class="ax-editor-meta">
               <span class="ax-hint" id="client-prompt-count">0 caracteres</span>
@@ -1060,21 +1280,21 @@
   <!-- Modal vendedor (cuenta + credenciales de Growi) -->
   <!-- Modal usuario (login propio = asiento) -->
   <div class="ax-mo" id="usr-mo">
-    <div class="ax-modal" style="max-width:480px;">
+    <div class="ax-modal" role="dialog" aria-modal="true" aria-labelledby="usr-title" style="max-width:480px;">
       <h3 id="usr-title">Nuevo usuario</h3>
       <div class="ax-msub" id="usr-subtitle">Cada usuario entra con su propio login. Es un asiento de la suscripción.</div>
       <div class="ax-err" id="usr-err"></div>
       <input type="hidden" id="usr-id" />
       <div class="ax-field">
-        <label>Usuario</label>
+        <label for="usr-username">Usuario</label>
         <input id="usr-username" placeholder="juan" autocomplete="off" autocapitalize="none" spellcheck="false" />
       </div>
       <div class="ax-field">
-        <label>Contraseña <span class="ax-hint" id="usr-pass-hint">mínimo 4 caracteres</span></label>
+        <label for="usr-pass">Contraseña <span class="ax-hint" id="usr-pass-hint">mínimo 4 caracteres</span></label>
         <input id="usr-pass" type="text" placeholder="contraseña" autocomplete="off" />
       </div>
       <div class="ax-field">
-        <label>Rol</label>
+        <label for="usr-role">Rol</label>
         <select id="usr-role">
           <option value="vendedor">Vendedor</option>
           <option value="admin">Admin</option>
@@ -1086,35 +1306,35 @@
       </div>
       <div class="ax-mo-acts">
         <button class="ax-btn" onclick="closeMo('usr-mo')">Cancelar</button>
-        <button class="ax-btn ax-btn--primary" onclick="saveUser()">Guardar</button>
+        <button class="ax-btn ax-btn--primary" id="usr-save" onclick="saveUser()">Guardar</button>
       </div>
     </div>
   </div>
 
-  <div class="ax-mo" id="ven-mo">
-    <div class="ax-modal" style="max-width:560px;">
+  <div class="ax-mo" id="ven-mo" data-foco-propio="1">
+    <div class="ax-modal" role="dialog" aria-modal="true" aria-labelledby="ven-title" style="max-width:560px;">
       <h3 id="ven-title">Nuevo vendedor</h3>
       <div class="ax-msub" id="ven-subtitle">El vendedor entra a la plataforma con este email y contraseña de Growi.</div>
       <div class="ax-err" id="ven-err"></div>
       <input type="hidden" id="ven-id" />
       <div class="ax-grid2">
-        <div class="ax-field"><label>Nombre</label><input id="ven-name" placeholder="Facu" autocomplete="off" /></div>
-        <div class="ax-field"><label>Email de Growi</label><input id="ven-email" type="email" placeholder="facu@growiagency.com" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
+        <div class="ax-field"><label for="ven-name">Nombre</label><input id="ven-name" placeholder="Facu" autocomplete="off" /></div>
+        <div class="ax-field"><label for="ven-email">Email de Growi</label><input id="ven-email" type="email" placeholder="facu@growiagency.com" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
       </div>
       <div class="ax-field">
-        <label>Contraseña de Growi <span class="ax-hint" id="ven-pass-hint">la que usa en el CRM</span></label>
+        <label for="ven-pass">Contraseña de Growi <span class="ax-hint" id="ven-pass-hint">la que usa en el CRM</span></label>
         <input id="ven-pass" type="text" placeholder="contraseña del CRM" autocomplete="off" />
       </div>
       <div class="ax-grid2">
-        <div class="ax-field"><label>ID vendedor <span class="ax-hint">CRM</span></label><input id="ven-idvendedor" placeholder="opcional" autocomplete="off" /></div>
-        <div class="ax-field"><label>ID venta <span class="ax-hint">CRM</span></label><input id="ven-idventa" placeholder="opcional" autocomplete="off" /></div>
+        <div class="ax-field"><label for="ven-idvendedor">ID vendedor <span class="ax-hint">CRM</span></label><input id="ven-idvendedor" placeholder="opcional" autocomplete="off" /></div>
+        <div class="ax-field"><label for="ven-idventa">ID venta <span class="ax-hint">CRM</span></label><input id="ven-idventa" placeholder="opcional" autocomplete="off" /></div>
       </div>
       <div class="ax-grid2">
-        <div class="ax-field"><label>Disponible <span class="ax-hint">tope por orden</span></label><input id="ven-disponible" type="number" min="0" placeholder="150" autocomplete="off" /></div>
-        <div class="ax-field"><label>URL del CRM</label><input id="ven-url" placeholder="https://crm.growiagency.com" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
+        <div class="ax-field"><label for="ven-disponible">Disponible <span class="ax-hint">tope por orden</span></label><input id="ven-disponible" type="number" min="0" placeholder="150" autocomplete="off" /></div>
+        <div class="ax-field"><label for="ven-url">URL del CRM</label><input id="ven-url" placeholder="https://crm.growiagency.com" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
       </div>
       <div class="ax-field">
-        <label>Proxy HTTP <span class="ax-hint">opcional · IP fija del CRM</span></label>
+        <label for="ven-proxy">Proxy HTTP <span class="ax-hint">opcional · IP fija del CRM</span></label>
         <input id="ven-proxy" placeholder="http://user:pass@host:puerto" autocomplete="off" autocapitalize="none" spellcheck="false" />
       </div>
       <div class="ax-help">
@@ -1131,13 +1351,13 @@
   {% if is_admin %}
   <!-- Asistente de IA (SOLO admin: es lo que consume tokens de Claude).
        No guarda: deja la propuesta en el editor para revisar y guardar a mano. -->
-  <div class="ax-mo" id="ai-mo">
-    <div class="ax-modal" style="max-width:560px;">
-      <h3>Ajustar el prompt con IA</h3>
+  <div class="ax-mo" id="ai-mo" data-foco-propio="1">
+    <div class="ax-modal" role="dialog" aria-modal="true" aria-labelledby="ai-title" style="max-width:560px;">
+      <h3 id="ai-title">Ajustar el prompt con IA</h3>
       <div class="ax-msub" id="ai-subtitle">Escribí en castellano qué querés cambiar. La propuesta queda en el editor: no se guarda hasta que apretés Guardar.</div>
       <div class="ax-err" id="ai-err"></div>
       <div class="ax-field">
-        <label>Qué cambiar</label>
+        <label for="ai-instruction">Qué cambiar</label>
         <textarea id="ai-instruction" rows="5" placeholder="Ej: que no mencione a la competencia, que los comentarios sean más cortos y que sume alguno preguntando por el precio…"></textarea>
       </div>
       <div class="ax-modal-actions">
@@ -1148,14 +1368,14 @@
   </div>
   {% else %}
   <!-- Pedido del vendedor: texto plano, sin IA. Cae en la bandeja del admin. -->
-  <div class="ax-mo" id="ped-mo">
-    <div class="ax-modal" style="max-width:560px;">
+  <div class="ax-mo" id="ped-mo" data-foco-propio="1">
+    <div class="ax-modal" role="dialog" aria-modal="true" aria-labelledby="ped-title" style="max-width:560px;">
       <h3 id="ped-title">Pedir un ajuste</h3>
       <div class="ax-msub">Contá qué querés que cambie en las instrucciones de este cliente. Lo recibe el administrador y lo aplica él.</div>
       <div class="ax-err" id="ped-err"></div>
       <input type="hidden" id="ped-client-id" />
       <div class="ax-field">
-        <label>Qué querés cambiar</label>
+        <label for="ped-text">Qué querés cambiar</label>
         <textarea id="ped-text" rows="5" placeholder="Ej: que los comentarios no nombren la marca, que sean más cortos y que hablen en español…"></textarea>
       </div>
       <div class="ax-modal-actions">
@@ -1168,7 +1388,8 @@
 
   <!-- Confirm -->
   <div class="ax-mo" id="confirm-mo">
-    <div class="ax-modal ax-confirm">
+    <div class="ax-modal ax-confirm" role="alertdialog" aria-modal="true"
+         aria-labelledby="confirm-title" aria-describedby="confirm-text">
       <div class="ax-cico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 9v4m0 4h.01M10.3 3.9L2.4 18a2 2 0 001.7 3h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <h3 id="confirm-title">¿Confirmás?</h3>
       <p id="confirm-text"></p>
@@ -1179,7 +1400,10 @@
     </div>
   </div>
 
-  <div class="ax-toast" id="toast"></div>
+  <!-- role/aria-live: los avisos ("Cliente actualizado", "No se pudo copiar")
+       eran invisibles para un lector de pantalla. `assertive` porque varios
+       reemplazan a un error que hay que oír ya. -->
+  <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/admin.js?v=1785700200"></script>
 </body>
 </html>
