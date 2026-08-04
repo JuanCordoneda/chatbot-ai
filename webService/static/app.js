@@ -150,6 +150,7 @@ async function generarComentarios() {
   generando = true;
   setError("");
   ocultarIaError();
+  guardarLinkReciente(url);
   currentUrl = url;
   currentKeyword = keyword;
   currentJobId = null;
@@ -2758,6 +2759,9 @@ function reiniciar() {
   esperandoTranscripcion = false;
   pendingComentarios = [];
   document.getElementById("ig-link").value = "";
+  refrescarBotonLimpiar();
+  validarLinkVivo();
+  pintarRecientes();
   currentKeyword = "";
   mostrarKeyword(false);
   keywordSugerida = "";
@@ -2877,6 +2881,131 @@ function toggleTheme() {
   }
 })();
 
+// ── Home: pegar / limpiar el link ─────────────────────────────────────────
+
+// Un link de post/reel de Instagram. Sirve para avisar ANTES de generar: un
+// link de perfil o de otra red se scrapea igual y falla recién en el servidor,
+// después de la espera.
+const RE_POST_IG = /^https?:\/\/(www\.)?instagram\.com\/(p|reel|reels|tv)\/[A-Za-z0-9_-]+/i;
+
+function estadoLink(url) {
+  if (!url) return "";
+  if (RE_POST_IG.test(url)) return "ok";
+  return "warn";
+}
+
+// Feedback en el borde del campo + una línea de ayuda. No bloquea: si mañana
+// cambia el formato de las URLs, el vendedor igual puede darle a generar.
+function validarLinkVivo() {
+  const url = document.getElementById("ig-link").value.trim();
+  const field = document.getElementById("ig-link").closest(".ig-field");
+  const hint = document.getElementById("ig-link-hint");
+  const estado = estadoLink(url);
+
+  field.classList.toggle("ig-field--ok", estado === "ok");
+  field.classList.toggle("ig-field--warn", estado === "warn");
+
+  if (!hint) return;
+  if (estado === "warn") {
+    hint.textContent = "Esto no parece un link de post o reel de Instagram.";
+    hint.classList.remove("hidden");
+  } else {
+    hint.classList.add("hidden");
+  }
+}
+
+// ── Links recientes ───────────────────────────────────────────────────────
+// El mismo post se re-genera seguido (salió mal, el cliente pidió otro tono).
+// Volver a buscarlo en Instagram y copiarlo de nuevo es el paso más molesto.
+const RECIENTES_KEY = "growi_links_recientes";
+const RECIENTES_MAX = 4;
+
+function leerRecientes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECIENTES_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((u) => typeof u === "string") : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function guardarLinkReciente(url) {
+  try {
+    const lista = [url, ...leerRecientes().filter((u) => u !== url)].slice(0, RECIENTES_MAX);
+    localStorage.setItem(RECIENTES_KEY, JSON.stringify(lista));
+  } catch (e) {
+    /* localStorage lleno o bloqueado: los recientes son un extra */
+  }
+}
+
+function etiquetaLink(url) {
+  const m = url.match(/\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
+  return m ? m[2].slice(0, 12) : url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 22);
+}
+
+function usarLinkReciente(url) {
+  const input = document.getElementById("ig-link");
+  input.value = url;
+  input.dispatchEvent(new Event("input"));
+  input.focus();
+}
+
+function pintarRecientes() {
+  const wrap = document.getElementById("ig-recientes");
+  if (!wrap) return;
+  const lista = leerRecientes();
+  wrap.innerHTML = "";
+  wrap.classList.toggle("hidden", lista.length === 0);
+  if (!lista.length) return;
+
+  const titulo = document.createElement("span");
+  titulo.className = "ig-recientes-label";
+  titulo.textContent = "Recientes";
+  wrap.appendChild(titulo);
+
+  lista.forEach((url) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "ig-reciente";
+    chip.title = url;
+    chip.textContent = etiquetaLink(url);
+    chip.onclick = () => usarLinkReciente(url);
+    wrap.appendChild(chip);
+  });
+}
+
+function refrescarBotonLimpiar() {
+  const btn = document.getElementById("ig-clear");
+  if (!btn) return;
+  const hay = document.getElementById("ig-link").value.trim() !== "";
+  btn.classList.toggle("hidden", !hay);
+}
+
+function limpiarLink() {
+  const input = document.getElementById("ig-link");
+  input.value = "";
+  refrescarBotonLimpiar();
+  input.focus();
+  input.dispatchEvent(new Event("input"));
+}
+
+// El navegador puede negar el portapapeles (permiso, http): en ese caso no
+// rompemos nada, sólo dejamos el foco en el campo para pegar a mano.
+async function pegarLink() {
+  const input = document.getElementById("ig-link");
+  try {
+    const texto = (await navigator.clipboard.readText()).trim();
+    if (texto) {
+      input.value = texto;
+      input.dispatchEvent(new Event("input"));
+    }
+  } catch (e) {
+    /* sin permiso de portapapeles */
+  }
+  input.focus();
+  refrescarBotonLimpiar();
+}
+
 // Enter key en el input
 document.addEventListener("DOMContentLoaded", () => {
   const linkInput = document.getElementById("ig-link");
@@ -2894,6 +3023,27 @@ document.addEventListener("DOMContentLoaded", () => {
   linkInput.addEventListener("paste", () => setTimeout(pedirSugerencia, 0));
   linkInput.addEventListener("input", pedirSugerencia);
   linkInput.addEventListener("blur", sugerirKeyword);
+
+  // La "x" del campo sólo tiene sentido cuando hay algo escrito.
+  linkInput.addEventListener("input", () => {
+    refrescarBotonLimpiar();
+    validarLinkVivo();
+  });
+  refrescarBotonLimpiar();
+  validarLinkVivo();
+  pintarRecientes();
+  linkInput.focus();
+
+  // "/" enfoca el campo desde cualquier lado del home, como en los buscadores.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    if (document.getElementById("step-input").classList.contains("hidden")) return;
+    e.preventDefault();
+    linkInput.focus();
+    linkInput.select();
+  });
 
   // Modal "+ Agregar": Enter confirma, Escape cancela.
   const agregarInput = document.getElementById("agregar-input");

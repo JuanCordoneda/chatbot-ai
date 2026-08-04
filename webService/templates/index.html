@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785700200" />
+  <link rel="stylesheet" href="/static/style.css?v=1785800100" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -86,10 +86,21 @@
           </div>
           <h1 class="hero-title">Generá comentarios<br/><span class="accent">con IA en segundos</span></h1>
           <p class="hero-sub">Pegá el link del post de Instagram y GROWI genera los comentarios listos para publicar.</p>
+          <div class="hero-features">
+            <span class="feature-pill"><span class="feature-dot"></span>Transcripción de video</span>
+            <span class="feature-pill"><span class="feature-dot"></span>Análisis de imagen</span>
+            <span class="feature-pill"><span class="feature-dot"></span>Tono por cliente</span>
+          </div>
         </div>
 
         <div class="ig-form">
-          <label class="ig-form-label">Link del post</label>
+          <div class="ig-form-labelrow">
+            <label class="ig-form-label" for="ig-link">Link del post</label>
+            <button type="button" class="ig-paste" id="ig-paste" onclick="pegarLink()" title="Pegar desde el portapapeles">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="4" y="2.5" width="8" height="11.5" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 2.5V2a1 1 0 011-1h1.6a1 1 0 011 1v.5" stroke="currentColor" stroke-width="1.4"/></svg>
+              Pegar
+            </button>
+          </div>
           <div class="ig-field">
             <svg class="ig-field-icon" width="17" height="17" viewBox="0 0 24 24" fill="none">
               <rect x="2" y="2" width="20" height="20" rx="6" stroke="currentColor" stroke-width="1.8"/>
@@ -105,7 +116,15 @@
               spellcheck="false"
               inputmode="url"
             />
+            <button type="button" class="ig-clear hidden" id="ig-clear" onclick="limpiarLink()" title="Borrar" aria-label="Borrar link">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+            </button>
           </div>
+          <p id="ig-link-hint" class="ig-link-hint hidden"></p>
+          <!-- Últimos posts generados desde este navegador: re-generar el mismo
+               post es lo más común y volver a copiar el link es el paso que más
+               fricción tiene. -->
+          <div id="ig-recientes" class="ig-recientes hidden"></div>
           <!-- Modo palabra clave. NO lo elige el vendedor: aparece solo cuando
                el post es de un cliente marcado así en su ficha. La palabra la
                detectamos del caption ("comment CLAUDE...") y queda editable,
@@ -132,11 +151,13 @@
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
               <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
+            <kbd class="ig-btn-kbd">Enter</kbd>
           </button>
         </div>
 
         <!-- La otra herramienta: followers va a un PERFIL, no a un post, así que
              no entra en el formulario de arriba y necesita su propio acceso. -->
+        <div class="tool-sep"><span>o</span></div>
         <a class="tool-cta" href="/followers">
           <span class="tool-cta-ico">
             <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><path d="M6 8a2.6 2.6 0 100-5.2A2.6 2.6 0 006 8z" stroke="currentColor" stroke-width="1.5"/><path d="M1.4 13.4c.6-2.2 2.5-3.3 4.6-3.3s4 1.1 4.6 3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.8 4.2v4M14.8 6.2h-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -150,11 +171,6 @@
           </span>
         </a>
 
-        <div class="hero-features">
-          <span class="feature-pill"><span class="feature-dot"></span>Transcripción de video</span>
-          <span class="feature-pill"><span class="feature-dot"></span>Análisis de imagen</span>
-          <span class="feature-pill"><span class="feature-dot"></span>Tono por cliente</span>
-        </div>
       </section>
 
       <!-- STEP 2: resultados -->
@@ -513,6 +529,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785700200"></script>
+  <script src="/static/app.js?v=1785800100"></script>
 </body>
 </html>

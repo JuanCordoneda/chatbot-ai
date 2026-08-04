@@ -3623,3 +3623,226 @@ input:focus-visible {
   user-select: none;
 }
 .turnos-toggle b { color: var(--text); font-weight: 700; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HOME (#step-input) — pulido visual
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Entrada escalonada: el hero aparece antes que el formulario, así el ojo
+   arranca por el título y baja al campo. */
+#step-input .hero,
+#step-input .ig-form,
+#step-input .tool-sep,
+#step-input .tool-cta {
+  animation: homeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+#step-input .ig-form { animation-delay: 0.06s; }
+#step-input .tool-sep { animation-delay: 0.12s; }
+#step-input .tool-cta { animation-delay: 0.14s; }
+
+@keyframes homeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+#step-input .hero { margin-bottom: 30px; }
+#step-input .hero-features { margin-top: 22px; }
+
+.hero-eyebrow { transition: border-color 0.2s, background 0.2s; }
+
+.feature-pill { transition: border-color 0.15s, color 0.15s; }
+.feature-pill:hover { border-color: var(--yellow-md); color: var(--text); }
+
+/* El formulario deja de ser campos sueltos y pasa a ser un bloque: el borde
+   suave lo separa del fondo sin robarle protagonismo al botón amarillo. */
+#step-input .ig-form {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 18px;
+  gap: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.28);
+}
+body.light #step-input .ig-form {
+  background: var(--surface);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+}
+
+.ig-form-labelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* "Pegar": el link viene del portapapeles el 100% de las veces. */
+.ig-paste {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.ig-paste:hover {
+  color: var(--yellow);
+  border-color: var(--yellow-md);
+  background: var(--yellow-lo);
+}
+
+.ig-clear {
+  position: absolute;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface3);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ig-clear:hover { background: var(--yellow); color: #1a1a1a; }
+.ig-field .ig-input { padding-right: 44px; }
+
+/* Separador entre la herramienta principal y la secundaria. */
+.tool-sep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px;
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.tool-sep::before,
+.tool-sep::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.tool-cta-arrow { transition: transform 0.15s; }
+
+/* Foco visible por teclado en los controles del home. */
+#step-input .ig-btn:focus-visible,
+#step-input .ig-paste:focus-visible,
+#step-input .ig-clear:focus-visible,
+#step-input .tool-cta:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  #step-input .hero { margin-bottom: 22px; }
+  #step-input .ig-form { padding: 14px; border-radius: 18px; }
+  .hero-title { font-size: 2.4rem; }
+  .hero-sub { font-size: 0.97rem; line-height: 1.6; }
+  .tool-sep { margin: 14px 0 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #step-input .hero,
+  #step-input .ig-form,
+  #step-input .tool-sep,
+  #step-input .tool-cta { animation: none; }
+  .eyebrow-dot { animation: none; }
+  .accent { animation: none; }
+}
+
+/* ── Home: validación del link, recientes, atajos ─────────────────────────── */
+.ig-field--ok {
+  border-color: rgba(60,190,120,0.55);
+}
+.ig-field--ok:focus-within {
+  border-color: rgba(60,190,120,0.9);
+  box-shadow: 0 0 0 3px rgba(60,190,120,0.13), 0 2px 12px rgba(0,0,0,0.25);
+}
+.ig-field--ok .ig-field-icon { color: rgba(60,190,120,0.9); }
+
+.ig-field--warn { border-color: rgba(240,160,60,0.6); }
+.ig-field--warn:focus-within {
+  border-color: rgba(240,160,60,0.95);
+  box-shadow: 0 0 0 3px rgba(240,160,60,0.13), 0 2px 12px rgba(0,0,0,0.25);
+}
+
+.ig-link-hint {
+  margin: -2px 2px 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: rgb(226,152,54);
+}
+
+/* Chips de posts recientes */
+.ig-recientes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.ig-recientes-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-right: 2px;
+}
+.ig-reciente {
+  font-family: var(--font);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 9px;
+  cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.ig-reciente:hover {
+  color: var(--text);
+  border-color: var(--yellow-md);
+  background: var(--yellow-lo);
+}
+.ig-reciente:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+/* Pista de teclado dentro del botón principal. Se esconde en touch, donde no
+   hay Enter que mostrar. */
+.ig-btn { position: relative; }
+.ig-btn-kbd {
+  position: absolute;
+  right: 16px;
+  font-family: var(--font);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(26,26,26,0.55);
+  background: rgba(26,26,26,0.09);
+  border: 1px solid rgba(26,26,26,0.14);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+@media (hover: none), (max-width: 768px) {
+  .ig-btn-kbd { display: none; }
+  .ig-reciente { max-width: 120px; }
+}
