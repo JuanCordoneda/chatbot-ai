@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785802200" />
+  <link rel="stylesheet" href="/static/style.css?v=1785802300" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -971,7 +971,6 @@
       }
       .ax-card .ax-acts .ax-btn--icon { flex: 0 0 32px; padding: 7px 0; justify-content: center; }
 
-      /* La barra de pestañas y la de herramientas se apilan. */
       /* El label es flex con space-between: en una pantalla angosta el título y
          su aclaración quedaban pegados a los bordes opuestos, leyéndose como
          dos cosas sin relación. Apilados, la aclaración es lo que es. */
@@ -983,11 +982,50 @@
       .ax-modal--lg .ax-help { font-size: .78rem; line-height: 1.5; }
       .ax-help svg { margin-top: 1px; flex-shrink: 0; }
 
-      .ax-toolbar { flex-wrap: wrap; gap: 8px; }
+      /* ── Pestañas ──
+         Son cuatro y no entran: la tira ya se desplazaba, pero con el padding de
+         desktop "Vendedores" quedaba cortado justo a la mitad y no se leía que
+         hubiera más. Más chicas entran tres enteras y la cuarta asoma. */
+      .ax-seg { width: 100%; overflow-x: auto; scrollbar-width: none; }
+      .ax-seg::-webkit-scrollbar { display: none; }
+      .ax-seg .ax-tab { padding: 7px 11px; font-size: .8rem; white-space: nowrap; }
+      .ax-seg .ax-tab .ax-cnt { font-size: .68rem; padding: 1px 6px; }
+
+      /* ── KPIs ──
+         Cuatro tarjetas de ~110px de alto se llevaban media pantalla antes del
+         primer cliente. El número es el dato; la bajada ("6 en total", "no
+         reciben engagement") y el ícono son adorno que acá no se paga. */
+      .ax-kpis { gap: 8px; margin-bottom: 16px; }
+      .ax-kpi { padding: 10px 12px; border-radius: 12px; }
+      .ax-kpi .ax-k-label { font-size: .6rem; letter-spacing: .04em; }
+      .ax-kpi .ax-k-num { font-size: 1.45rem; margin-top: 2px; }
+      .ax-kpi .ax-k-sub { display: none; }
+      .ax-kpi .ax-k-ico { display: none; }
+
+      /* ── Herramientas ──
+         Vendedor, buscador, orden y "Nuevo cliente" se llevaban un renglón cada
+         uno. Vendedor y orden son selects cortos: van mitad y mitad. */
+      .ax-toolbar { flex-wrap: wrap; gap: 8px; align-items: stretch; }
+      /* Los min-width (170-220px) van en style inline en el HTML, así que acá
+         hace falta !important para poder achicarlos. */
+      .ax-toolbar > .ax-field { flex: 1 1 calc(50% - 4px); min-width: 0 !important; }
       .ax-search { max-width: none; flex: 1 1 100%; }
-      .ax-seg .ax-tab { padding: 8px 13px; font-size: .84rem; }
-      .ax-kpi { padding: 12px 14px; }
-      .ax-kpi .ax-k-num { font-size: 1.5rem; }
+      .ax-toolbar .ax-btn--primary { flex: 1 1 100%; justify-content: center; }
+
+      /* ── Filtros ──
+         Siete chips envueltos daban tres renglones. Una sola tira que se
+         desplaza: se sigue viendo cuál está activo sin comerse la pantalla. */
+      .ax-filtros {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        margin-bottom: 10px;
+        padding-bottom: 2px;
+      }
+      .ax-filtros::-webkit-scrollbar { display: none; }
+      .ax-filtro { flex-shrink: 0; padding: 6px 11px; font-size: .78rem; }
+      /* El total ya está en el chip "Todos" y acá quedaría al final del scroll. */
+      .ax-filtro-res { display: none; }
     }
 
     /* Muy angosto: el nombre manda y las pastillas de estado pasan abajo. */
@@ -1504,7 +1542,7 @@
        eran invisibles para un lector de pantalla. `assertive` porque varios
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
-  <script src="/static/header-menu.js?v=1785802200"></script>
+  <script src="/static/header-menu.js?v=1785802300"></script>
   <script src="/static/admin.js?v=1785801900"></script>
 </body>
 </html>
