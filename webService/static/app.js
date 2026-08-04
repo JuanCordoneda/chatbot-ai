@@ -647,14 +647,14 @@ function mostrarScrape(data) {
   const pdText = document.getElementById("photo-description-text");
   const pdSum = document.getElementById("photo-description-summary");
   if (data.photo_description) {
-    if (pdSum) pdSum.textContent = data.is_video ? "Descripción de la portada del video" : "Descripción de imagen";
+    if (pdSum) pdSum.textContent = data.is_video ? "Descripción del video" : "Descripción de imagen";
     pdText.textContent = data.photo_description;
     pdText.classList.remove("desc-error");
     pdBlock2.classList.remove("hidden");
   } else if (data.descripcion_error) {
     // La descripción no salió por una falla de la IA (saturada / sin crédito):
     // lo decimos, en vez de dejar el bloque vacío o directamente no mostrarlo.
-    if (pdSum) pdSum.textContent = data.is_video ? "Descripción de la portada del video" : "Descripción de imagen";
+    if (pdSum) pdSum.textContent = data.is_video ? "Descripción del video" : "Descripción de imagen";
     pdText.textContent = "⚠️ " + data.descripcion_error;
     pdText.classList.add("desc-error");
     pdBlock2.classList.remove("hidden");

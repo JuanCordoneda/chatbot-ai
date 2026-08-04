@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785802300" />
+  <link rel="stylesheet" href="/static/style.css?v=1785802500" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -22,6 +22,10 @@
     /* Herramienta hermana del generador de comentarios: mismo layout y mismos
        tokens de style.css, con lo propio de esta pantalla acá (prefijo fw-). */
     .fw-main { max-width: 880px; }
+    /* En mobile .main no lleva padding-top (el home del generador se centra en
+       la pantalla), pero acá el contenido arranca arriba de todo y el header
+       fixed le comía los primeros 46px. */
+    @media (max-width: 768px) { .fw-main { padding-top: 58px; } }
     /* Acá el CTA va abajo de todo: se separa del formulario, no lo empuja. */
     .tool-cta--bottom { margin: 26px 0 0; }
     .fw-note { margin-top: 18px; font-size: .76rem; color: var(--faint); line-height: 1.5; text-align: center; }
@@ -231,7 +235,7 @@
   </div>
 
   <div id="copy-toast" class="copy-toast"></div>
-  <script src="/static/header-menu.js?v=1785802300"></script>
-  <script src="/static/followers.js?v=1785802300"></script>
+  <script src="/static/header-menu.js?v=1785802500"></script>
+  <script src="/static/followers.js?v=1785802500"></script>
 </body>
 </html>

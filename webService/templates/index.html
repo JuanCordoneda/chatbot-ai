@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785802300" />
+  <link rel="stylesheet" href="/static/style.css?v=1785802500" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -322,6 +322,14 @@
       <section id="step-ordenes" class="hidden">
 
         <!-- Header -->
+        <!-- "Volver" va arriba, no abajo: abajo quedaba al lado de "Solicitar",
+             que es la acción que cierra el paso, y en mobile las dos entraban
+             en el mismo pulgar. -->
+        <button type="button" class="ordenes-volver" onclick="volverAComentarios()">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 8H3M7 4L3 8l4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Volver a los comentarios
+        </button>
+
         <div class="ordenes-hero">
           <div class="ordenes-hero-left">
             <div class="ordenes-hero-avatar" id="ordenes-hero-avatar">P</div>
@@ -514,7 +522,6 @@
 
         <!-- Footer -->
         <div class="nuevo-post-bar">
-          <button class="btn-ghost btn-sm" onclick="volverAComentarios()">← Atrás</button>
           <button id="btn-solicitar" class="btn-publish" onclick="solicitarOrdenes()" disabled>
             Solicitar
           </button>
@@ -565,7 +572,7 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/header-menu.js?v=1785802300"></script>
-  <script src="/static/app.js?v=1785802300"></script>
+  <script src="/static/header-menu.js?v=1785802500"></script>
+  <script src="/static/app.js?v=1785802500"></script>
 </body>
 </html>

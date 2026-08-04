@@ -4622,3 +4622,63 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
 @media (prefers-reduced-motion: reduce) {
   .header-btn-group { transition: none; }
 }
+
+/* ── Mobile: correcciones visuales de la lista ────────────────────────────── */
+@media (max-width: 768px) {
+  /* El ícono de género era una caja de 26px con fondo propio: dentro de un
+     encabezado ya compacto se veía desalineado del texto y descolgado del
+     borde. Queda el glifo solo, con el color de la sección. */
+  .gs-sec-icon {
+    width: auto;
+    height: auto;
+    background: none;
+    border-radius: 0;
+    font-size: 0.95rem;
+    line-height: 1.2;
+  }
+  .genero-seccion-header { gap: 8px; align-items: center; }
+
+  /* El contador ("6 verificados · 3 comunes") tiene margin-left:auto y con los
+     tres botones al lado se pasaba del ancho de la tarjeta y quedaba cortado.
+     En mobile va en su propio renglón, centrado. */
+  .count-label {
+    margin-left: 0;
+    flex: 1 1 100%;
+    text-align: center;
+    font-size: 0.8rem;
+    padding: 5px 12px;
+  }
+  .select-row { flex-wrap: wrap; }
+  .select-row .btn-ghost.btn-sm { flex: 1 1 auto; }
+}
+
+/* Volver al paso anterior desde el armado de órdenes. Arriba y discreto: es
+   navegación, no una acción del formulario. */
+.ordenes-volver {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 14px;
+  padding: 7px 12px 7px 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.ordenes-volver:hover {
+  color: var(--text);
+  border-color: var(--border2);
+  background: var(--surface2);
+}
+.ordenes-volver:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+@media (max-width: 768px) {
+  .ordenes-volver { margin-bottom: 10px; padding: 8px 12px; }
+  /* Sin el "Atrás", la barra de abajo queda sólo con Solicitar. */
+  #step-ordenes .nuevo-post-bar { flex-direction: column; }
+}
