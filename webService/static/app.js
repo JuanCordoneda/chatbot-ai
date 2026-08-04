@@ -9,6 +9,7 @@ let generoActual = null;          // género de la sección que se está streame
 let esMixto = false;              // cliente mixto → 2 columnas desde el arranque
 let generoFijo = null;            // cliente male/female → "hombres"/"mujeres": UNA sola sección
 let ultimoEsVideo = false;        // último post: ¿es video? (para el bloque de transcripción)
+let scrapeRecibido = false;       // ¿ya llegó el evento de scrape? (define si ultimoEsVideo es confiable)
 let tiposGenerados = [];          // "verificado" (default) | "noverif" por índice
 // Reparto automático V/NV al generar. Los objetivos salen de la ficha del
 // cliente (rangos de comentarios): "generame 40 verificados y 40 comunes". Los
@@ -103,10 +104,14 @@ function show(id) {
   document.getElementById(id).classList.remove("hidden");
   // Al cambiar de step (no al abrir overlays/modales) subimos al top.
   if (id.startsWith("step-")) window.scrollTo(0, 0);
+  // El reloj se engancha acá y no en cada llamador: al overlay lo abre y lo
+  // cierra media docena de lugares distintos.
+  if (id === "loading-overlay") arrancarRelojOverlay();
 }
 
 function hide(id) {
   document.getElementById(id).classList.add("hidden");
+  if (id === "loading-overlay") pararRelojOverlay();
 }
 
 function setError(msg) {
@@ -159,10 +164,12 @@ async function generarComentarios() {
   streamProgresoOffset = 0;
   streamResets = 0;
   vistosStream = new Set();
+  ultimoItemTocado = null;
   streamMeta = {};
   esMixto = false;
   generoFijo = null;
   ultimoEsVideo = false;
+  scrapeRecibido = false;
   comentariosGenerados = [];
   generosGenerados = [];
   generoActual = null;
@@ -201,7 +208,7 @@ async function generarComentarios() {
     const sk = document.createElement("div");
     sk.id = "skeleton-list";
     sk.className = "skeleton-list";
-    sk.innerHTML = '<div class="skeleton-item"></div>'.repeat(5);
+    sk.innerHTML = SKELETON_HTML;
     document.getElementById("lista-comentarios").before(sk);
   }
   document.getElementById("client-badge").textContent = "";
@@ -292,6 +299,14 @@ function manejarEvento(evento) {
   } else if (evento.tipo === "scrape") {
     mostrarScrape(evento);
   } else if (evento.tipo === "step") {
+    // El backend manda el step de transcripción también en posts de foto, donde
+    // no hay video que transcribir: mostrar "Generando la transcripción del
+    // video..." ahí es mentira. Como el evento de scrape llega antes, ya sabemos
+    // si es video y podemos ignorarlo.
+    if (evento.nombre === "transcription" && scrapeRecibido && !ultimoEsVideo) {
+      mostrarStep("imagen");
+      return;
+    }
     if (evento.nombre === "transcription") {
       esperandoTranscripcion = true;
       const skeleton = document.getElementById("skeleton-list");
@@ -460,8 +475,91 @@ function reintentarGeneracion() {
   generarComentarios();
 }
 
+// ── Bloques de contexto (pie, descripción, transcripción) ─────────────────
+
+// Copiar sin togglear el <details>: el botón vive dentro del <summary>.
+async function copiarContexto(ev, idTexto) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const el = document.getElementById(idTexto);
+  const txt = el ? el.textContent.trim() : "";
+  if (!txt) return;
+  try {
+    await navigator.clipboard.writeText(txt);
+  } catch (e) {
+    return;   // sin permiso de portapapeles: no avisamos con un error, es un extra
+  }
+  const btn = ev.currentTarget;
+  const antes = btn.textContent;
+  btn.textContent = "✓ Copiado";
+  btn.classList.add("sd-copy--ok");
+  setTimeout(() => {
+    btn.textContent = antes;
+    btn.classList.remove("sd-copy--ok");
+  }, 1400);
+}
+
+// Largo del texto en el encabezado: dice de un vistazo si la IA leyó dos líneas
+// o tres párrafos, sin tener que abrir el bloque.
+function marcarLargoContexto(idTexto, idMeta) {
+  const meta = document.getElementById(idMeta);
+  const el = document.getElementById(idTexto);
+  if (!meta || !el) return;
+  const txt = el.textContent.trim();
+  const palabras = txt ? txt.split(/\s+/).length : 0;
+  meta.textContent = palabras ? `${palabras} palabras` : "";
+  // Texto largo: el bloque hace scroll interno, así que lo avisamos.
+  meta.classList.toggle("sd-meta--largo", palabras > 120);
+}
+
+function refrescarMetaContexto() {
+  marcarLargoContexto("scrape-caption-text", "scrape-caption-meta");
+  marcarLargoContexto("photo-description-text", "photo-description-meta");
+  marcarLargoContexto("transcription-text", "transcription-meta");
+}
+
+// ── Reloj del overlay ─────────────────────────────────────────────────────
+// El proceso no reporta porcentaje, así que lo único honesto que podemos dar es
+// cuánto lleva. Sirve para saber si se colgó o simplemente es un video largo.
+let overlayTimer = null;
+
+function arrancarRelojOverlay() {
+  const el = document.getElementById("loading-elapsed");
+  if (!el) return;
+  const desde = Date.now();
+  el.textContent = "0s";
+  clearInterval(overlayTimer);
+  overlayTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - desde) / 1000);
+    el.textContent = s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+  }, 1000);
+}
+
+function pararRelojOverlay() {
+  clearInterval(overlayTimer);
+  overlayTimer = null;
+}
+
+// El esqueleto imita la fila real (número + check + texto + switches): así el
+// salto al llegar el primer comentario es mínimo, en vez de barras sueltas que
+// no se parecen a nada de lo que viene después.
+const SKELETON_HTML = [88, 72, 94, 61, 80]
+  .map(
+    (ancho) => `
+    <div class="skeleton-row">
+      <span class="skeleton-px skeleton-px--num"></span>
+      <span class="skeleton-px skeleton-px--chk"></span>
+      <span class="skeleton-px skeleton-px--txt" style="width:${ancho}%"></span>
+      <span class="skeleton-px skeleton-px--sw"></span>
+    </div>`
+  )
+  .join("");
+
 const STEP_LABELS = {
   transcription: { icon: "🎙️", texto: "Generando la transcripción del video...", sub: "menos de 60 segundos" },
+  // Misma tarjeta para los posts de foto, donde no hay video que transcribir:
+  // antes ese momento quedaba sin ningún aviso.
+  imagen: { icon: "🖼️", texto: "Analizando la imagen del post...", sub: "unos segundos" },
   procesando: { icon: "⏳", texto: "Analizando el post...", sub: "un momento" },
 };
 
@@ -520,6 +618,7 @@ function mostrarScrape(data) {
   badge.classList.toggle("scrape-value--accent", !!data.cliente_asignado);
   badge.classList.toggle("scrape-value--none", !data.cliente_asignado);
   ultimoEsVideo = !!data.is_video;
+  scrapeRecibido = true;
   _ordenarBloquesContexto(ultimoEsVideo);
 
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
@@ -560,6 +659,8 @@ function mostrarScrape(data) {
     pdText.classList.add("desc-error");
     pdBlock2.classList.remove("hidden");
   }
+
+  refrescarMetaContexto();
 
   // Cliente mixto (sin género fijo): armamos las 2 columnas (Hombres | Mujeres)
   // vacías desde el arranque, para que la de Hombres no aparezca recién al final
@@ -613,6 +714,7 @@ function mostrarEstadoTranscripcion(texto) {
     ? texto
     : (texto ? texto.replace(/^\(|\)$/g, "") : "Sin transcripción disponible para este post.");
   document.getElementById("transcription-block").classList.remove("hidden");
+  refrescarMetaContexto();
 }
 
 // ── Secciones por género en la lista de comentarios ──────────────────────────
@@ -651,6 +753,7 @@ function _panelTipo(tipo) {
         <button type="button" class="tp-all" onclick="togglePanel('${key}')">Todos</button>
         <button type="button" class="tp-mas" onclick="cargarMas('${key}')">+ generar más</button>
       </div>
+      <div class="tp-progreso hidden"><span></span></div>
       <div class="tipo-panel-items"></div>`;
     // Verificados arriba, comunes abajo — el mismo orden del reparto.
     const siguiente = key === "verificado"
@@ -737,7 +840,131 @@ function _refrescarSecciones() {
   // En mixto la tarjeta rompe el ancho de .main y usa todo el ancho visible.
   const card = lista.closest(".comments-card");
   if (card) card.classList.toggle("comments-card--wide", mixto);
+  // Los comentarios que van llegando también tienen que respetar el filtro
+  // activo, si no aparecen items que no coinciden con lo buscado.
+  marcarDuplicados();
+  aplicarFiltroLista();
   return n;
+}
+
+// ── Repetidos ─────────────────────────────────────────────────────────────
+// El stream ya descarta los idénticos de una misma tanda, pero "cargar más" y
+// los comentarios agregados/editados a mano sí pueden repetir uno que ya está.
+// Publicar el mismo texto dos veces en un post se nota, así que se marca.
+function marcarDuplicados() {
+  const items = document.querySelectorAll("#lista-comentarios .comentario-item");
+  const vistos = new Map();
+  let repes = 0;
+  items.forEach((it) => {
+    const txt = it.querySelector(".comentario-texto")?.textContent || "";
+    const n = normComentario(txt);
+    if (!n) return;
+    const primero = vistos.get(n);
+    if (primero === undefined) {
+      vistos.set(n, it);
+      it.classList.remove("comentario-item--dup");
+      it.removeAttribute("title");
+      return;
+    }
+    // Sólo se marca la repetición, no la primera aparición: esa es la buena.
+    it.classList.add("comentario-item--dup");
+    it.title = "Repetido: este texto ya está más arriba en la lista";
+    repes++;
+  });
+
+  const btn = document.getElementById("btn-quitar-repes");
+  if (btn) {
+    btn.classList.toggle("hidden", repes === 0);
+    btn.textContent = `Desmarcar ${repes} repetido${repes === 1 ? "" : "s"}`;
+  }
+}
+
+// Desmarca las repeticiones y deja marcada la primera aparición de cada texto.
+function desmarcarRepetidos() {
+  document.querySelectorAll("#lista-comentarios .comentario-item--dup").forEach((it) => {
+    const chk = it.querySelector("input");
+    if (!chk || !chk.checked) return;
+    chk.checked = false;
+    it.classList.remove("selected");
+  });
+  actualizarConteo();
+}
+
+// ── Selección por rango (Shift+click) ─────────────────────────────────────
+let ultimoItemTocado = null;
+
+// El rango va en el orden VISUAL de la lista, salteando lo que esconde el
+// filtro: marcar filas que no se están viendo sería una sorpresa desagradable.
+function seleccionarRango(desde, hasta, marcar) {
+  const visibles = [...document.querySelectorAll(
+    "#lista-comentarios .comentario-item:not(.comentario-item--filtrado)"
+  )];
+  const a = visibles.indexOf(desde);
+  const b = visibles.indexOf(hasta);
+  if (a === -1 || b === -1) return;
+  const [ini, fin] = a < b ? [a, b] : [b, a];
+  for (let i = ini; i <= fin; i++) {
+    const it = visibles[i];
+    const chk = it.querySelector("input");
+    if (!chk) continue;
+    chk.checked = marcar;
+    it.classList.toggle("selected", marcar);
+  }
+  actualizarConteo();
+}
+
+// ── Filtro de la lista ────────────────────────────────────────────────────
+// Sólo esconde filas: no desmarca, no reordena y no toca la numeración, para
+// que lo que se publica sea siempre lo seleccionado y no lo visible.
+function _textoFiltro() {
+  const el = document.getElementById("lista-filtro-input");
+  return el ? el.value.trim().toLowerCase() : "";
+}
+
+function aplicarFiltroLista() {
+  const q = _textoFiltro();
+  const wrap = document.getElementById("lista-filtro");
+  const lista = document.getElementById("lista-comentarios");
+  if (!wrap || !lista) return;
+
+  const items = lista.querySelectorAll(".comentario-item");
+  // El filtro recién tiene sentido cuando hay lista; antes es un campo muerto.
+  wrap.classList.toggle("hidden", items.length === 0);
+
+  let visibles = 0;
+  items.forEach((it) => {
+    const txt = (it.querySelector(".comentario-texto")?.textContent || "").toLowerCase();
+    const pasa = !q || txt.includes(q);
+    it.classList.toggle("comentario-item--filtrado", !pasa);
+    if (pasa) visibles++;
+  });
+
+  // Una sección sin ningún resultado estorba: se esconde mientras dure la
+  // búsqueda (con el filtro vacío manda la lógica normal de _refrescarSecciones).
+  if (q) {
+    lista.querySelectorAll(".genero-seccion, .tipo-panel").forEach((cont) => {
+      const hay = cont.querySelector(".comentario-item:not(.comentario-item--filtrado)");
+      cont.classList.toggle("seccion--sin-resultados", !hay);
+    });
+  } else {
+    lista.querySelectorAll(".seccion--sin-resultados")
+      .forEach((c) => c.classList.remove("seccion--sin-resultados"));
+  }
+
+  const cnt = document.getElementById("lista-filtro-count");
+  if (cnt) cnt.textContent = q ? `${visibles} de ${items.length}` : "";
+  const btn = document.getElementById("lista-filtro-clear");
+  if (btn) btn.classList.toggle("hidden", !q);
+}
+
+function filtrarLista() { aplicarFiltroLista(); }
+
+function limpiarFiltroLista() {
+  const el = document.getElementById("lista-filtro-input");
+  if (!el) return;
+  el.value = "";
+  aplicarFiltroLista();
+  el.focus();
 }
 
 // Filtro anti-duplicados de la tanda inicial: el modelo a veces repite el MISMO
@@ -815,12 +1042,23 @@ function agregarComentario(texto, index) {
     if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
     if (e.target.classList.contains("comentario-texto") && e.target.isContentEditable) return;
     const chk = item.querySelector("input");
+    // Shift+click: marca todo el bloque desde el último que se tocó. Elegir 40
+    // comentarios seguidos de a un click era el trabajo más repetitivo acá.
+    if (e.shiftKey && ultimoItemTocado && ultimoItemTocado !== item) {
+      seleccionarRango(ultimoItemTocado, item, !chk.checked);
+      ultimoItemTocado = item;
+      return;
+    }
     chk.checked = !chk.checked;
     item.classList.toggle("selected", chk.checked);
+    ultimoItemTocado = item;
     actualizarConteo();
   });
   const skeleton = document.getElementById("skeleton-list");
   if (skeleton) skeleton.remove();
+  // Ya hay algo que mirar: el aviso de "procesando" pierde sentido y su spinner
+  // seguía girando arriba de la lista terminada.
+  mostrarStep(null);
 
   // Va a la lista de su tipo y, dentro, a la sección de su género (las dos se
   // crean solas la primera vez).
@@ -1130,6 +1368,21 @@ function _refrescarConteoPaneles() {
       const todos = checks.length > 0 && sel === checks.length;
       btn.textContent = todos ? "Ninguno" : "Todos";
       btn.disabled = checks.length === 0;
+    }
+    // Barra de avance hacia lo que pide la ficha del cliente: el número solo
+    // ("12 de 40") obliga a hacer la cuenta cada vez que se marca uno.
+    const barra = panel.querySelector(".tp-progreso");
+    if (barra) {
+      const objetivo = panel.dataset.tipo === "noverif" ? objetivoNV : objetivoV;
+      barra.classList.toggle("hidden", !objetivo || checks.length === 0);
+      if (objetivo) {
+        const pct = Math.min(100, Math.round((sel / objetivo) * 100));
+        barra.firstElementChild.style.width = pct + "%";
+        // Pasarse del objetivo no es un error, pero tiene que verse distinto de
+        // haberlo cumplido justo.
+        barra.classList.toggle("tp-progreso--ok", sel === objetivo);
+        barra.classList.toggle("tp-progreso--over", sel > objetivo);
+      }
     }
   });
 }
@@ -3033,6 +3286,29 @@ document.addEventListener("DOMContentLoaded", () => {
   validarLinkVivo();
   pintarRecientes();
   linkInput.focus();
+
+  // Atajos de la lista de comentarios: buscar y limpiar la búsqueda. Se enganchan
+  // acá y no en el input para que funcionen con el foco en cualquier lado.
+  document.addEventListener("keydown", (e) => {
+    const filtro = document.getElementById("lista-filtro-input");
+    const enLista = filtro && !document.getElementById("lista-filtro").classList.contains("hidden");
+    if (!enLista) return;
+
+    // Ctrl/Cmd+F: buscar dentro de la lista en vez del buscador del navegador,
+    // que no sirve porque las filas ocultas por el filtro no están en el DOM
+    // visible y el texto está repartido en decenas de nodos.
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      filtro.focus();
+      filtro.select();
+      return;
+    }
+    // Escape con el filtro activo lo limpia (y no cierra nada más).
+    if (e.key === "Escape" && filtro.value.trim() && document.activeElement === filtro) {
+      e.preventDefault();
+      limpiarFiltroLista();
+    }
+  });
 
   // "/" enfoca el campo desde cualquier lado del home, como en los buscadores.
   document.addEventListener("keydown", (e) => {

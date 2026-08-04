@@ -7,8 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785800400" />
+  <link rel="stylesheet" href="/static/style.css?v=1785801200" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
+  <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="GROWI — Generador de comentarios" />
+  <meta property="og:description" content="Engagement automático para Instagram." />
+  <meta property="og:image" content="/static/og-thumb.png?v=1" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="/static/og-thumb.png?v=1" />
 </head>
 <body>
 
@@ -26,6 +35,11 @@
       </div>
       <p class="overlay-title">Procesando post...</p>
       <p class="overlay-status" id="loading-text">Iniciando...</p>
+      <!-- El proceso no reporta porcentaje (depende de scrape + IA), así que la
+           barra es indeterminada y el reloj es lo que da la referencia real de
+           cuánto lleva. -->
+      <div class="overlay-bar"><span></span></div>
+      <p class="overlay-elapsed" id="loading-elapsed"></p>
     </div>
   </div>
 
@@ -50,26 +64,26 @@
           <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
           <a class="header-action-btn" href="/followers" title="Enviar followers a un perfil">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 8a2.3 2.3 0 100-4.6A2.3 2.3 0 006 8z" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13c.6-2 2.4-3 4.5-3s3.9 1 4.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12.5 4.5v4M14.5 6.5h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Followers
+            <span>Followers</span>
           </a>
           {% if is_admin %}
           <a class="header-action-btn" href="/admin" title="Panel de administración">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.4"/><path d="M13 8a5 5 0 00-.1-1l1.3-1-1.3-2.2-1.5.5a5 5 0 00-1.7-1L9.4 0H6.6l-.3 1.3a5 5 0 00-1.7 1L3.1 1.8 1.8 4l1.3 1a5 5 0 000 2l-1.3 1L3.1 11l1.5-.5a5 5 0 001.7 1l.3 1.5h2.8l.3-1.5a5 5 0 001.7-1l1.5.5 1.3-2.2-1.3-1A5 5 0 0013 8z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
-            Admin
+            <span>Admin</span>
           </a>
           {% else %}
           <a class="header-action-btn" href="/mis-clientes" title="Mis clientes y sus prompts">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Mis clientes
+            <span>Mis clientes</span>
           </a>
           {% endif %}
           <button class="header-action-btn" onclick="location.reload()" title="Refrescar / empezar de nuevo">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Refrescar
+            <span>Refrescar</span>
           </button>
           <a class="header-action-btn" href="/logout" title="Cerrar sesión">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Salir
+            <span>Salir</span>
           </a>
         </div>
       </div>
@@ -185,17 +199,31 @@
               <span id="scrape-owner" class="scrape-value">—</span>
             </div>
           </div>
+          <!-- Contexto que leyó la IA. Los tres bloques arrancan abiertos: es lo
+               que hay que revisar antes de dar por buenos los comentarios. El
+               summary lleva el largo del texto y un botón para copiarlo, porque
+               el caption y la transcripción se pegan seguido en otro lado. -->
           <div class="scrape-details-row">
             <details id="scrape-caption-block" class="hidden scrape-details" open>
-              <summary>Pie de página</summary>
+              <summary>
+                <span class="sd-label">Pie de página</span>
+                <span class="sd-meta" id="scrape-caption-meta"></span>
+              </summary>
               <p id="scrape-caption-text"></p>
             </details>
             <details id="photo-description-block" class="hidden scrape-details" open>
-              <summary id="photo-description-summary">Descripción de imagen</summary>
+              <summary>
+                <span class="sd-label" id="photo-description-summary">Descripción de imagen</span>
+                <span class="sd-meta" id="photo-description-meta"></span>
+              </summary>
               <p id="photo-description-text"></p>
             </details>
             <details id="transcription-block" class="hidden scrape-details" open>
-              <summary>Transcripción del video</summary>
+              <summary>
+                <span class="sd-label">Transcripción del video</span>
+                <span class="sd-meta" id="transcription-meta"></span>
+                <button type="button" class="sd-copy" onclick="copiarContexto(event,'transcription-text')" title="Copiar la transcripción">Copiar</button>
+              </summary>
               <p id="transcription-text"></p>
             </details>
           </div>
@@ -213,6 +241,15 @@
               <span id="status-listo" class="badge-listo hidden">✓ Listo</span>
             </div>
             <p id="stream-status" class="stream-status"></p>
+            <!-- Filtro de la lista. Con 40-80 comentarios, encontrar el que
+                 tiene una palabra puntual (o revisar si algo se repite) a ojo
+                 es inviable. Es sólo visual: no toca la selección ni el orden. -->
+            <div class="lista-filtro hidden" id="lista-filtro">
+              <svg class="lf-ico" width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              <input type="text" id="lista-filtro-input" class="lf-input" placeholder="Buscar en los comentarios…" autocomplete="off" spellcheck="false" oninput="filtrarLista()" />
+              <button type="button" class="lf-clear hidden" id="lista-filtro-clear" onclick="limpiarFiltroLista()" title="Limpiar búsqueda" aria-label="Limpiar búsqueda">✕</button>
+              <span class="lf-count" id="lista-filtro-count"></span>
+            </div>
           </div>
 
           <!-- Aviso cuando la IA falla (saturada / sin crédito) pero el post ya
@@ -224,12 +261,14 @@
             <button id="ia-error-retry" class="btn-sm" onclick="reintentarGeneracion()">↻ Reintentar</button>
           </div>
 
+          <!-- Lo llena SKELETON_HTML (app.js) al regenerarse entre posts; acá va
+               el mismo marcado para el primer render. -->
           <div id="skeleton-list" class="skeleton-list">
-            <div class="skeleton-item"></div>
-            <div class="skeleton-item"></div>
-            <div class="skeleton-item"></div>
-            <div class="skeleton-item"></div>
-            <div class="skeleton-item"></div>
+            <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:88%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
+            <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:72%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
+            <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:94%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
+            <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:61%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
+            <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:80%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
           </div>
 
           <div id="lista-comentarios"></div>
@@ -239,7 +278,10 @@
               <button class="btn-ghost btn-sm" onclick="seleccionarTodos()">Seleccionar todos</button>
               <button class="btn-ghost btn-sm" onclick="deseleccionarTodos()">Limpiar</button>
               <button class="btn-ghost btn-sm" onclick="agregarComentarioManual()">+ Agregar</button>
+              <!-- Aparece sólo si hay textos repetidos en la lista. -->
+              <button class="btn-ghost btn-sm btn-repes hidden" id="btn-quitar-repes" onclick="desmarcarRepetidos()">Desmarcar repetidos</button>
               <span class="count-label" id="count-label">0 seleccionados</span>
+              <span class="select-tip">Shift+click para elegir un bloque</span>
             </div>
 
             <!-- Reparto por cantidad: en vez de contar y togglear V/NV de a uno,
@@ -523,6 +565,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785800400"></script>
+  <script src="/static/app.js?v=1785801200"></script>
 </body>
 </html>

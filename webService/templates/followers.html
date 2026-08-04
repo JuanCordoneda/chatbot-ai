@@ -7,8 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785800400" />
+  <link rel="stylesheet" href="/static/style.css?v=1785801200" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
+  <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="GROWI — Generador de comentarios" />
+  <meta property="og:description" content="Engagement automático para Instagram." />
+  <meta property="og:image" content="/static/og-thumb.png?v=1" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="/static/og-thumb.png?v=1" />
   <style>
     /* Herramienta hermana del generador de comentarios: mismo layout y mismos
        tokens de style.css, con lo propio de esta pantalla acá (prefijo fw-). */
@@ -62,22 +71,22 @@
           <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
           <a class="header-action-btn" href="/" title="Generador de comentarios">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-            Comentarios
+            <span>Comentarios</span>
           </a>
           {% if is_admin %}
           <a class="header-action-btn" href="/admin" title="Panel de administración">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.4"/><path d="M13 8a5 5 0 00-.1-1l1.3-1-1.3-2.2-1.5.5a5 5 0 00-1.7-1L9.4 0H6.6l-.3 1.3a5 5 0 00-1.7 1L3.1 1.8 1.8 4l1.3 1a5 5 0 000 2l-1.3 1L3.1 11l1.5-.5a5 5 0 001.7 1l.3 1.5h2.8l.3-1.5a5 5 0 001.7-1l1.5.5 1.3-2.2-1.3-1A5 5 0 0013 8z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
-            Admin
+            <span>Admin</span>
           </a>
           {% else %}
           <a class="header-action-btn" href="/mis-clientes" title="Mis clientes y sus prompts">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Mis clientes
+            <span>Mis clientes</span>
           </a>
           {% endif %}
           <a class="header-action-btn" href="/logout" title="Cerrar sesión">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Salir
+            <span>Salir</span>
           </a>
         </div>
       </div>
@@ -222,6 +231,6 @@
   </div>
 
   <div id="copy-toast" class="copy-toast"></div>
-  <script src="/static/followers.js?v=1785800400"></script>
+  <script src="/static/followers.js?v=1785801200"></script>
 </body>
 </html>

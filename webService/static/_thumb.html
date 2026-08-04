@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1200px; height:630px; background:#0b0b0c; font-family:Inter,-apple-system,sans-serif;
+         display:flex; align-items:center; overflow:hidden; position:relative; }
+  .glow { position:absolute; width:900px; height:900px; border-radius:50%;
+          background:radial-gradient(circle, rgba(245,168,0,.22) 0%, rgba(245,168,0,0) 62%);
+          left:-230px; top:-140px; }
+  .glow2 { position:absolute; width:700px; height:700px; border-radius:50%;
+           background:radial-gradient(circle, rgba(245,168,0,.10) 0%, rgba(245,168,0,0) 65%);
+           right:-180px; bottom:-220px; }
+  .grid { position:absolute; inset:0;
+          background-image:linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+                           linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
+          background-size:48px 48px;
+          -webkit-mask-image:radial-gradient(circle at 50% 45%, #000 35%, transparent 78%); }
+  .wrap { position:relative; display:flex; align-items:center; gap:56px; padding:0 74px; width:100%; }
+  .left { flex:0 0 auto; display:flex; flex-direction:column; gap:22px; align-items:flex-start; }
+  .left img { width:430px; display:block; mix-blend-mode:lighten; }
+  .badge { display:inline-flex; align-items:center; gap:9px; padding:9px 18px; border-radius:999px;
+           background:rgba(245,168,0,.10); border:1px solid rgba(245,168,0,.32);
+           color:#F5A800; font-size:19px; font-weight:600; letter-spacing:.2px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#F5A800; box-shadow:0 0 12px #F5A800; }
+  .divider { width:2px; height:300px; flex:0 0 auto;
+             background:linear-gradient(180deg, transparent, rgba(245,168,0,.75) 22%, rgba(245,168,0,.75) 78%, transparent); }
+  .right h1 { font-size:70px; line-height:1.04; font-weight:800; color:#fff; letter-spacing:-2px; }
+  .right h1 span { color:#F5A800; }
+  .right p { margin-top:22px; font-size:26px; color:#8d8d95; white-space:nowrap; font-weight:500; letter-spacing:-.2px; }
+  .chips { margin-top:32px; display:flex; gap:12px; }
+  .chip { padding:9px 16px; border-radius:11px; background:rgba(255,255,255,.055);
+          border:1px solid rgba(255,255,255,.09); color:#c9c9d1; font-size:18px; font-weight:500; }
+</style>
+</head>
+<body>
+  <div class="glow"></div><div class="glow2"></div><div class="grid"></div>
+  <div class="wrap">
+    <div class="left">
+      <img src="growi.png" alt="GROWI" />
+      <div class="badge"><span class="dot"></span> Powered by IA</div>
+    </div>
+    <div class="divider"></div>
+    <div class="right">
+      <h1>Generador de<br /><span>comentarios</span></h1>
+      <p>Engagement automático para Instagram</p>
+      <div class="chips"><div class="chip">Comentarios</div><div class="chip">Respuestas</div><div class="chip">Seguidores</div></div>
+    </div>
+  </div>
+</body>
+</html>

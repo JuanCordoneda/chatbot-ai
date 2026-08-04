@@ -1084,10 +1084,37 @@ body.light .skeleton-item {
   background-size: 200% 100%;
 }
 
-.skeleton-item:nth-child(2) { width: 80%; animation-delay: 0.12s; }
-.skeleton-item:nth-child(3) { width: 65%; animation-delay: 0.24s; }
-.skeleton-item:nth-child(4) { width: 88%; animation-delay: 0.36s; }
-.skeleton-item:nth-child(5) { width: 52%; animation-delay: 0.48s; }
+/* Fila que imita al .comentario-item real: número, check, texto y switch. */
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-row:last-child { border-bottom: none; }
+
+.skeleton-px {
+  height: 13px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.13) 50%, rgba(255,255,255,0.05) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+  flex-shrink: 0;
+}
+body.light .skeleton-px {
+  background: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.11) 50%, rgba(0,0,0,0.05) 75%);
+  background-size: 200% 100%;
+}
+.skeleton-px--num { width: 16px; }
+.skeleton-px--chk { width: 16px; height: 16px; border-radius: 5px; }
+.skeleton-px--txt { flex: 0 1 auto; min-width: 0; }
+.skeleton-px--sw  { width: 42px; height: 20px; border-radius: 10px; margin-left: auto; }
+
+.skeleton-row:nth-child(2) .skeleton-px { animation-delay: 0.12s; }
+.skeleton-row:nth-child(3) .skeleton-px { animation-delay: 0.24s; }
+.skeleton-row:nth-child(4) .skeleton-px { animation-delay: 0.36s; }
+.skeleton-row:nth-child(5) .skeleton-px { animation-delay: 0.48s; }
 
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
@@ -3194,7 +3221,10 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   }
 
   .skeleton-list { padding: 6px 14px 10px; }
-  .skeleton-item { height: 12px; margin: 14px 0; }
+  .skeleton-row { padding: 11px 4px; gap: 10px; }
+  .skeleton-px { height: 12px; }
+  .skeleton-px--chk { width: 15px; height: 15px; }
+  .skeleton-px--sw { width: 34px; height: 18px; }
 
   .typing-preview {
     margin: 0 14px 6px;
@@ -3406,6 +3436,7 @@ input:focus-visible {
   margin: 12px 0;
 }
 .genero-seccion-items { padding: 6px; }
+.tipo-panel-items { margin-top: 4px; }
 
 .genero-seccion-header {
   display: flex;
@@ -3543,23 +3574,64 @@ input:focus-visible {
    La generación reparte sola según la ficha del cliente (ej. 40 V + 40 NV) y
    cada lista tiene su propio "+ generar más". Antes era una sola lista mezclada
    donde el tipo se marcaba comentario por comentario. */
+/* El panel ya no lleva marco propio: dentro de .comments-card, con las
+   secciones de género que sí son cajas, quedaban tres bordes anidados. Ahora
+   es un bloque separado por aire y definido por su encabezado. */
 .tipo-panel {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 4px 14px 12px;
-  margin-bottom: 16px;
-  background: var(--surface);
+  padding: 0;
+  margin-bottom: 26px;
+  background: transparent;
 }
+.tipo-panel:last-child { margin-bottom: 6px; }
 .tipo-panel.hidden { display: none; }
-.tipo-panel--verificado { border-color: rgba(74, 222, 128, .35); }
-.tipo-panel--noverif { border-color: var(--border2); }
+
 .tipo-panel-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 2px;
+  padding: 11px 14px;
   flex-wrap: wrap;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  position: relative;
+  overflow: hidden;
 }
+/* Barra de acento del tipo, como la que ya usan las secciones de género. */
+.tipo-panel-header::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+}
+.tipo-panel--verificado .tipo-panel-header::before { background: #34c759; }
+.tipo-panel--noverif    .tipo-panel-header::before { background: #6b7280; }
+.tipo-panel--verificado .tipo-panel-header {
+  border-color: rgba(74,222,128,.32);
+  background: linear-gradient(90deg, rgba(74,222,128,0.10), var(--surface2) 55%);
+}
+.tipo-panel--noverif .tipo-panel-header { border-color: var(--border2); }
+
+/* Avance hacia el objetivo de la ficha (ej. 40 verificados). */
+.tp-progreso {
+  width: 100%;
+  height: 3px;
+  margin-top: 9px;
+  border-radius: 3px;
+  background: var(--surface3);
+  overflow: hidden;
+}
+.tp-progreso.hidden { display: none; }
+.tp-progreso span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--yellow);
+  transition: width 0.18s ease, background 0.18s ease;
+}
+.tp-progreso--ok span   { background: #34c759; }
+.tp-progreso--over span { background: rgb(226,152,54); }
 .tp-icon { font-size: 1rem; }
 .tp-label { font-weight: 800; font-size: .98rem; letter-spacing: -0.01em; }
 .tp-count {
@@ -3583,7 +3655,8 @@ input:focus-visible {
 .tp-all:disabled { opacity: .45; cursor: default; }
 .tp-all:disabled:hover { color: var(--muted2); border-color: var(--border2); background: var(--surface2); }
 @media (max-width: 768px) {
-  .tipo-panel { padding: 2px 10px 10px; }
+  .tipo-panel { margin-bottom: 20px; }
+  .tipo-panel-header { padding: 10px 12px; }
   .tp-sel { margin-right: 0; flex-basis: 100%; order: 9; }
 }
 
@@ -3714,12 +3787,6 @@ input:focus-visible {
 #step-input .tool-cta:focus-visible {
   outline: 2px solid var(--yellow);
   outline-offset: 2px;
-}
-
-@media (max-width: 768px) {
-  #step-input .hero { margin-bottom: 22px; }
-  .hero-title { font-size: 2.4rem; }
-  .hero-sub { font-size: 0.97rem; line-height: 1.6; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3912,10 +3979,6 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
-@media (max-width: 768px) {
-  .fw-main .hero-title { font-size: 2.4rem; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .fw-main .hero,
   .fw-main .orden-form-card,
@@ -3951,10 +4014,357 @@ input:focus-visible {
   .fw-main .hero { margin-bottom: 18px; }
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PROCESAMIENTO — contexto (descripciones) y estados de carga
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* El summary pasó de ser un texto suelto a una fila: título · largo · copiar. */
+.scrape-details summary {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.sd-label { flex-shrink: 0; }
+
+.sd-meta {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--faint);
+}
+.sd-meta:empty { display: none; }
+/* Texto largo: el bloque scrollea por dentro, conviene que se note. */
+.sd-meta--largo { color: var(--yellow); }
+
+.sd-copy {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+}
+/* Aparece al pasar por el bloque: si estuviera siempre visible, tres botones
+   compitiendo con el texto que hay que leer. En touch queda fijo. */
+.scrape-details:hover .sd-copy,
+.sd-copy:focus-visible { opacity: 1; }
+.sd-copy:hover {
+  color: var(--yellow);
+  border-color: var(--yellow-md);
+  background: var(--yellow-lo);
+}
+.sd-copy--ok {
+  opacity: 1;
+  color: var(--yellow);
+  border-color: var(--yellow);
+}
+.sd-copy:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+@media (hover: none) {
+  .sd-copy { opacity: 1; }
+}
+
+/* El texto largo scrollea dentro del bloque (max-height ya definido arriba). */
+.scrape-details p { scrollbar-width: thin; }
+
+/* ── Overlay de procesamiento ── */
+.overlay-bar {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  margin: 18px 0 10px;
+  border-radius: 3px;
+  background: var(--surface3);
+  overflow: hidden;
+}
+.overlay-bar span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 38%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--yellow), transparent);
+  animation: barIndet 1.5s ease-in-out infinite;
+}
+@keyframes barIndet {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(365%); }
+}
+
+.overlay-elapsed {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-bar span { animation: none; width: 100%; opacity: 0.5; }
+  .skeleton-px { animation: none; }
+  .step-card { animation: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LISTAS DE COMENTARIOS — filtro, rango, encabezados fijos
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Fila que no pasa el filtro. display:none y no opacidad: con 80 comentarios,
+   dejarlos apagados no resuelve nada. */
+.comentario-item--filtrado { display: none !important; }
+.seccion--sin-resultados { display: none !important; }
+
+/* ── Buscador ── */
+.lista-filtro {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 7px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.lista-filtro:focus-within {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(250,185,0,0.10);
+}
+.lf-ico { color: var(--faint); flex-shrink: 0; }
+.lista-filtro:focus-within .lf-ico { color: var(--yellow); }
+
+.lf-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.86rem;
+  padding: 2px 0;
+}
+.lf-input::placeholder { color: var(--faint); }
+
+.lf-clear {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+.lf-clear:hover { color: var(--yellow); }
+
+.lf-count {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--yellow);
+  font-variant-numeric: tabular-nums;
+}
+.lf-count:empty { display: none; }
+
+/* ── Encabezado del panel fijo al scrollear ──
+   Con listas largas se pierde de vista si lo que se está mirando es
+   "Verificados" o "Comunes", que es justo lo que define qué se manda.
+   El offset es el alto del header fixed dividido por el zoom 1.2 de .app. */
+.tipo-panel-header {
+  position: sticky;
+  top: 60px;
+  z-index: 3;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 6px 18px -12px rgba(0,0,0,0.8);
+}
+
+/* En mobile el header de la app es más bajo. */
 @media (max-width: 768px) {
-  .main { padding-top: 84px; padding-bottom: 56px; }
-  #step-input .hero-title,
-  .fw-main .hero-title { font-size: 2.2rem; }
-  #step-input .hero-eyebrow,
-  .fw-main .hero-eyebrow { margin-bottom: 12px; }
+  .tipo-panel-header { top: 56px; }
+}
+
+/* ── Pista del Shift+click ── */
+.select-tip {
+  font-size: 0.7rem;
+  color: var(--faint);
+  margin-left: auto;
+}
+@media (max-width: 768px), (hover: none) {
+  .select-tip { display: none; }
+}
+
+/* ── Comentarios repetidos ──
+   No se ocultan ni se desmarcan solos: puede haber un caso donde repetir sea
+   intencional. Se señalan y se ofrece la acción. */
+.comentario-item--dup .comentario-num {
+  color: rgb(226,152,54);
+  opacity: 1;
+}
+.comentario-item--dup .comentario-num::after {
+  content: "⧉";
+  display: block;
+  font-size: 0.62rem;
+  line-height: 1;
+  margin-top: 1px;
+}
+.comentario-item--dup .comentario-texto { color: var(--muted); }
+.comentario-item--dup:hover .comentario-texto { color: var(--text); }
+/* Un repetido seleccionado es el caso que hay que ver: se marca el borde. */
+.comentario-item--dup.selected {
+  border-color: rgba(226,152,54,0.55);
+  box-shadow: inset 3px 0 0 rgb(226,152,54), 0 4px 18px rgba(0,0,0,0.22);
+}
+
+.btn-repes {
+  color: rgb(226,152,54) !important;
+  border-color: rgba(226,152,54,0.45) !important;
+}
+.btn-repes:hover {
+  background: rgba(226,152,54,0.12) !important;
+  color: rgb(240,175,85) !important;
+}
+
+/* ── Contenedores de comentarios: profundidad y separación ────────────────── */
+/* Las secciones de género quedaron como único marco de contenido, así que se
+   apoyan más: fondo propio y una sombra suave que las despega de la card. */
+.genero-seccion {
+  box-shadow: 0 2px 10px -6px rgba(0,0,0,0.6);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
+
+/* Una sección sin nada elegido no compite con la que sí tiene selección. */
+.genero-seccion:has(.comentario-item.selected) {
+  border-color: rgba(250,185,0,0.30);
+  box-shadow: 0 4px 18px -8px rgba(250,185,0,0.35);
+}
+
+/* El encabezado de género queda por debajo del encabezado del panel al
+   scrollear, no encima. */
+.genero-seccion-header { z-index: 1; }
+
+/* En pantallas anchas las dos columnas (Hombres | Mujeres) necesitan un poco
+   más de aire entre sí para no leerse como una sola grilla. */
+@media (min-width: 1100px) {
+  .tipo-panel-items.lista-2col { column-gap: 22px; }
+}
+
+/* Estado vacío más contenido: ocupaba casi el alto de tres comentarios. */
+.genero-seccion-empty { padding: 18px 16px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE — controles nuevos (filtro, recientes, pegar/limpiar, paneles)
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* iOS hace zoom al enfocar cualquier input de menos de 16px y después deja la
+     página descuadrada. Todos los campos que se tipean van a 16px exactos. */
+  .ig-input,
+  .lf-input,
+  .orden-input,
+  .orden-select,
+  .orden-textarea,
+  .reparto-input { font-size: 16px; }
+
+  /* ── Campo del link: pegar / limpiar ── */
+  /* 34px de lado: por debajo de eso el dedo erra y termina enfocando el input. */
+  .ig-clear { width: 30px; height: 30px; right: 8px; }
+  .ig-field .ig-input { padding-right: 46px; }
+
+  .ig-paste { padding: 7px 12px; font-size: 0.72rem; }
+
+  .fw-link-acts { gap: 4px; }
+  .fw-inbtn { padding: 7px 10px; }
+  /* Los dos botones ocupan menos con el padding reducido de arriba. */
+  #fw-link { padding-right: 96px; }
+
+  /* ── Links / perfiles recientes ── */
+  .ig-recientes {
+    gap: 5px;
+    /* Una sola fila que se desplaza: apilados en tres renglones empujaban el
+       botón de generar fuera de la pantalla. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .ig-recientes::-webkit-scrollbar { display: none; }
+  .ig-recientes-label { display: none; }
+  .ig-reciente {
+    flex-shrink: 0;
+    max-width: 44vw;
+    padding: 7px 12px;
+    font-size: 0.76rem;
+  }
+
+  /* ── Cantidades rápidas (followers) ── */
+  .fw-qty { padding: 8px 0; font-size: 0.76rem; }
+  .fw-qty-chips { gap: 6px; margin-top: 7px; }
+
+  /* ── Filtro de la lista ── */
+  .lista-filtro {
+    margin-top: 10px;
+    padding: 6px 10px;
+    gap: 7px;
+  }
+  .lf-clear { padding: 6px 8px; }
+  .lf-count { font-size: 0.68rem; }
+
+  /* ── Bloques de contexto ── */
+  .scrape-details summary { padding: 11px 8px; gap: 8px; }
+  .sd-meta { font-size: 0.58rem; }
+  .sd-copy { padding: 6px 10px; font-size: 0.58rem; }
+  /* El texto largo no puede comerse media pantalla. */
+  .scrape-details p { max-height: 180px; padding: 11px 13px; font-size: 0.83rem; }
+
+  /* ── Contenedores de comentarios ── */
+  .tipo-panel-header { border-radius: 10px; padding: 10px 12px; gap: 8px; }
+  .tp-label { font-size: 0.88rem; }
+  .tp-all, .tp-mas { padding: 7px 10px; font-size: 0.72rem; }
+  .tp-progreso { margin-top: 8px; }
+  .genero-seccion { margin: 10px 0; border-radius: 12px; }
+
+  /* ── Overlay de procesamiento ── */
+  .overlay-bar { margin: 14px 0 8px; }
+  .overlay-elapsed { font-size: 0.72rem; }
+}
+
+/* Pantallas muy angostas: el encabezado del panel tiene 5 elementos y en 320px
+   los botones se cortan contra el borde. */
+@media (max-width: 400px) {
+  .tp-count { padding: 2px 7px; }
+  .tp-all, .tp-mas { padding: 6px 9px; font-size: 0.68rem; }
+  .tipo-panel-header { padding: 9px 10px; }
+  .ig-reciente { max-width: 38vw; }
+}
+
+/* Red de seguridad del header: si en algún ancho los botones no entran, que se
+   desplacen dentro de su grupo en vez de estirar la página y provocar scroll
+   horizontal en TODA la app (que era lo que pasaba cuando los textos de los
+   botones no se ocultaban en mobile). */
+.header-btn-group {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.header-btn-group::-webkit-scrollbar { display: none; }
+.header-actions { min-width: 0; }
+.header-left { min-width: 0; }
+
+@media (max-width: 768px) {
+  /* El texto del botón de tema es corto y su emoji hace de ícono, así que se
+     queda; los demás quedan en ícono solo (ver .header-action-btn span). */
+  #btn-theme { font-size: 0.72rem; padding: 0 8px; }
 }
