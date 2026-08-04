@@ -23,9 +23,22 @@ from common import crypto
 # el CRUD normal: los vendedores ni lo ven, y solo el admin le edita el prompt.
 GENERIC_IG = "__generico__"
 
+# Mismo mecanismo, otra herramienta: el prompt del MODO KEYWORD (el vendedor
+# escribe una palabra y salen N comentarios que son solo esa palabra, variando
+# mayúsculas/minúsculas). Vive acá para que el admin lo edite desde el panel
+# igual que el genérico, sin redeploy.
+KEYWORD_IG = "__keyword__"
+
+# Todos los reservados: nunca salen en el CRUD normal ni en la lista del vendedor.
+SYSTEM_IGS = (GENERIC_IG, KEYWORD_IG)
+
 
 def is_generic(ig_username) -> bool:
     return (ig_username or "").strip().lstrip("@").lower() == GENERIC_IG
+
+
+def is_system(ig_username) -> bool:
+    return (ig_username or "").strip().lstrip("@").lower() in SYSTEM_IGS
 
 
 _GENDERS = ("male", "female")
@@ -172,6 +185,7 @@ def _client_to_dict(c: Client) -> dict:
         "status": c.status,
         "gender": c.gender,
         "quality": _norm_quality(c.quality),
+        "keyword_mode": bool(c.keyword_mode),
         "ranges": c.ranges or {},
         "crm_idventa": c.crm_idventa or "",
         "crm_idvendedor": c.crm_idvendedor or "",
@@ -196,26 +210,43 @@ def get_client_by_ig_username(ig_username: str, account_id: Optional[int] = None
         return _client_to_dict(c) if c else None
 
 
-def get_generic_client() -> Optional[dict]:
-    """El cliente genérico global. No filtra por cuenta ni por estado: es del
-    sistema y se aplica siempre, sin importar de qué vendedor sea el post."""
+def _get_system_client(ig: str) -> Optional[dict]:
+    """Un cliente reservado del sistema. No filtra por cuenta ni por estado: es
+    UNO SOLO global, sin importar de qué vendedor sea el post."""
     if not db_available():
         return None
     with session_scope() as s:
         c = (s.query(Client)
-             .filter(Client.ig_username == GENERIC_IG)
+             .filter(Client.ig_username == ig)
              .order_by(Client.id)
              .first())
         return _client_to_dict(c) if c else None
 
 
-def get_generic_prompt() -> Optional[str]:
-    """Prompt del genérico global. None si no hay DB o está vacío (el llamador
-    cae al prompts/generico.txt de la imagen)."""
-    c = get_generic_client()
+def _get_system_prompt(ig: str) -> Optional[str]:
+    """Prompt de un reservado. None si no hay DB o está vacío (el llamador cae
+    al .txt de la imagen)."""
+    c = _get_system_client(ig)
     if c and c["prompt"] and c["prompt"].strip():
         return c["prompt"]
     return None
+
+
+def get_generic_client() -> Optional[dict]:
+    return _get_system_client(GENERIC_IG)
+
+
+def get_generic_prompt() -> Optional[str]:
+    return _get_system_prompt(GENERIC_IG)
+
+
+def get_keyword_client() -> Optional[dict]:
+    return _get_system_client(KEYWORD_IG)
+
+
+def get_keyword_prompt() -> Optional[str]:
+    """Prompt maestro del modo keyword. Cae a prompts/keyword.txt si no hay DB."""
+    return _get_system_prompt(KEYWORD_IG)
 
 
 def get_client_display_name(ig_username: str, account_id: Optional[int] = None) -> Optional[str]:
@@ -244,11 +275,11 @@ def list_clients(account_id: int) -> list[dict]:
     if not db_available():
         return []
     with session_scope() as s:
-        # El genérico es del sistema: nunca sale en la lista de clientes (el
-        # panel del admin lo agrega aparte, marcado como reservado).
+        # Los reservados son del sistema: nunca salen en la lista de clientes (el
+        # panel del admin los agrega aparte, marcados como reservados).
         cs = (s.query(Client)
               .filter(Client.account_id == account_id,
-                      Client.ig_username != GENERIC_IG)
+                      Client.ig_username.notin_(SYSTEM_IGS))
               .order_by(Client.display_name, Client.ig_username)
               .all())
         return [_client_to_dict(c) for c in cs]
@@ -260,14 +291,14 @@ def _norm_ig(ig_username: str) -> str:
 
 def create_client(account_id: int, ig_username: str, display_name: str, prompt: str,
                   status: str = "active", gender=None, quality=None, ranges=None,
-                  crm_idventa=None, crm_idvendedor=None) -> dict:
+                  crm_idventa=None, crm_idvendedor=None, keyword_mode=False) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     key = _norm_ig(ig_username)
     if not key:
         raise RepoError("El @usuario es obligatorio")
-    if key == GENERIC_IG:
-        raise RepoError("@__generico__ es un cliente reservado del sistema")
+    if key in SYSTEM_IGS:
+        raise RepoError(f"@{key} es un cliente reservado del sistema")
     with session_scope() as s:
         dup = s.query(Client).filter(
             Client.account_id == account_id, Client.ig_username == key
@@ -285,6 +316,7 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
             ranges=_norm_ranges(ranges),
             crm_idventa=(crm_idventa or "").strip() or None,
             crm_idvendedor=(crm_idvendedor or "").strip() or None,
+            keyword_mode=bool(keyword_mode),
         )
         s.add(c)
         s.flush()
@@ -295,7 +327,8 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
                   prompt=None, status=None, ig_username=None, gender=None,
                   gender_set=False, quality=None, quality_set=False,
                   ranges=None, ranges_set=False,
-                  crm_idventa=None, crm_idvendedor=None) -> dict:
+                  crm_idventa=None, crm_idvendedor=None,
+                  keyword_mode=None, keyword_mode_set=False) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     with session_scope() as s:
@@ -304,15 +337,15 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
         ).first()
         if not c:
             raise RepoError("Cliente no encontrado")
-        if c.ig_username == GENERIC_IG:
-            raise RepoError("El cliente genérico es del sistema y se edita "
-                            "desde su propia ficha (solo el admin)")
+        if c.ig_username in SYSTEM_IGS:
+            raise RepoError("Es un cliente del sistema y se edita desde su "
+                            "propia ficha (solo el admin)")
         if ig_username is not None:
             key = _norm_ig(ig_username)
             if not key:
                 raise RepoError("El @usuario no puede quedar vacío")
-            if key == GENERIC_IG:
-                raise RepoError("@__generico__ es un cliente reservado del sistema")
+            if key in SYSTEM_IGS:
+                raise RepoError(f"@{key} es un cliente reservado del sistema")
             if key != c.ig_username:
                 dup = s.query(Client).filter(
                     Client.account_id == account_id, Client.ig_username == key,
@@ -335,6 +368,8 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
             c.quality = _norm_quality(quality)
         if ranges_set:
             c.ranges = _norm_ranges(ranges)
+        if keyword_mode_set:
+            c.keyword_mode = bool(keyword_mode)
         # Vaciar el campo = desasignar la venta (vuelve al fallback de la cuenta).
         if crm_idventa is not None:
             c.crm_idventa = crm_idventa.strip() or None
@@ -353,29 +388,28 @@ def delete_client(account_id: int, client_id: int) -> bool:
         ).first()
         if not c:
             return False
-        if c.ig_username == GENERIC_IG:
-            raise RepoError("El cliente genérico no se puede borrar: es el que "
-                            "se aplica a los posts sin cliente")
+        if c.ig_username in SYSTEM_IGS:
+            raise RepoError("Es un cliente del sistema y no se puede borrar")
         s.delete(c)
         return True
 
 
-def update_generic_client(*, prompt=None, gender=None, gender_set=False,
-                          quality=None, quality_set=False,
-                          ranges=None, ranges_set=False) -> dict:
-    """Edición del genérico global (solo admin). Deliberadamente NO deja tocar
-    @usuario, nombre ni estado: siempre activo y siempre el mismo, porque es el
-    fallback de todos los vendedores."""
+def update_system_client(ig: str, *, prompt=None, gender=None, gender_set=False,
+                         quality=None, quality_set=False,
+                         ranges=None, ranges_set=False) -> dict:
+    """Edición de un cliente reservado (solo admin). Deliberadamente NO deja
+    tocar @usuario, nombre ni estado: siempre activo y siempre el mismo, porque
+    es del sistema y lo comparten todos los vendedores."""
     if not db_available():
         raise RepoError("Base de datos no disponible")
     with session_scope() as s:
         c = (s.query(Client)
-             .filter(Client.ig_username == GENERIC_IG)
+             .filter(Client.ig_username == ig)
              .order_by(Client.id)
              .first())
         if not c:
-            raise RepoError("El cliente genérico no existe todavía "
-                            "(falta correr la migración 0008)")
+            raise RepoError(f"El cliente reservado @{ig} no existe todavía "
+                            "(falta correr las migraciones)")
         if prompt is not None:
             c.prompt = prompt
         if gender_set:
@@ -387,6 +421,14 @@ def update_generic_client(*, prompt=None, gender=None, gender_set=False,
         c.status = "active"
         s.flush()
         return _client_to_dict(c)
+
+
+def update_generic_client(**kw) -> dict:
+    return update_system_client(GENERIC_IG, **kw)
+
+
+def update_keyword_client(**kw) -> dict:
+    return update_system_client(KEYWORD_IG, **kw)
 
 
 # ── Pedidos de ajuste de prompt (bandeja del admin) ──────────────────────────

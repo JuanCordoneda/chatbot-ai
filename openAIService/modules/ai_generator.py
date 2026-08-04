@@ -44,6 +44,27 @@ except Exception:
 GENERIC_CLIENT_ID = "__generico__"
 
 
+# MODO KEYWORD ────────────────────────────────────────────────────────────────
+# Otra herramienta, no otro cliente: el vendedor escribe una palabra ("CLAUDE",
+# "PROMPTS") y salen N comentarios que son SOLO esa palabra, variando
+# mayúsculas/minúsculas, como la gente que comenta una keyword para que el bot
+# del creador le mande un PDF.
+#
+# No pasa por las capas de prompt de siempre: el genérico (largos variados,
+# emojis, slang, "comentá el post en sí") es exactamente lo contrario de lo que
+# se pide acá, y dejarlo arriba solo lo contamina. Tampoco se le manda el
+# contexto del post: para escribir una palabra no hace falta ni el caption, ni
+# la transcripción, ni la imagen.
+#
+# El prompt vive en la DB como cliente reservado del sistema (editable desde
+# /admin, igual que el genérico) con el .txt de la imagen como fallback.
+KEYWORD_CLIENT_ID = "__keyword__"
+
+# Cantidad fija de comentarios por tanda. Por env var y no hardcodeada: cambiar
+# cuántos salen es tocar una variable y reiniciar, no redeployar.
+KEYWORD_CANTIDAD = int(os.environ.get("CROW_KEYWORD_CANTIDAD", "40"))
+
+
 # El prompt final se arma en DOS CAPAS:
 #
 #   1. BASE   = el prompt genérico. Son las reglas de oficio que valen para
@@ -84,6 +105,59 @@ def _generic_base() -> str:
     if generico.exists():
         return generico.read_text(encoding="utf-8")
     return ""
+
+
+def _keyword_base() -> str:
+    """El prompt maestro del modo keyword: DB primero, si no el archivo de la
+    imagen. Es UNO SOLO global, como el genérico."""
+    if _repo is not None:
+        try:
+            db_prompt = _repo.get_keyword_prompt()
+            if db_prompt:
+                return db_prompt
+        except Exception as e:
+            print(f"[ai] prompt keyword de DB no disponible, uso archivo ({e})", flush=True)
+    archivo = _PROMPTS_DIR / "keyword.txt"
+    if archivo.exists():
+        return archivo.read_text(encoding="utf-8")
+    return ""
+
+
+def _keyword_prompt(keyword: str, evitar: list[str] | None = None) -> str:
+    """Prompt completo del modo keyword. Autónomo: no lleva capa genérica, capa
+    de cliente ni contexto del post."""
+    base = _keyword_base()
+    keyword = keyword.strip()
+
+    # Igual que con {caption}: reemplazo dirigido, no .format, así una llave
+    # suelta que escriba el admin en el prompt no rompe nada. Si el prompt no
+    # trae el marcador, la palabra se agrega al final.
+    prompt = base.replace("{keyword}", keyword).replace("{cantidad}", str(KEYWORD_CANTIDAD))
+    if "{keyword}" not in base:
+        prompt += f"\n\nPalabra clave de esta tanda: {keyword}"
+
+    # "Cargar más" en modo keyword: no sirve pedir comentarios "distintos"
+    # (son todos la misma palabra), pero sí evitar repetir las MISMAS formas de
+    # escritura que ya salieron.
+    if evitar:
+        formas = sorted({c.strip() for c in evitar if c.strip()})
+        if formas:
+            prompt += (
+                "\n\nESTA ES UNA TANDA ADICIONAL. Estas formas de escritura ya se "
+                "usaron: " + " / ".join(formas) + ". Repartí las de esta tanda de "
+                "otra manera (otra proporción entre mayúsculas, título y minúsculas), "
+                "sin que se note el corte entre una tanda y la otra."
+            )
+
+    prompt += (
+        "\n\nFORMATO DE SALIDA (obligatorio):\n"
+        f"- Devolvé EXACTAMENTE {KEYWORD_CANTIDAD} comentarios, ni uno más ni uno menos.\n"
+        "- Uno por línea, sin líneas en blanco entre medio.\n"
+        "- Sin numeración, sin viñetas, sin guiones, sin comillas, sin encabezados.\n"
+        "- Sin punto final.\n"
+        "- No expliques nada ni pidas confirmación: devolvé solo los comentarios."
+    )
+    return prompt
 
 
 def _client_layer(client_id: str, account_id: int | None) -> str:
@@ -161,7 +235,12 @@ def _system_output_format(client_gender) -> str:
     )
 
 
-def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1) -> str:
+def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "") -> str:
+    # Modo keyword: camino aparte y completo (ver KEYWORD_CLIENT_ID). Nada del
+    # contexto del post entra acá.
+    if keyword.strip():
+        return _keyword_prompt(keyword, evitar)
+
     template = _load_template(client_id, account_id)
 
     if not is_video:
@@ -254,9 +333,9 @@ _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1) -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "") -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -264,7 +343,7 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = ""):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
     (el consumidor debe descartar lo emitido hasta ese punto).
@@ -273,11 +352,23 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     parafrasear (usado por "Cargar más").
     image_b64/image_media_type: imagen del post (visión multimodal). Si viene, se
     manda como bloque de imagen a Claude junto con el prompt.
-    client_quality: 'pro' | 'standard' — decide con qué modelo se genera."""
-    has_image = bool(image_b64)
-    modelo = _modelo(client_quality)
-    print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}", flush=True)
-    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes)
+    client_quality: 'pro' | 'standard' — decide con qué modelo se genera.
+    keyword: modo keyword — la tanda es N veces esa palabra variando la
+    escritura, sin contexto del post (ver KEYWORD_CLIENT_ID)."""
+    keyword = (keyword or "").strip()
+    modo_keyword = bool(keyword)
+    # En modo keyword la imagen no se manda aunque venga: no aporta nada a
+    # escribir una palabra y se paga igual.
+    has_image = bool(image_b64) and not modo_keyword
+    # Escribir la misma palabra 40 veces no mejora con el modelo caro.
+    modelo = _MODEL_STANDARD if modo_keyword else _modelo(client_quality)
+    print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}"
+          + (f" keyword={keyword!r}" if modo_keyword else ""), flush=True)
+    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes, keyword=keyword)
+
+    # El piso de "generación cortada" es relativo a lo que se pidió: con 40
+    # comentarios de una palabra, el fijo de 70 no aplica.
+    minimo = max(1, int(KEYWORD_CANTIDAD * 0.75)) if modo_keyword else _MIN_COMENTARIOS
 
     if has_image:
         content = [
@@ -312,7 +403,9 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                 # Va por extra_body porque el SDK pineado (anthropic 0.54.0) no
                 # expone estos kwargs; extra_body los inyecta en el body del request.
                 # Revertir = borrar este extra_body y volver max_tokens=4096.
-                extra_body={
+                # En modo keyword no hay nada que planear (es la misma palabra N
+                # veces): pensar solo suma latencia y tokens.
+                extra_body={} if modo_keyword else {
                     "thinking": {"type": "adaptive"},
                     "output_config": {"effort": "medium"},
                 },
@@ -339,7 +432,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             yield ("comentario", buffer.strip())
 
         # generación completa (o último intento): la damos por buena
-        if count >= _MIN_COMENTARIOS or intento == _MAX_INTENTOS:
+        if count >= minimo or intento == _MAX_INTENTOS:
             return
         prev_motivo = f"generación cortada ({count} líneas)"
 

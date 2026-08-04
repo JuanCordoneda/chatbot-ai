@@ -85,6 +85,20 @@ def _datos_cliente(ig_username: str, es_cliente: bool):
         return {}, None, None
 
 
+def _cliente_es_keyword(ig_username: str) -> bool:
+    """¿Este cliente trabaja con comentarios de palabra clave? Sale de su ficha.
+    Ante cualquier problema devuelve False: el modo normal es el default seguro."""
+    if not ig_username:
+        return False
+    try:
+        from common import repository as _repo
+        row = _repo.get_client_by_ig_username(ig_username.lower())
+        return bool(row and row.get("keyword_mode"))
+    except Exception as e:
+        print(f"[keyword] no pude leer la ficha de @{ig_username}: {e}", flush=True)
+        return False
+
+
 # ── Session management ────────────────────────────────────────────────────────
 
 def _get_session(phone: str) -> tuple[list, bool]:
@@ -309,6 +323,54 @@ def clear_session():
 
 # ── Web app endpoints ─────────────────────────────────────────────────────────
 
+@app.route("/sugerir_keyword", methods=["GET"])
+def sugerir_keyword():
+    """La palabra clave que pide el caption del post ("comment CLAUDE...").
+
+    Es solo una SUGERENCIA para precargar el campo: el vendedor la ve y la puede
+    corregir antes de generar. Usa el fetch rápido (solo el caption, sin video ni
+    imágenes) para que se pueda llamar apenas se pega el link.
+
+    Nunca es un error: si el post no se puede leer o no hay palabra clara,
+    devuelve keyword vacía y el vendedor la escribe a mano."""
+    vacio = {"keyword": "", "caption": "", "keyword_mode": False}
+    post_url = (request.args.get("url") or "").strip()
+    if not post_url or not es_link_instagram(post_url):
+        return jsonify(vacio)
+
+    from modules.post_processor import _fetch_fast, extract_shortcode
+    from modules.keyword_detect import detectar_keyword
+    from modules.engagement_flow import alias_owner
+
+    shortcode = extract_shortcode(post_url)
+    if not shortcode:
+        return jsonify(vacio)
+    try:
+        fast = _fetch_fast(shortcode) or {}
+    except Exception as e:
+        print(f"[keyword] no pude leer el post: {e}", flush=True)
+        return jsonify(vacio)
+
+    # El modo lo decide la FICHA del cliente, no el vendedor: si el dueño del
+    # post no trabaja con palabra clave, no hay nada que sugerir.
+    owner = alias_owner(fast.get("owner_username", "")) or ""
+    keyword_mode = False
+    if owner:
+        try:
+            from common import repository as _repo
+            cliente = _repo.get_client_by_ig_username(owner.lower())
+            keyword_mode = bool(cliente and cliente.get("keyword_mode"))
+        except Exception as e:
+            print(f"[keyword] no pude leer la ficha de @{owner}: {e}", flush=True)
+    if not keyword_mode:
+        return jsonify(vacio)
+
+    caption = fast.get("caption", "") or ""
+    keyword = detectar_keyword(caption)
+    print(f"[keyword] @{owner} en modo keyword — sugerencia: {keyword!r}", flush=True)
+    return jsonify({"keyword": keyword, "caption": caption, "keyword_mode": True})
+
+
 @app.route("/procesar_post", methods=["POST"])
 def procesar_post_web():
     data = request.get_json(silent=True) or {}
@@ -322,6 +384,12 @@ def procesar_post_web():
     # "Cargar más" manda los comentarios ya generados para que la nueva tanda no
     # los repita ni parafrasee.
     evitar = data.get("evitar", []) or []
+
+    # Modo keyword: la tanda es N veces esta palabra, variando la escritura. Sin
+    # contexto del post, sin transcripción y sin visión (ver ai_generator).
+    keyword = (data.get("keyword") or "").strip()
+    if len(keyword) > 60:
+        return jsonify({"error": "La palabra clave es demasiado larga"}), 400
 
     job_id = str(uuid.uuid4())
     with _jobs_lock:
@@ -393,7 +461,11 @@ def procesar_post_web():
                         }
                         job["meta"] = preview_meta
                         job["scrape_ready"] = True
-                        if preview_meta["is_video"]:
+                        if keyword:
+                            # Sin transcripción ni visión: el paso no existe.
+                            job["step"] = ""
+                            job["transcription_ready"] = True
+                        elif preview_meta["is_video"]:
                             job["step"] = "transcription"
                             job["progreso"].append("Video detectado. Generando transcripción (Menos de 60 segundos)...")
                         else:
@@ -405,10 +477,10 @@ def procesar_post_web():
 
             # Garantizar que el step esté seteado antes del scrape lento
             # (puede ser video aunque el fast preview no lo haya detectado)
-            if job["step"] != "transcription":
+            if job["step"] != "transcription" and not keyword:
                 job["step"] = "transcription"
 
-            post_data = scrape_post(post_url)
+            post_data = scrape_post(post_url, ligero=bool(keyword))
             t_scrape = time.time() - t0
             print(f"[TIMING] scrape: {t_scrape:.2f}s", flush=True)
 
@@ -448,6 +520,22 @@ def procesar_post_web():
             # Sin cliente, ambos salen del genérico (ver _datos_cliente).
             ranges, client_gender, client_quality = _datos_cliente(owner_ig, bool(client_id))
 
+            # El modo palabra clave lo manda la FICHA del cliente. Si el cliente
+            # trabaja así pero no llegó la palabra, cortamos acá: generarle
+            # comentarios normales sería entregarle algo que no pidió, y el
+            # vendedor no se daría cuenta hasta tenerlos publicados.
+            if client_id and not keyword and _cliente_es_keyword(owner_ig):
+                falta = ("Este cliente trabaja con comentarios de palabra clave y "
+                         "no llegó la palabra. Escribila y volvé a generar.")
+                job["error"] = falta
+                # error_info explícito: no es un error de la IA, no se arregla
+                # reintentando lo mismo. El clasificador lo hubiera convertido en
+                # "error de la IA, reintentá", que manda al vendedor a un loop.
+                job["error_info"] = {"mensaje": falta, "motivo": "falta_keyword",
+                                     "reintentable": False}
+                job["done"] = True
+                return
+
             job["meta"] = {
                 "client_id": client_id or post_data.owner_full_name or post_data.owner_username,
                 "cliente_asignado": bool(client_id),
@@ -485,6 +573,7 @@ def procesar_post_web():
                 client_gender=client_gender,
                 client_quality=client_quality,
                 n_imagenes=post_data.n_imagenes,
+                keyword=keyword,
             ):
                 # Cortar acá deja de consumir el stream de la API: la conexión
                 # se cierra al salir del for y no se generan más comentarios.

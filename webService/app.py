@@ -654,6 +654,8 @@ def procesar():
 
     # "Cargar más" manda los comentarios ya generados para que no se repitan.
     evitar = data.get("evitar", []) or []
+    # Modo keyword: la tanda es N veces esta palabra (ver ai_generator).
+    keyword = (data.get("keyword") or "").strip()
 
     # Registro de uso: solo la primera tanda (no cada "Cargar más").
     if not evitar:
@@ -662,7 +664,7 @@ def procesar():
     try:
         resp = requests.post(
             f"{OPENAI_SERVICE_URL}/procesar_post",
-            json={"url": post_url, "evitar": evitar},
+            json={"url": post_url, "evitar": evitar, "keyword": keyword},
             timeout=30,
         )
         resp.raise_for_status()
@@ -670,6 +672,24 @@ def procesar():
     except Exception as e:
         print(f"[procesar] error: {e!r}", flush=True)
         return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
+@app.route("/api/sugerir-keyword", methods=["GET"])
+@require_login
+def sugerir_keyword():
+    """Sugerencia de palabra clave leída del caption del post. Nunca falla: sin
+    sugerencia, el vendedor escribe la palabra a mano."""
+    try:
+        resp = requests.get(
+            f"{OPENAI_SERVICE_URL}/sugerir_keyword",
+            params={"url": (request.args.get("url") or "").strip()},
+            timeout=12,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except Exception as e:
+        print(f"[sugerir-keyword] error: {e!r}", flush=True)
+        return jsonify({"keyword": "", "caption": ""})
 
 
 @app.route("/api/stream/<job_id>", methods=["GET"])
@@ -1323,12 +1343,31 @@ def admin_clients_list():
     # sistema, se aplica a los posts sin cliente de TODOS los vendedores y solo
     # el admin lo ve (marcado como reservado, sin borrar/pausar/renombrar).
     if session.get("is_admin"):
-        g = _repo.get_generic_client()
-        if g:
-            g = {**g, "reserved": True,
-                 "display_name": "Genéricos (posts sin cliente)"}
-            clients = clients + [g]
+        for c, extra in ((_repo.get_generic_client(), _SISTEMA[_repo.GENERIC_IG]),
+                         (_repo.get_keyword_client(), _SISTEMA[_repo.KEYWORD_IG])):
+            if c:
+                clients = clients + [{**c, "reserved": True, **extra}]
     return jsonify({"clients": clients})
+
+
+# Textos de las fichas del sistema (las dos las edita solo el admin). Viven acá
+# y no en el JS para que la ficha nueva no obligue a tocar el front.
+_SISTEMA = {
+    "__generico__": {
+        "display_name": "Genéricos (posts sin cliente)",
+        "system_icon": "🌐",
+        "system_desc": "Se aplica a todo post que no sea de un cliente cargado, en todos los vendedores",
+        "system_title": "Prompt de los posts sin cliente",
+        "system_sub": "Es el prompt que se usa en TODOS los vendedores cuando el post no es de un cliente cargado. Se edita solo desde acá.",
+    },
+    "__keyword__": {
+        "display_name": "Palabra clave (modo keyword)",
+        "system_icon": "🔑",
+        "system_desc": "Los comentarios que son una sola palabra repetida (CLAUDE / Claude / claude), en todos los vendedores",
+        "system_title": "Prompt del modo palabra clave",
+        "system_sub": "Es el prompt que se usa cuando el vendedor activa \"Comentarios de palabra clave\". No se le suma el genérico ni el prompt del cliente: es autónomo. Usá {keyword} donde va la palabra.",
+    },
+}
 
 
 @app.route("/api/admin/clients", methods=["POST"])
@@ -1347,6 +1386,7 @@ def admin_clients_create():
         ranges=d.get("ranges"),
         crm_idventa=d.get("crm_idventa"),
         crm_idvendedor=d.get("crm_idvendedor"),
+        keyword_mode=d.get("keyword_mode"),
     )
     return jsonify({"client": c}), 201
 
@@ -1356,17 +1396,22 @@ def admin_clients_create():
 @_repo_error_response
 def admin_clients_update(client_id):
     d = request.get_json(silent=True) or {}
-    g = _repo.get_generic_client()
-    if g and g["id"] == client_id:
+    # Las fichas del sistema (genérico y keyword) se editan por su propio camino:
+    # solo el prompt y los ajustes, nunca el @usuario ni el estado.
+    sistema = {c["id"]: c["ig_username"]
+               for c in (_repo.get_generic_client(), _repo.get_keyword_client()) if c}
+    if client_id in sistema:
         if not session.get("is_admin"):
             return jsonify({"error": "Requiere permisos de administrador"}), 403
-        c = _repo.update_generic_client(
+        c = _repo.update_system_client(
+            sistema[client_id],
             prompt=d.get("prompt"),
             gender=d.get("gender"), gender_set=("gender" in d),
             quality=d.get("quality"), quality_set=("quality" in d),
             ranges=d.get("ranges"), ranges_set=("ranges" in d),
         )
-        return jsonify({"client": {**c, "reserved": True}})
+        return jsonify({"client": {**c, "reserved": True,
+                                   **_SISTEMA.get(sistema[client_id], {})}})
     c = _repo.update_client(
         _target_account_id(), client_id,
         display_name=d.get("display_name"),
@@ -1381,6 +1426,8 @@ def admin_clients_update(client_id):
         ranges_set=("ranges" in d),
         crm_idventa=d.get("crm_idventa"),
         crm_idvendedor=d.get("crm_idvendedor"),
+        keyword_mode=d.get("keyword_mode"),
+        keyword_mode_set=("keyword_mode" in d),
     )
     return jsonify({"client": c})
 
@@ -1389,10 +1436,9 @@ def admin_clients_update(client_id):
 @require_login
 @_repo_error_response
 def admin_clients_delete(client_id):
-    g = _repo.get_generic_client()
-    if g and g["id"] == client_id:
-        return jsonify({"error": "El cliente genérico no se puede borrar: es el "
-                                 "que se aplica a los posts sin cliente"}), 400
+    sistema = [c["id"] for c in (_repo.get_generic_client(), _repo.get_keyword_client()) if c]
+    if client_id in sistema:
+        return jsonify({"error": "Es una ficha del sistema y no se puede borrar"}), 400
     ok = _repo.delete_client(_target_account_id(), client_id)
     return jsonify({"deleted": ok})
 
@@ -1495,6 +1541,30 @@ Reglas:
 """
 
 
+# El prompt del modo keyword tampoco tiene capa de arriba, pero no es un prompt
+# de "cómo comentar": es un prompt de una sola palabra repetida. Con el asistente
+# del genérico, los pedidos terminaban agregándole reglas de largos y emojis.
+_AI_SYSTEM_KEYWORD = """Sos un asistente que edita el PROMPT DEL MODO PALABRA
+CLAVE de una agencia de engagement. Ese modo genera comentarios que son SOLO una
+palabra clave repetida (CLAUDE / Claude / claude), variando mayúsculas y
+minúsculas, como los que deja la gente para que el bot del creador le mande un
+recurso.
+
+Recibís el prompt actual y un PEDIDO en castellano rioplatense sobre qué
+cambiar. Devolvés el prompt completo y ya modificado.
+
+Reglas:
+- Devolvé SOLO el texto del prompt. Sin explicaciones, sin comentarios, sin
+  markdown de code fence, sin encabezados tipo "Prompt nuevo:".
+- Aplicá el pedido y NADA más: conservá intacto todo lo que no se pidió cambiar.
+- NO agregues reglas de comentarios normales (largos variados, emojis, slang,
+  personalidades, comentar el contenido del post): en este modo cada comentario
+  es únicamente la palabra clave.
+- Conservá el marcador {keyword}: es donde el sistema mete la palabra de la tanda.
+- Mantené el prompt en el mismo idioma en que está escrito.
+"""
+
+
 def _anthropic_client():
     """Cliente de Anthropic para el asistente. None si falta la API key."""
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
@@ -1535,7 +1605,9 @@ def prompt_ai():
     es_generico = bool(d.get("is_generic"))
     nombre = (d.get("client_name") or "").strip()
     if es_generico:
-        sistema = _AI_SYSTEM_GENERIC
+        sistema = (_AI_SYSTEM_KEYWORD
+                   if (d.get("system_key") or "") == "__keyword__"
+                   else _AI_SYSTEM_GENERIC)
         user_msg = (
             f"PROMPT GENERAL ACTUAL:\n<<<\n{actual}\n>>>\n\n"
             f"PEDIDO:\n<<<\n{instruccion}\n>>>\n\n"

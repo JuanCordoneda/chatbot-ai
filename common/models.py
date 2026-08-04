@@ -135,6 +135,11 @@ class Client(Base):
     # barato). Se carga al dar de alta el cliente y decide con qué modelo de IA
     # se le generan los comentarios. None = standard.
     quality = Column(String(10), nullable=True)
+    # Modo palabra clave: este cliente NO quiere comentarios de verdad, quiere N
+    # veces una palabra (CLAUDE / Claude / claude), como los que deja la gente
+    # para que el bot del creador le mande el recurso. La palabra sale del
+    # caption de cada post; acá solo se decide que el cliente trabaja así.
+    keyword_mode = Column(Boolean, nullable=False, default=False, server_default="false")
     # Rangos min-max de cantidades por producto (TAREA 6). Ej:
     # Cada tipo es una LISTA de entradas, porque un mismo post puede llevar dos
     # calidades del mismo producto con rangos distintos. Ej:

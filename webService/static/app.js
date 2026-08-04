@@ -1,4 +1,8 @@
 let currentUrl = "";
+// Modo keyword: la tanda es N veces una palabra ("CLAUDE" / "Claude" / "claude").
+// Se guarda del post en curso para que "Cargar más" y el reintento sigan en el
+// mismo modo en vez de caer a la generación normal.
+let currentKeyword = "";
 let comentariosGenerados = [];
 let generosGenerados = [];        // género por índice: "hombres" | "mujeres" | null | "__header__"
 let generoActual = null;          // género de la sección que se está streameando
@@ -133,11 +137,21 @@ async function generarComentarios() {
     setError("Pegá un link de Instagram primero.");
     return;
   }
+  // Cliente de palabra clave: sin palabra no se genera (le saldrían comentarios
+  // normales, que no es lo que ese cliente compra).
+  const keywordOn = esPostKeyword();
+  const keyword = keywordOn ? document.getElementById("ig-keyword").value.trim() : "";
+  if (keywordOn && !keyword) {
+    setError("Este cliente usa comentarios de palabra clave: escribí la palabra.");
+    document.getElementById("ig-keyword").focus();
+    return;
+  }
 
   generando = true;
   setError("");
   ocultarIaError();
   currentUrl = url;
+  currentKeyword = keyword;
   currentJobId = null;
   streamCancelado = false;   // post nuevo: vuelve a habilitarse el stream
   streamOffset = 0;
@@ -165,7 +179,7 @@ async function generarComentarios() {
     const resp = await fetch("/api/procesar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, keyword }),
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
@@ -358,6 +372,76 @@ function mostrarIaError(msg, reintentable) {
   banner.classList.remove("hidden");
 }
 
+// Muestra/oculta el bloque de la palabra clave. NO lo decide el vendedor: se
+// prende solo cuando el post es de un cliente marcado como "palabra clave" en su
+// ficha (eso lo dice el backend).
+function mostrarKeyword(on) {
+  document.getElementById("ig-keyword-wrap").classList.toggle("hidden", !on);
+  if (!on) document.getElementById("ig-keyword").value = "";
+}
+
+// ¿El post en pantalla es de un cliente de palabra clave?
+function esPostKeyword() {
+  return !document.getElementById("ig-keyword-wrap").classList.contains("hidden");
+}
+
+// ── Sugerencia de palabra clave ──────────────────────────────────────────────
+// El caption de estos posts casi siempre dice cuál es ("comment CLAUDE to get
+// the PDF"), así que apenas se pega el link la buscamos y PRECARGAMOS el campo.
+// Es una sugerencia, no una decisión: queda editable y el vendedor la ve antes
+// de generar. Si la detección se equivoca, la corrige; si no hay nada claro, el
+// backend devuelve vacío y no tocamos nada.
+let keywordSugeridaPara = "";   // link para el que ya pedimos sugerencia
+let keywordSugerida = "";       // la última sugerida (para no pisar lo que escribió el vendedor)
+
+async function sugerirKeyword() {
+  const url = document.getElementById("ig-link").value.trim();
+  if (!url || url === keywordSugeridaPara) return;
+  keywordSugeridaPara = url;
+
+  let data;
+  try {
+    const resp = await fetch("/api/sugerir-keyword?url=" + encodeURIComponent(url));
+    data = await resp.json();
+  } catch (e) {
+    return;   // silencioso: la sugerencia es un extra, no un paso del flujo
+  }
+  // Se pegó otro link mientras viajaba la respuesta: ya no aplica.
+  if (document.getElementById("ig-link").value.trim() !== url) return;
+
+  // El cliente no trabaja con palabra clave: el bloque ni aparece.
+  if (!data || !data.keyword_mode) {
+    mostrarKeyword(false);
+    keywordSugerida = "";
+    return;
+  }
+  mostrarKeyword(true);
+
+  const kw = (data.keyword || "").trim();
+  const campo = document.getElementById("ig-keyword");
+  const hint = document.getElementById("ig-keyword-hint");
+  if (!kw) {
+    // Cliente de palabra clave pero el caption no la dice (o la dice de una
+    // forma que no reconocemos): la escribe el vendedor.
+    if (hint) {
+      hint.textContent = "No encontramos la palabra en el post: escribila vos.";
+      hint.classList.add("ig-keyword-hint--detectada");
+    }
+    return;
+  }
+  // Solo pisamos lo que pusimos nosotros: si el vendedor ya escribió su palabra,
+  // la suya manda.
+  const escrito = campo.value.trim();
+  if (escrito && escrito !== keywordSugerida) return;
+
+  campo.value = kw;
+  keywordSugerida = kw;
+  if (hint) {
+    hint.textContent = "Detectada en el post: revisala antes de generar.";
+    hint.classList.add("ig-keyword-hint--detectada");
+  }
+}
+
 function ocultarIaError() {
   const banner = document.getElementById("ia-error-banner");
   if (banner) banner.classList.add("hidden");
@@ -369,6 +453,9 @@ function reintentarGeneracion() {
   if (!currentUrl || generando) return;
   ocultarIaError();
   document.getElementById("ig-link").value = currentUrl;
+  // El reintento tiene que salir en el mismo modo que la generación original.
+  mostrarKeyword(!!currentKeyword);
+  document.getElementById("ig-keyword").value = currentKeyword;
   generarComentarios();
 }
 
@@ -476,6 +563,15 @@ function mostrarScrape(data) {
   // Cliente mixto (sin género fijo): armamos las 2 columnas (Hombres | Mujeres)
   // vacías desde el arranque, para que la de Hombres no aparezca recién al final
   // cuando termina la de Mujeres. Los comentarios luego llenan cada columna.
+  // En modo keyword no hay hombres/mujeres que separar: son todos la misma
+  // palabra. Va una sola sección, sin las 2 columnas.
+  if (currentKeyword) {
+    esMixto = false;
+    generoFijo = null;
+    generoActual = null;
+    _prepararPaneles();
+    return;
+  }
   const g = (data.gender || "").toString().toLowerCase();
   esMixto = !(g === "male" || g === "female");
   // Cliente de un solo género: fijamos la sección. Aunque la IA se mande un
@@ -925,7 +1021,7 @@ async function cargarMas(tipo) {
     const resp = await fetch("/api/procesar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: currentUrl, evitar }),
+      body: JSON.stringify({ url: currentUrl, evitar, keyword: currentKeyword }),
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
@@ -2662,6 +2758,15 @@ function reiniciar() {
   esperandoTranscripcion = false;
   pendingComentarios = [];
   document.getElementById("ig-link").value = "";
+  currentKeyword = "";
+  mostrarKeyword(false);
+  keywordSugerida = "";
+  keywordSugeridaPara = "";
+  const hintKw = document.getElementById("ig-keyword-hint");
+  if (hintKw) {
+    hintKw.textContent = "Todos los comentarios van a ser esa palabra, alternando mayúsculas y minúsculas.";
+    hintKw.classList.remove("ig-keyword-hint--detectada");
+  }
   document.getElementById("lista-comentarios").innerHTML = "";
   document.getElementById("status-listo").classList.add("hidden");
   document.getElementById("scrape-owner").textContent = "—";
@@ -2774,9 +2879,21 @@ function toggleTheme() {
 
 // Enter key en el input
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("ig-link").addEventListener("keydown", (e) => {
+  const linkInput = document.getElementById("ig-link");
+  linkInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") generarComentarios();
   });
+  // Apenas hay un link, buscamos la palabra clave que pide el post. Se dispara
+  // al pegar, al salir del campo y al escribir (con un respiro, para no pedirla
+  // en cada tecla).
+  let kwTimer = null;
+  const pedirSugerencia = () => {
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(sugerirKeyword, 400);
+  };
+  linkInput.addEventListener("paste", () => setTimeout(pedirSugerencia, 0));
+  linkInput.addEventListener("input", pedirSugerencia);
+  linkInput.addEventListener("blur", sugerirKeyword);
 
   // Modal "+ Agregar": Enter confirma, Escape cancela.
   const agregarInput = document.getElementById("agregar-input");

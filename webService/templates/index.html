@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785500700" />
+  <link rel="stylesheet" href="/static/style.css?v=1785700200" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
 </head>
 <body>
@@ -105,6 +105,26 @@
               spellcheck="false"
               inputmode="url"
             />
+          </div>
+          <!-- Modo palabra clave. NO lo elige el vendedor: aparece solo cuando
+               el post es de un cliente marcado así en su ficha. La palabra la
+               detectamos del caption ("comment CLAUDE...") y queda editable,
+               porque generar 40 comentarios con la palabra equivocada no se nota
+               hasta que ya están publicados. -->
+          <div id="ig-keyword-wrap" class="ig-keyword-wrap hidden">
+            <label class="ig-form-label ig-keyword-label">🔑 Cliente de palabra clave</label>
+            <div class="ig-field">
+              <input
+                type="text"
+                id="ig-keyword"
+                class="ig-input"
+                placeholder="Palabra clave (ej: CLAUDE)"
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="60"
+              />
+            </div>
+            <p class="ig-keyword-hint" id="ig-keyword-hint">Todos los comentarios van a ser esa palabra, alternando mayúsculas y minúsculas.</p>
           </div>
           <div id="error-msg" class="error hidden"></div>
           <button class="ig-btn" onclick="generarComentarios()">
@@ -493,6 +513,6 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/app.js?v=1785500700"></script>
+  <script src="/static/app.js?v=1785700200"></script>
 </body>
 </html>

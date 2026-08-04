@@ -541,6 +541,46 @@ body.light .orden-btn-agregar {
   font-size: 0.9rem;
 }
 
+/* Modo keyword: el campo no lleva ícono, así que no necesita el sangrado. */
+.ig-keyword-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+  color: var(--faint);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ig-keyword-toggle input {
+  accent-color: var(--yellow);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.ig-keyword-wrap {
+  margin-top: 12px;
+}
+
+.ig-keyword-wrap .ig-input {
+  padding-left: 16px;
+}
+
+.ig-keyword-hint {
+  margin: 8px 2px 0;
+  color: var(--faint);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* La palabra la detectamos del caption: se avisa, porque es una sugerencia que
+   el vendedor tiene que mirar antes de generar. */
+.ig-keyword-hint--detectada {
+  color: var(--yellow);
+}
+
 .ig-btn {
   display: flex;
   align-items: center;

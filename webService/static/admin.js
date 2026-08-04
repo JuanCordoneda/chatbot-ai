@@ -64,8 +64,103 @@ function switchTab(name) {
 }
 
 // ── Modales ──
-function openMo(id) { document.getElementById(id).classList.add("ax-on"); }
-function closeMo(id) { document.getElementById(id).classList.remove("ax-on"); }
+function openMo(id) {
+  const mo = document.getElementById(id);
+  // Quién tenía el foco antes de abrir: al cerrar se lo devolvemos, si no el
+  // tab arranca de cero arriba de la página.
+  mo._focoPrevio = document.activeElement;
+  mo.classList.add("ax-on");
+}
+function closeMo(id) {
+  const mo = document.getElementById(id);
+  mo.classList.remove("ax-on");
+  const prev = mo._focoPrevio;
+  mo._focoPrevio = null;
+  // El botón que abrió el modal puede haber desaparecido (lista redibujada).
+  if (prev && prev.isConnected && prev.focus) prev.focus();
+}
+
+// El tab no se escapa del modal abierto: con un modal a pantalla completa,
+// tabular hasta el fondo dejaba el foco en la lista de atrás, invisible.
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const mo = [...document.querySelectorAll(".ax-mo.ax-on")].pop();
+  if (!mo) return;
+  const f = [...mo.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter(el => el.offsetParent !== null || el === document.activeElement);
+  if (!f.length) return;
+  const primero = f[0], ultimo = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
+  else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
+});
+
+// ── Elegir entre 2-3 opciones: botones en vez de <select> ──
+// El <select> sigue siendo el dueño del valor (todo el resto del archivo lo lee
+// y lo escribe con .value); esto solo le dibuja botones al lado y los mantiene
+// sincronizados en los dos sentidos.
+function buildSegs(root) {
+  for (const sel of root.querySelectorAll("select[data-seg]")) {
+    if (sel.classList.contains("ax-seg-src")) { sincronizarSeg(sel); continue; }
+    sel.classList.add("ax-seg-src");
+    sel.tabIndex = -1;
+    const grupo = document.createElement("div");
+    grupo.className = "ax-opt" + (sel.hasAttribute("data-seg-wide") ? " ax-opt--wide" : "");
+    grupo.setAttribute("role", "radiogroup");
+    const etiqueta = sel.closest(".ax-field")?.querySelector("label");
+    if (etiqueta) grupo.setAttribute("aria-label", etiqueta.textContent.trim());
+    for (const op of sel.options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ax-opt-b";
+      b.setAttribute("role", "radio");
+      b.dataset.val = op.value;
+      const ico = op.dataset.ico ? `<span class="ax-opt-ico" aria-hidden="true">${esc(op.dataset.ico)}</span>` : "";
+      const txt = esc(op.dataset.short || op.textContent);
+      const desc = op.dataset.desc ? `<span class="ax-opt-desc">${esc(op.dataset.desc)}</span>` : "";
+      b.innerHTML = `${ico}<span class="ax-opt-txt">${txt}</span>${desc}`;
+      b.onclick = () => {
+        if (sel.disabled) return;
+        sel.value = op.value;
+        // Bubbling a mano: el select cambió por código, así que nadie se entera
+        // solo. El listener delegado de "cambios sin guardar" escucha esto.
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        sincronizarSeg(sel);
+      };
+      grupo.appendChild(b);
+    }
+    sel.insertAdjacentElement("afterend", grupo);
+    sel._seg = grupo;
+    sincronizarSeg(sel);
+  }
+}
+
+// Refleja en los botones lo que diga el <select> (valor y disabled).
+function sincronizarSeg(sel) {
+  const grupo = sel._seg;
+  if (!grupo) return;
+  grupo.classList.toggle("ax-opt--off", sel.disabled);
+  for (const b of grupo.children) {
+    const on = b.dataset.val === sel.value;
+    b.setAttribute("aria-checked", on ? "true" : "false");
+    // Solo la opción elegida entra en el tab: dentro de un radiogroup se navega
+    // con las flechas, no tabulando opción por opción.
+    b.tabIndex = on ? 0 : -1;
+  }
+}
+
+// Flechas dentro del grupo, como manda un radiogroup.
+document.addEventListener("keydown", e => {
+  const b = e.target.closest?.(".ax-opt-b");
+  if (!b || !["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) return;
+  e.preventDefault();
+  const hnos = [...b.parentElement.children];
+  const paso = (e.key === "ArrowRight" || e.key === "ArrowDown") ? 1 : -1;
+  const sig = hnos[(hnos.indexOf(b) + paso + hnos.length) % hnos.length];
+  sig.click();
+  sig.focus();
+});
+
 document.addEventListener("click", e => {
   if (!e.target.classList.contains("ax-mo")) return;
   // El de cliente pasa por su propia guarda de cambios sin guardar.
@@ -76,6 +171,13 @@ document.addEventListener("keydown", e => {
   const enClienteEditor = document.getElementById("client-mo").classList.contains("ax-on");
   const modal = document.querySelector("#client-mo .ax-modal");
 
+  // ⌘/Ctrl + S: el reflejo de cualquiera que escribe un texto largo. Sin esto el
+  // navegador abre "Guardar página como…" arriba del modal.
+  if (enClienteEditor && (e.key === "s" || e.key === "S") && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    document.getElementById("client-save").click();
+    return;
+  }
   // ⌘/Ctrl + Enter guarda desde el textarea (Enter suelto sigue siendo salto de línea).
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && enClienteEditor) {
     e.preventDefault();
@@ -118,9 +220,18 @@ document.addEventListener("keydown", e => {
       renderVentaSelect(e.target.value);
       actualizarVentaHint();
       setFieldErr("client-ig", validarIg(e.target.value));
+      // Cliente nuevo: se propone el nombre a partir del @usuario hasta que el
+      // vendedor escriba uno propio (ahí no se toca más).
+      const nom = document.getElementById("client-name");
+      if (!document.getElementById("client-id").value && !nom.dataset.tocado)
+        nom.value = nombreDesdeIg(e.target.value);
       pintarCabeceraCliente();
     }
-    if (e.target.id === "client-name" || e.target.id === "client-status") pintarCabeceraCliente();
+    if (e.target.id === "client-name") {
+      document.getElementById("client-name").dataset.tocado = "1";
+      pintarCabeceraCliente();
+    }
+    if (e.target.id === "client-status") pintarCabeceraCliente();
     // Los rangos se validan mientras se tipea: mín > máx o calidad sin rango se
     // ven al toque, no al apretar Guardar.
     if (e.target.closest(".ax-range-row")) revisarRangos();
@@ -196,7 +307,9 @@ function renderKpis() {
 // ── Clientes ──
 let clientsCache = [];
 // Cliente genérico del sistema (solo lo recibe el admin). Ver genericCard().
-let genericCache = null;
+// Fichas del sistema (genérico, palabra clave). Son varias: el backend manda
+// cada una con reserved:true y sus textos (system_icon/desc/title/sub).
+let sistemaCache = [];
 
 // Los endpoints de clientes están scoped al vendedor elegido (?vendedor=<id>).
 function cliUrl(path = "") {
@@ -221,7 +334,7 @@ async function loadClients() {
     const [{ clients }] = await Promise.all([api("GET", cliUrl()), loadVentas()]);
     // El genérico viaja en la misma respuesta (solo para el admin) pero se
     // guarda aparte: no es un cliente del vendedor y no cuenta en los KPIs.
-    genericCache = clients.find(c => c.reserved) || null;
+    sistemaCache = clients.filter(c => c.reserved);
     clientsCache = clients.filter(c => !c.reserved);
     renderClients(); renderKpis();
   } catch (e) { toast(e.message, "bad"); }
@@ -462,12 +575,12 @@ function usarVentaSugerida() {
 function genericCard(c) {
   return `
     <div class="ax-card">
-      <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">🌐</div>
+      <div class="ax-avatar" style="${avatarStyle(c.ig_username)}">${c.system_icon || "🌐"}</div>
       <div class="ax-main">
-        <div class="ax-name">Genéricos (posts sin cliente)
+        <div class="ax-name">${esc(c.display_name)}
           <span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Siempre activo</span>
         </div>
-        <div class="ax-sub">Se aplica a todo post que no sea de un cliente cargado, en todos los vendedores
+        <div class="ax-sub">${esc(c.system_desc || "")}
           · ${(c.prompt || "").length} car. de prompt</div>
       </div>
       <div class="ax-acts">
@@ -529,8 +642,8 @@ function renderClients() {
     !q || c.ig_username.includes(q) || (c.display_name || "").toLowerCase().includes(q));
   // El genérico va siempre al final, en su propia sección y sin filtrar por el
   // buscador (es del sistema, no uno más de la lista).
-  const sistema = genericCache
-    ? `<div class="ax-group">🌐<span class="ax-group-t">Del sistema</span><span class="ax-group-c">1</span><span class="ax-group-line"></span></div>${genericCard(genericCache)}`
+  const sistema = sistemaCache.length
+    ? `<div class="ax-group">🌐<span class="ax-group-t">Del sistema</span><span class="ax-group-c">${sistemaCache.length}</span><span class="ax-group-line"></span></div>${sistemaCache.map(genericCard).join("")}`
     : "";
   if (!clientsCache.length) { list.innerHTML = emptyState("Todavía no hay clientes", "Creá el primero con su @usuario y su prompt.") + sistema; return; }
   if (!items.length) { list.innerHTML = emptyState("Sin resultados", "Probá con otro nombre o @usuario.") + sistema; return; }
@@ -922,6 +1035,7 @@ async function renderCalidades(rg) {
   // Los selects se llenan async, después de que openClientModal tomó la foto
   // del formulario: sin esto la ficha arranca marcada como "con cambios".
   clientSnapshot = _clientFormState();
+  updatePromptCount();   // la foto cambió ⇒ el botón de guardar se resincroniza
 }
 
 let clientSnapshot = "";
@@ -930,7 +1044,7 @@ function _clientFormState() {
   const v = (id) => document.getElementById(id).value;
   return JSON.stringify([
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
-    v("client-quality"),
+    v("client-quality"), document.getElementById("client-keyword-mode").checked,
     v("client-venta"), v("client-prompt"),
     leerRangosDOM(), leerComentariosDOM(),
   ]);
@@ -945,7 +1059,22 @@ function validarIg(v) {
   if (!ig) return "Poné el @usuario de Instagram: es con lo que el motor reconoce los posts.";
   if (!/^[a-zA-Z0-9._]+$/.test(ig)) return "Solo letras, números, punto y guion bajo (sin espacios ni @).";
   if (ig.length > 30) return "Instagram no permite más de 30 caracteres.";
+  // Dos clientes con el mismo @usuario dejan el motor sin saber qué prompt usar.
+  // El backend lo rechaza, pero avisarlo acá evita perder lo escrito en un 400.
+  const yo = document.getElementById("client-id").value;
+  const clon = [...clientsCache, ...sistemaCache].find(
+    x => String(x.id) !== String(yo) &&
+      (x.ig_username || "").trim().toLowerCase() === ig.toLowerCase()
+  );
+  if (clon) return `Ya existe un cliente con @${ig}${clon.display_name ? ` (${clon.display_name})` : ""}.`;
   return "";
+}
+
+// "peter.fournier" ⇒ "Peter Fournier": el nombre para mostrar casi siempre es el
+// @usuario prolijo, y escribirlo dos veces es trabajo de más.
+function nombreDesdeIg(ig) {
+  return (ig || "").trim().replace(/^@/, "").split(/[._-]+/).filter(Boolean)
+    .map(p => p[0].toUpperCase() + p.slice(1)).join(" ");
 }
 
 // Avatar, título y estado de la cabecera, en vivo mientras se completa la ficha.
@@ -975,7 +1104,23 @@ function updatePromptCount() {
   document.getElementById("client-prompt-count").textContent = resumen;
   document.getElementById("client-prompt-teaser-count").textContent =
     txt.trim() ? resumen : "Todavía sin instrucciones";
-  document.getElementById("client-dirty").classList.toggle("ax-on", clientIsDirty());
+  document.querySelector("#client-mo .ax-prompt-teaser")
+    ?.classList.toggle("ax-prompt-teaser--empty", !txt.trim());
+  // Palabra clave prendida ⇒ este prompt no se usa: se atenúa el textarea y se
+  // marca la tarjeta cerrada, que si no no lo dice.
+  const kw = document.getElementById("client-keyword-mode").checked;
+  document.querySelector("#client-mo .ax-field--editor").classList.toggle("ax-kw-on", kw);
+  document.getElementById("client-prompt-teaser-kw").classList.toggle("ax-hidden", !kw);
+  const sucio = clientIsDirty();
+  document.getElementById("client-dirty").classList.toggle("ax-on", sucio);
+  // Editando sin tocar nada no hay nada que guardar: el botón lo dice en vez de
+  // mandar un PATCH idéntico a lo que ya está en la base.
+  const btn = document.getElementById("client-save");
+  if (btn && !btn.classList.contains("ax-btn--busy")) {
+    const editando = !!document.getElementById("client-id").value;
+    btn.disabled = editando && !sucio;
+    btn.textContent = !editando ? "Crear cliente" : (sucio ? "Guardar cambios" : "Sin cambios");
+  }
 }
 
 // Pantalla completa del editor: esconde la columna de datos y deja el textarea
@@ -1002,9 +1147,18 @@ async function closeClientModal() {
   closeMo("client-mo");
 }
 
+// El guard de cerrar el modal no cubre cerrar la pestaña o recargar: un prompt
+// largo a medio escribir se perdía sin una sola advertencia.
+window.addEventListener("beforeunload", e => {
+  if (!document.getElementById("client-mo")?.classList.contains("ax-on")) return;
+  if (!clientIsDirty()) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+
 function findClient(id) {
-  if (genericCache && genericCache.id === id) return genericCache;
-  return clientsCache.find(x => x.id === id) || null;
+  return sistemaCache.find(x => x.id === id)
+    || clientsCache.find(x => x.id === id) || null;
 }
 
 function openClientModal(id) {
@@ -1013,11 +1167,11 @@ function openClientModal(id) {
   const c = id ? findClient(id) : null;
   const gen = !!(c && c.reserved);
   document.getElementById("client-title").textContent =
-    gen ? "Prompt de los posts sin cliente" : (c ? "Editar cliente" : "Nuevo cliente");
+    gen ? (c.system_title || "Prompt del sistema") : (c ? "Editar cliente" : "Nuevo cliente");
   // Editando no hace falta bajada: el título ya dice todo.
   const sub = document.getElementById("client-subtitle");
   sub.textContent = gen
-    ? "Es el prompt que se usa en TODOS los vendedores cuando el post no es de un cliente cargado. Se edita solo desde acá."
+    ? (c.system_sub || "")
     : (c ? "" : "Se guarda en la base y el motor lo usa al instante, sin deploy.");
   // Editando, la bajada muestra el @usuario y el estado en vivo en vez de un
   // texto explicativo que ya no hace falta.
@@ -1026,11 +1180,16 @@ function openClientModal(id) {
   clearFieldErrs("client-mo");
   document.getElementById("client-id").value = c ? c.id : "";
   document.getElementById("client-ig").value = c ? c.ig_username : "";
-  document.getElementById("client-name").value = c ? c.display_name : "";
+  const nomEl = document.getElementById("client-name");
+  nomEl.value = c ? c.display_name : "";
+  delete nomEl.dataset.tocado;   // ficha nueva ⇒ vuelve a sugerirse desde el @usuario
   document.getElementById("client-status").value = c ? c.status : "active";
   document.getElementById("client-gender").value = c && c.gender ? c.gender : "";
   // Cliente nuevo arranca en estándar: subir a pro es una decisión explícita.
   document.getElementById("client-quality").value = c && c.quality === "pro" ? "pro" : "standard";
+  document.getElementById("client-keyword-mode").checked = !!(c && c.keyword_mode);
+  // Las fichas del sistema no son un cliente: no tienen posts propios.
+  document.getElementById("client-keyword-field").classList.toggle("ax-hidden", gen);
   renderVentaSelect(c ? c.ig_username : document.getElementById("client-ig").value);
   document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
   actualizarVentaHint();
@@ -1068,6 +1227,11 @@ function openClientModal(id) {
   for (const f of ["client-ig", "client-name", "client-status", "client-venta"]) {
     document.getElementById(f).disabled = gen;
   }
+  // Los botones de estado/género/calidad se dibujan una vez y después solo se
+  // resincronizan con lo que quedó cargado en cada <select>.
+  buildSegs(document.getElementById("client-mo"));
+  // Por qué están grises esos campos: sin decirlo parecía que la app se colgó.
+  document.getElementById("client-gen-note").classList.toggle("ax-hidden", !gen);
   clientSnapshot = _clientFormState();
   updatePromptCount();
   openMo("client-mo");
@@ -1092,6 +1256,15 @@ async function saveClient() {
       ? "Revisá el @usuario para poder guardar."
       : "Revisá los números marcados en rojo para poder guardar.");
     return;
+  }
+  // Lo que se guarda es lo que queda a la vista: se limpia el campo, no solo el
+  // payload, para que la ficha no muestre algo distinto a lo que fue a la base.
+  if (!gen) {
+    const igEl = document.getElementById("client-ig");
+    igEl.value = igEl.value.trim().replace(/^@/, "");
+    const nomEl = document.getElementById("client-name");
+    nomEl.value = nomEl.value.trim();
+    pintarCabeceraCliente();
   }
   const ranges = {};
   const sinRango = [];
@@ -1121,11 +1294,14 @@ async function saveClient() {
   if (sinRango.length)
     toast(`Sin rango en ${[...new Set(sinRango)].join(", ")}: esa calidad no se guardó`, "bad");
   const payload = {
-    ig_username: document.getElementById("client-ig").value,
-    display_name: document.getElementById("client-name").value,
+    // Normalizado antes de salir: un "@" o un espacio pegado de un copiar-pegar
+    // rompe el match del post contra el cliente.
+    ig_username: document.getElementById("client-ig").value.trim().replace(/^@/, ""),
+    display_name: document.getElementById("client-name").value.trim(),
     status: document.getElementById("client-status").value,
     gender: document.getElementById("client-gender").value,
     quality: document.getElementById("client-quality").value,
+    keyword_mode: document.getElementById("client-keyword-mode").checked,
     ranges,
     prompt: document.getElementById("client-prompt").value,
     // El idvendedor viaja junto al idventa: el CRM imputa la orden a ese par, y
@@ -1133,7 +1309,11 @@ async function saveClient() {
     crm_idventa: document.getElementById("client-venta").value,
     crm_idvendedor: (ventaById(document.getElementById("client-venta").value) || {}).idvendedor || "",
   };
-  const btn = document.getElementById("client-save"); btn.disabled = true;
+  const btn = document.getElementById("client-save");
+  const btnTxt = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add("ax-btn--busy");
+  btn.textContent = "Guardando…";
   try {
     if (id) await api("PATCH", cliUrl(`/${id}`), payload);
     else await api("POST", cliUrl(), payload);
@@ -1144,7 +1324,8 @@ async function saveClient() {
     // Si veníamos de la bandeja, guardar el prompt ES resolver el pedido.
     if (pedidoEnCurso) { const pid = pedidoEnCurso; pedidoEnCurso = null; cerrarPedido(pid, "done"); }
     loadClients();
-  } catch (e) { showErr("client-err", e.message); } finally { btn.disabled = false; }
+  } catch (e) { showErr("client-err", e.message); }
+  finally { btn.disabled = false; btn.classList.remove("ax-btn--busy"); btn.textContent = btnTxt; }
 }
 
 async function togglePause(id) {
@@ -1610,6 +1791,9 @@ async function runPromptAi() {
       // Editando el genérico se escribe el prompt entero; editando un cliente,
       // solo su capa (el genérico ya se le suma solo al generar).
       is_generic: !!(abierto && abierto.reserved),
+      // Cuál de las fichas del sistema: cada una se edita con su propio
+      // asistente (el genérico y el de palabra clave no son lo mismo).
+      system_key: (abierto && abierto.reserved) ? abierto.ig_username : "",
     });
     aiPromptAnterior = actual;
     document.getElementById("client-prompt").value = d.prompt;

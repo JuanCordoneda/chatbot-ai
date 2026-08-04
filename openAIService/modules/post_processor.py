@@ -533,7 +533,13 @@ def _cache_put(shortcode: str, data: "PostData"):
             _scrape_cache.pop(min(_scrape_cache, key=lambda k: _scrape_cache[k][0]), None)
 
 
-def scrape_post(url: str, max_comments: int = 0) -> PostData:
+def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostData:
+    """ligero: modo keyword. Los comentarios son una sola palabra, así que no
+    hace falta ni la imagen, ni la descripción visual, ni la transcripción del
+    video: solo quién es el dueño del post (para la campaña) y el caption (para
+    mostrarlo). Se saltea todo lo caro y lento — que es casi todo el scrape.
+    No usa ni escribe el caché: el PostData que devuelve está incompleto a
+    propósito y no sirve para una generación normal del mismo post."""
     shortcode = extract_shortcode(url)
     if not shortcode:
         raise ValueError(f"No se pudo extraer el shortcode del link: {url}")
@@ -541,7 +547,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     # Solo se cachea lo que salió BIEN: si la transcripción falló, el próximo
     # intento tiene que volver a probar (si no, un rate limit puntual quedaba
     # pegado 10 minutos).
-    cacheado = _cache_get(shortcode)
+    cacheado = _cache_get(shortcode) if not ligero else None
     if cacheado is not None:
         print(f"[cache] post {shortcode} reusado (sin re-scrapear ni re-transcribir)", flush=True)
         return cacheado
@@ -584,7 +590,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     # fallando de forma transitoria (rate limit / sesión). Reintentamos la API un
     # par de veces con backoff antes de rendirnos — antes esto se rendía en el
     # primer intento y el usuario veía "sin transcripción" sin saber por qué.
-    if is_video and not video_url:
+    if is_video and not video_url and not ligero:
         for intento in (1, 2):
             print(f"[ig_api] reel sin video_url ({slow.get('_error') or 'sin motivo'}), "
                   f"reintento {intento}/2...", flush=True)
@@ -612,6 +618,10 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     if is_video:
         # En reels alcanza con la portada: el contenido lo aporta la transcripción.
         display_urls = display_urls[:1]
+    if ligero:
+        # Modo keyword: ni descargamos las imágenes. Sin imagen no hay llamada de
+        # visión ni bloque multimodal más abajo.
+        display_urls = []
 
     image_b64 = ""
     image_media_type = ""
@@ -667,7 +677,11 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     if image_b64 and not (is_video and video_url):
         _lanzar_descripcion(image_b64, image_media_type, n_imagenes, False)
 
-    if is_video and video_url:
+    if ligero:
+        # Modo keyword: sin transcripción. Es lo más lento del scrape (bajar el
+        # video + whisper, hasta un minuto) y no aporta nada a escribir una palabra.
+        print("[scrape] modo keyword: salteo transcripción y visión", flush=True)
+    elif is_video and video_url:
         print(f"[ig_api] descargando video para transcripción...", flush=True)
         # La descarga del video también se reintenta: un corte de red en el medio
         # dejaba el archivo trunco y whisper devolvía basura o error.
@@ -733,7 +747,11 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
         finally:
             desc_executor.shutdown(wait=False)
 
-    if not caption and not transcription and not image_b64:
+    # En modo keyword alcanza con saber de quién es el post: no bajamos ni la
+    # imagen ni el audio, así que exigir contenido lo haría fallar siempre.
+    sin_contenido = (not owner_username and not caption) if ligero else (
+        not caption and not transcription and not image_b64)
+    if sin_contenido:
         motivo = slow.get("_error") or "el post puede ser privado o el link estar mal"
         raise ValueError(f"No se pudo obtener el contenido del post: {motivo}.")
 
@@ -756,7 +774,7 @@ def scrape_post(url: str, max_comments: int = 0) -> PostData:
     # Se cachea solo si el post salió completo: un video sin transcripción por un
     # error transitorio NO se guarda, así el siguiente intento vuelve a probar.
     transcripcion_fallada = transcription.startswith("(transcripción no disponible")
-    if not transcripcion_fallada:
+    if not transcripcion_fallada and not ligero:
         _cache_put(shortcode, resultado)
     print(f"[TIMING] scrape_post total: {time.time()-t0:.2f}s", flush=True)
     return resultado

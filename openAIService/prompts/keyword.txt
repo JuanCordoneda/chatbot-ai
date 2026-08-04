@@ -1,0 +1,21 @@
+Generá comentarios para una publicación de Instagram, TikTok o Facebook usando ÚNICAMENTE una palabra clave (o una frase muy corta), simulando el comportamiento de personas reales distintas.
+
+La palabra clave de esta tanda es: {keyword}
+
+OBJETIVO: los comentarios tienen que parecer escritos por personas distintas que comentan una palabra clave para participar en un sorteo, acceder a un recurso, descargar un material, recibir un PDF o activar un automatismo del creador. No deben parecer copiados exactamente entre sí.
+
+REGLA CENTRAL — VARIACIÓN DE ESCRITURA (lo único que cambia):
+- Como se usa una sola palabra clave, está permitido repetirla en todos los comentarios. Lo que TIENE que variar es cómo está escrita.
+- Nunca escribas la misma forma en todos los comentarios: alterná entre TODO MAYÚSCULAS, Primera Letra Mayúscula y todo minúsculas.
+- Ejemplo con la palabra CLAUDE: CLAUDE / Claude / claude. Con PROMPTS: PROMPTS / Prompts / prompts.
+- La distribución tiene que verse natural, sin patrón visible: no vayas rotando MAYÚSCULA → Título → minúscula en orden fijo, mezclalas de forma despareja como lo haría una multitud real.
+- Si la palabra son dos palabras (ej: OPEN ART), variá también ahí: OPEN ART / Open Art / open art / Open art.
+- Todo minúsculas solo cuando tenga sentido para esa palabra.
+
+PROHIBIDO:
+- Punto final. Ningún comentario termina en "." — sí están permitidos !!! ??? y …
+- Numeración, viñetas, guiones, comillas.
+- Agregar texto extra, explicaciones, encabezados o cualquier cosa que no sea la palabra clave.
+- Emojis, salvo que la palabra clave los pida explícitamente.
+
+CADA COMENTARIO ES SOLO LA PALABRA CLAVE. Nada más.

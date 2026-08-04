@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785500700" />
+  <link rel="stylesheet" href="/static/style.css?v=1785600003" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -154,10 +154,13 @@
       background: rgba(0,0,0,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .ax-mo.ax-on { display: flex; }
     .ax-modal { zoom: 1.1; background: var(--surface); border: 1px solid var(--border2); border-radius: 22px; width: 100%; max-width: 620px;
-      max-height: 86vh; overflow: auto; padding: 26px; box-shadow: 0 40px 100px rgba(0,0,0,.6); animation: axpop .18s ease; }
+      max-height: 90vh; overflow: auto; padding: 26px; box-shadow: 0 40px 100px rgba(0,0,0,.6); animation: axpop .18s ease; }
     /* El de cliente es el más cargado (datos + rangos + prompt largo): va más
        ancho y con la tipografía un escalón arriba, si no queda todo apretado. */
-    .ax-modal--lg { max-width: 1120px; padding: 34px 36px; }
+    /* Ancho real del monitor, con techo: 1120px dejaba las filas de rangos y de
+       comentarios más apretadas de lo necesario en pantallas grandes. El /1.1
+       compensa el zoom del modal, que se aplica sobre el vw. */
+    .ax-modal--lg { max-width: min(1320px, calc(94vw / 1.1)); padding: 34px 36px; }
     .ax-modal--lg h3 { font-size: 1.4rem; }
     .ax-modal--lg .ax-msub { font-size: .9rem; margin-bottom: 22px; }
     /* Cabecera fija de la ficha: se pega arriba mientras el modal scrollea, así
@@ -266,6 +269,13 @@
     .ax-field { margin-bottom: 15px; }
     .ax-field label { display: flex; justify-content: space-between; font-size: .82rem; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
     .ax-field label .ax-hint { color: var(--faint); font-weight: 400; }
+    /* Check con título y explicación al lado (no es el label de un input). */
+    .ax-check { display: flex !important; align-items: flex-start; gap: 10px; justify-content: flex-start !important;
+      background: var(--surface2); border: 1px solid var(--border2); border-radius: 11px; padding: 12px 13px; cursor: pointer; }
+    .ax-check input { width: 16px !important; height: 16px; margin-top: 2px; flex: 0 0 auto; accent-color: var(--yellow); cursor: pointer; }
+    .ax-check > span { display: flex; flex-direction: column; gap: 3px; }
+    .ax-check b { color: var(--text); font-size: .88rem; font-weight: 700; }
+    .ax-check .ax-hint { color: var(--faint); font-weight: 400; font-size: .8rem; line-height: 1.45; }
     .ax-field input, .ax-field select, .ax-field textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border2);
       color: var(--text); border-radius: 11px; padding: 11px 13px; font-family: var(--font); font-size: .92rem; }
     .ax-field input:focus, .ax-field select:focus, .ax-field textarea:focus { outline: none; border-color: var(--yellow); }
@@ -303,7 +313,7 @@
     .ax-mo-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     /* Campo en rojo: el error tiene que verse en el input, no solo en el texto
        de abajo (con la ficha scrolleada el mensaje puede quedar fuera de vista). */
-    .ax-field input.ax-bad, .ax-range-row input.ax-bad, .ax-com-row input.ax-bad {
+    .ax-field input.ax-bad, .ax-range-row input.ax-bad, .ax-com-card input.ax-bad {
       border-color: #ff6b6b; box-shadow: 0 0 0 3px rgba(255,107,107,.13); }
 
     /* ── Rangos por producto ────────────────────────────────────────────
@@ -330,25 +340,31 @@
 
     /* Comentarios por post: mismo look que una tarjeta de rango, pero con las
        dos filas fijas (verificados / comunes) porque no hay calidades ni tandas. */
-    .ax-com { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 13px; }
-    /* Anchos fijos para los números: con fracciones, en el modal ancho los dos
-       casilleros quedaban enormes y separadísimos de su etiqueta. */
-    .ax-com-row { display: grid; grid-template-columns: 148px 96px 12px 96px 1fr; align-items: center; gap: 10px; }
+    /* Una tarjeta por tipo, lado a lado: el tipo arriba, los dos números
+       abajo y cómo sale al pie. Antes eran dos filas a lo ancho del modal y
+       todo quedaba amontonado a la izquierda. */
+    .ax-com { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .ax-com .ax-fe { grid-column: 1 / -1; }
+    .ax-com-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+      transition: border-color .13s; }
+    .ax-com-card:hover, .ax-com-card:focus-within { border-color: var(--border2); }
+    .ax-com-nums { display: grid; grid-template-columns: minmax(0, 130px) 14px minmax(0, 130px);
+      align-items: center; gap: 9px; }
+    @media (max-width: 640px) { .ax-com { grid-template-columns: 1fr; } }
+    /* El ancho lo manda la sección, no la ventana: en el modal ancho estas
+       filas viven en una columna de ~530px con la pantalla en 1400px, así que
+       medir el viewport daba siempre el layout equivocado. */
     /* Cómo sale ese tipo (todo junto / en tandas). Es fijo, no configurable:
        se muestra al lado del rango para no tener que buscarlo en otra sección. */
     .ax-com-modo { font-size: .78rem; color: var(--faint); }
-    .ax-com-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+    .ax-com-card input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
       border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
       transition: border-color .13s, box-shadow .13s; }
-    .ax-com-row input:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+    .ax-com-card input:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
     .ax-com-tag { font-size: .84rem; font-weight: 700; }
     .ax-com-tag--v  { color: #34c759; }
     .ax-com-tag--nv { color: var(--muted); }
-    @media (max-width: 900px) { .ax-com-row { grid-template-columns: 1.2fr 1fr 14px 1fr; }
-      .ax-com-modo { grid-column: 2 / -1; } }
-    @media (max-width: 720px) { .ax-com-row { grid-template-columns: 1fr 14px 1fr; }
-      .ax-com-tag, .ax-com-modo { grid-column: 1 / -1; } }
 
     .ax-range-group { position: relative; display: flex; flex-direction: column; gap: 8px;
       padding: 12px 14px 12px 17px; background: var(--surface); border: 1px solid var(--border);
@@ -365,8 +381,24 @@
     .ax-range-ghead { display: flex; align-items: center; gap: 10px; }
     .ax-range-name { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; font-weight: 700;
       color: var(--text); margin-right: auto; }
-    .ax-range-row { display: grid; grid-template-columns: 1fr 14px 1fr 1.7fr 24px; align-items: center; gap: 8px; }
+    /* Todo la fila en un renglón, con anchos fijos para los números: un "mín"
+       de dos dígitos no tiene por qué medir 300px, y la división en tandas
+       ocupaba un segundo renglón entero teniendo lugar de sobra al lado. */
+    .ax-range-row { display: grid; align-items: center; gap: 8px;
+      grid-template-columns: 92px 12px 92px minmax(150px, 250px) auto 26px; }
+    /* Colocación explícita: en el DOM el botón de borrar viene antes que las
+       tandas, pero se lee mejor al final del todo. */
+    .ax-range-row > :nth-child(5) { grid-column: 6; grid-row: 1; justify-self: end; }
+    .ax-range-row > .ax-drip { grid-column: 5; grid-row: 1; }
     .ax-range-dash { text-align: center; color: var(--faint); }
+    /* Igual que en comentarios: manda el ancho de la columna, no el de la
+       ventana. Con la calidad del CRM son 5 columnas y no entran en ~470px. */
+    @container ax-sec (max-width: 720px) {
+      .ax-range-row { grid-template-columns: 1fr 12px 1fr 26px; row-gap: 8px; }
+      .ax-range-row > :nth-child(5) { grid-column: 4; grid-row: 1; }
+      .ax-range-prod { grid-column: 1 / -1; }
+      .ax-range-row > .ax-drip { grid-column: 1 / -1; grid-row: auto; }
+    }
     .ax-range-row input { background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
       border-radius: 9px; padding: 9px 11px; font-family: var(--font); font-size: .88rem; width: 100%;
       transition: border-color .13s, box-shadow .13s; }
@@ -386,7 +418,7 @@
     .ax-range-fe { grid-column: 1 / -1; margin-top: 0; }
     /* División en tandas: sub-línea bajo la fila del rango. Partir el total
        espaciadas es lo que hace que el post no parezca comprado. */
-    .ax-drip { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    .ax-drip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       font-size: .8rem; color: var(--muted); }
     .ax-drip select { background: var(--surface2); border: 1px solid var(--border2); color: var(--muted2);
       border-radius: 8px; padding: 5px 8px; font-family: var(--font); font-size: .78rem; font-weight: 600; }
@@ -434,6 +466,219 @@
       background-size: 200% 100%; animation: axsk 1.3s infinite; }
     @keyframes axsk { to { background-position: -200% 0; } }
 
+    /* ═══ Ficha de cliente — pasada de diseño ════════════════════════════
+       El modal es ancho (1120px) pero las tres secciones venían apiladas en
+       una sola columna: media ficha era aire a los costados y había que
+       scrollear para llegar a Tráfico. Acá se acomodan en dos columnas
+       (Identidad + Comentarios a la izquierda, Tráfico entero a la derecha),
+       que es como se lee: primero quién es, después qué manda. */
+    /* Las secciones van una debajo de la otra, a todo el ancho del modal. Se
+       probó ponerlas en dos columnas (Comentarios | Tráfico) y no gustó: la
+       ficha se lee de arriba abajo, en orden. */
+    /* Cuatro campos en línea, con el @usuario y el nombre un poco más anchos
+       que los dos selects (que solo tienen que mostrar una palabra). */
+    /* @usuario y nombre son campos de texto (necesitan largo); estado son dos
+       botones y género tres, de ahí que la última columna sea la más ancha. */
+    .ax-gridq { display: grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 18px;
+      align-items: start; }
+    @media (max-width: 900px) { .ax-gridq { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px)  { .ax-gridq { grid-template-columns: 1fr; } }
+
+    /* Cada sección mide su propio ancho: las filas de adentro se acomodan a la
+       columna en la que caen, no al tamaño de la ventana. */
+    .ax-sec { container-type: inline-size; container-name: ax-sec; }
+
+    /* Encabezado de sección: ícono en pastilla + título + bajada. El ícono da
+       el punto de anclaje visual que faltaba para saltar de una sección a otra
+       sin leer los títulos. */
+    .ax-sec-h { align-items: center; }
+    .ax-sec-ico { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0;
+      border-radius: 8px; background: var(--surface3); font-size: .82rem; line-height: 1;
+      border: 1px solid var(--border); }
+    .ax-sec-h h4 { margin-right: 2px; }
+    /* La bajada se va a la derecha del todo cuando entra en la misma línea. */
+    .ax-sec-sub { margin-left: auto; text-align: right; }
+    @container ax-sec (max-width: 560px) {
+      .ax-sec-sub { flex-basis: 100%; margin-left: 0; text-align: left; margin-top: -2px; } }
+
+    /* Las tarjetas responden al mouse igual que las de la lista: sin eso el
+       modal se sentía un formulario plano. */
+    .ax-sec { transition: border-color .13s, box-shadow .13s; }
+    .ax-modal--lg .ax-sec:focus-within { border-color: var(--border2);
+      box-shadow: 0 0 0 1px var(--border2); }
+
+    /* ── Elegir entre dos o tres opciones ──────────────────────────────────
+       Estado, género y calidad son listas de 2-3 opciones fijas: en un <select>
+       hay que abrir para ver qué hay y qué está elegido se lee en letra chica.
+       Como botones se ve todo de una y se cambia con un solo clic. El <select>
+       real sigue en el DOM (oculto) y es el que guarda el valor: el JS que lee
+       y escribe la ficha no se entera del cambio. */
+    .ax-opt { display: flex; gap: 6px; background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 12px; padding: 4px; }
+    .ax-opt-b { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      min-width: 0; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px;
+      background: transparent; color: var(--muted); cursor: pointer;
+      font-family: var(--font); font-size: .88rem; font-weight: 600; line-height: 1.25;
+      transition: background .13s, color .13s, border-color .13s; }
+    .ax-opt-b:hover { color: var(--text); background: var(--surface2); }
+    .ax-opt-b:focus-visible { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+    .ax-opt-b[aria-checked="true"] { background: var(--surface); color: var(--text); font-weight: 700;
+      border-color: var(--border2); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .ax-opt-ico { font-size: .9em; opacity: .55; line-height: 1; }
+    .ax-opt-b[aria-checked="true"] .ax-opt-ico { opacity: 1; color: var(--yellow); }
+    .ax-opt-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Variante con bajada: la opción explica qué implica elegirla (costo, etc.). */
+    .ax-opt--wide .ax-opt-b { flex-direction: column; align-items: flex-start; gap: 2px;
+      text-align: left; padding: 9px 13px; }
+    .ax-opt--wide .ax-opt-desc { font-size: .78rem; font-weight: 500; color: var(--faint); }
+    .ax-opt--wide .ax-opt-b[aria-checked="true"] .ax-opt-desc { color: var(--muted); }
+    /* Deshabilitado (ficha del prompt genérico): se ve, no se toca. */
+    .ax-opt--off { opacity: .5; pointer-events: none; }
+    /* El select queda accesible para el JS pero fuera de la vista y del tab. */
+    .ax-seg-src { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+    /* Selects con flecha propia: la nativa cambia por navegador y en oscuro se
+       veía casi negra sobre gris. */
+    .ax-modal--lg .ax-field select {
+      -webkit-appearance: none; appearance: none; cursor: pointer;
+      padding-right: 36px;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                        linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 19px) calc(50% + 1px), calc(100% - 14px) calc(50% + 1px);
+      background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+    .ax-modal--lg .ax-field select:hover { border-color: var(--muted2); }
+
+    /* Campo bloqueado (la ficha del prompt genérico deshabilita @usuario,
+       nombre, estado y campaña): antes se veía idéntico a uno editable y
+       parecía que la app no respondía. */
+    .ax-modal--lg .ax-field input:disabled,
+    .ax-modal--lg .ax-field select:disabled {
+      opacity: .5; cursor: not-allowed; background: var(--surface3);
+      background-image: none; }
+
+    /* Teaser del prompt: es el botón más importante de la ficha (la tarea
+       principal vive detrás), así que se ve como una tarjeta y no como un
+       input más. */
+    .ax-prompt-teaser { min-height: 68px; }
+    .ax-prompt-teaser:focus-visible { outline: none; border-color: var(--yellow);
+      box-shadow: 0 0 0 3px var(--yellow-lo); }
+    .ax-prompt-teaser-go { transition: color .13s, transform .13s; }
+    .ax-prompt-teaser:hover .ax-prompt-teaser-go { transform: scale(1.12); }
+    .ax-prompt-teaser-ico { width: 38px; height: 38px; font-size: 1.15rem; transition: background .13s; }
+    /* El atajo, a la vista: estaba solo en el title del botón. */
+    .ax-prompt-teaser-kbd { font-family: ui-monospace, Menlo, monospace; font-size: .72rem;
+      font-weight: 700; color: var(--faint); background: var(--surface3);
+      border: 1px solid var(--border2); border-radius: 7px; padding: 3px 7px; line-height: 1; }
+    @container ax-sec (max-width: 380px) { .ax-prompt-teaser-kbd { display: none; } }
+    .ax-prompt-teaser-txt { align-items: flex-start; }
+    /* Sin prompt cargado la tarjeta se ve vacía a propósito, no rota. */
+    .ax-prompt-teaser--empty { border-style: dashed; }
+    .ax-prompt-teaser--empty .ax-prompt-teaser-ico { background: var(--surface3); color: var(--muted); }
+
+    /* ── Palabra clave ──────────────────────────────────────────────────
+       Es un caso de borde (el post pide "comentá CLAUDE"), no una decisión de
+       todos los días: tenía un campo propio con título en la ficha y pesaba
+       más que la calidad del motor. Ahora es una línea dentro del editor de
+       prompt, que es justo lo que apaga. */
+    .ax-kw { display: flex !important; align-items: center; gap: 12px;
+      justify-content: flex-start !important; margin: 10px 0 0 !important;
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px;
+      background: var(--surface2); cursor: pointer; user-select: none;
+      transition: border-color .13s, background .13s; }
+    .ax-kw:hover { border-color: var(--border2); }
+    /* Todo en un renglón: título y bajada separados por un punto medio. Si no
+       entra, se recorta la bajada — el título nunca. */
+    .ax-kw-txt { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px;
+      font-size: .84rem; font-weight: 700; color: var(--muted2); line-height: 1.35;
+      white-space: nowrap; transition: color .13s; }
+    .ax-kw-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+      font-size: .78rem; font-weight: 500; color: var(--faint); }
+    .ax-kw-desc::before { content: "· "; }
+    .ax-kw b { font-weight: 700; font-size: .84rem; letter-spacing: 0; white-space: nowrap; }
+
+    /* Interruptor, no casilla: es un modo que se prende, y la casilla nativa
+       cambia de forma y de color en cada navegador. El <input> sigue ahí
+       (invisible pero enfocable) para que teclado, click en la etiqueta y el
+       JS que lee .checked funcionen sin tocarse. */
+    .ax-kw input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+    .ax-sw { position: relative; flex: 0 0 auto; width: 36px; height: 21px; border-radius: 20px;
+      background: var(--surface3); border: 1px solid var(--border2);
+      transition: background .16s, border-color .16s; }
+    .ax-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px;
+      border-radius: 50%; background: var(--muted); transition: transform .16s, background .16s; }
+    .ax-kw:hover .ax-sw::after { background: var(--muted2); }
+    .ax-kw input:checked + .ax-sw { background: var(--yellow); border-color: var(--yellow-dk); }
+    .ax-kw input:checked + .ax-sw::after { transform: translateX(15px); background: #1a1a1a; }
+    .ax-kw input:focus-visible + .ax-sw { box-shadow: 0 0 0 3px var(--yellow-lo); border-color: var(--yellow); }
+    /* Prendido, la fila entera se marca: es un modo que cambia el resultado. */
+    .ax-kw:has(input:checked) { border-color: var(--yellow-md); background: var(--yellow-lo); }
+    .ax-kw:has(input:checked) .ax-kw-txt { color: var(--text); }
+    @media (prefers-reduced-motion: reduce) { .ax-sw, .ax-sw::after { transition: none; } }
+    /* Prendido, el prompt de abajo no se usa: se atenúa para que se vea. */
+    .ax-field--editor.ax-kw-on textarea { opacity: .45; }
+    /* Chip en la tarjeta cerrada: sin esto había que abrir el editor para
+       enterarse de que el prompt de ese cliente está desactivado. */
+    .ax-prompt-teaser-kw { font-size: .72rem; font-weight: 700; white-space: nowrap;
+      color: var(--yellow); background: var(--yellow-lo); border: 1px solid var(--yellow-md);
+      border-radius: 20px; padding: 3px 9px; line-height: 1.3; }
+
+    /* Pie del modal: aviso de cambios + atajos, todo a la izquierda. */
+    .ax-mo-foot { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-right: auto; }
+    .ax-dirty { margin-right: 0; }
+    /* Los atajos existían pero no los sabía nadie: solo vivían en un title. */
+    .ax-kbdhint { font-size: .78rem; color: var(--faint); display: inline-flex;
+      align-items: center; gap: 5px; }
+    .ax-kbdhint kbd { font-family: ui-monospace, Menlo, monospace; font-size: .72rem; font-weight: 700;
+      background: var(--surface3); border: 1px solid var(--border2); border-bottom-width: 2px;
+      border-radius: 6px; padding: 2px 6px; color: var(--muted); line-height: 1.2; }
+    @media (hover: none) { .ax-kbdhint { display: none; } }
+
+    /* Guardando: el botón ya se deshabilitaba, pero sin decir nada — con la red
+       lenta parecía que el clic no había entrado. */
+    .ax-btn--busy { pointer-events: none; }
+    /* "Sin cambios": queda a la vista pero apagado, así no promete una acción
+       que no va a pasar nada. El de guardando (busy) sigue con su color. */
+    .ax-btn:disabled:not(.ax-btn--busy) { opacity: .5; cursor: default;
+      filter: saturate(.35); box-shadow: none; }
+    .ax-btn--busy::before { content: ""; width: 13px; height: 13px; flex-shrink: 0;
+      border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+      animation: axspin .6s linear infinite; }
+    @keyframes axspin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .ax-btn--busy::before { animation-duration: 2s; } }
+
+    /* Filas de comentarios y de rango: se despegan del fondo al pasar por
+       encima, para no perder de vista en cuál se está escribiendo. */
+    .ax-com, .ax-range-group { transition: border-color .13s; }
+    .ax-com:focus-within, .ax-range-group:focus-within { border-color: var(--border2); }
+
+    /* Pie del modal: sombra propia para que se lea como una barra por encima
+       del contenido cuando todavía queda ficha abajo. */
+    .ax-modal-actions--sticky { box-shadow: 0 -10px 24px -18px rgba(0,0,0,.9); }
+    .ax-dirty::before { content: "●"; margin-right: 6px; font-size: .7em; vertical-align: 1px; }
+
+    /* Barra de scroll del modal, discreta y del color del panel (la nativa
+       blanca cortaba el borde redondeado). */
+    #client-mo .ax-modal { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+    #client-mo .ax-modal::-webkit-scrollbar { width: 10px; }
+    #client-mo .ax-modal::-webkit-scrollbar-track { background: transparent; }
+    #client-mo .ax-modal::-webkit-scrollbar-thumb { background: var(--border2);
+      border-radius: 20px; border: 3px solid var(--surface); }
+    #client-mo .ax-modal::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    /* La cabecera sticky, al despegarse, tapa contenido: una sombra suave
+       marca que hay algo debajo. */
+    .ax-mhead { box-shadow: 0 8px 20px -20px rgba(0,0,0,.9); }
+
+    /* En pantalla completa el prompt vuelve a una sola columna: el grid de
+       arriba no debe filtrarse (la columna de datos está oculta igual). */
+    .ax-modal--full .ax-split-datos { display: none !important; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ax-modal, .ax-panel.ax-on { animation: none; }
+      .ax-prompt-teaser:hover .ax-prompt-teaser-go { transform: none; }
+    }
+
     @media (max-width: 720px) {
       .ax-kpis { grid-template-columns: repeat(2, 1fr); }
       /* En mobile no hace falta escalar: el ancho ya es el limitante. */
@@ -458,12 +703,14 @@
       .ax-mhead-av { width: 38px; height: 38px; border-radius: 11px; font-size: .95rem; }
       .ax-sec { padding: 14px 14px 2px; border-radius: 14px; }
       .ax-range-row { grid-template-columns: 1fr 14px 1fr 30px; row-gap: 7px; }
+      .ax-range-row > :nth-child(5) { grid-column: 4; grid-row: 1; }
       .ax-range-prod { grid-column: 1 / -1; }
+      .ax-range-row > .ax-drip { grid-column: 1 / -1; grid-row: auto; }
       /* Guardar siempre visible y a dedo, sin buscarlo al final del scroll. */
       #client-mo .ax-modal-actions--sticky { bottom: 0; margin: 14px -18px 0; padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
         border-radius: 0; }
       .ax-modal-actions--sticky .ax-btn { flex: 1; justify-content: center; }
-      .ax-dirty { flex-basis: 100%; margin: 0 0 8px; }
+      .ax-mo-foot { flex-basis: 100%; margin: 0 0 8px; }
     }
   </style>
 </head>
@@ -627,7 +874,7 @@
 
   <!-- Modal cliente -->
   <div class="ax-mo" id="client-mo">
-    <div class="ax-modal ax-modal--lg">
+    <div class="ax-modal ax-modal--lg" role="dialog" aria-modal="true" aria-labelledby="client-title">
       <!-- Cabecera fija: quién se está editando, siempre a la vista aunque el
            modal scrollee, con el cierre a mano (antes solo Esc o el botón del pie). -->
       <div class="ax-mhead">
@@ -644,9 +891,11 @@
            la altura (es lo que más se edita y lo que más espacio necesita). -->
       <div class="ax-split">
       <div class="ax-split-datos">
-      <section class="ax-sec">
-        <div class="ax-sec-h"><h4>Identidad</h4><span class="ax-sec-sub">quién es y si está recibiendo engagement</span></div>
-        <div class="ax-grid2">
+      <section class="ax-sec ax-sec--ident">
+        <div class="ax-sec-h"><span class="ax-sec-ico" aria-hidden="true">👤</span><h4>Identidad</h4><span class="ax-sec-sub">quién es y si está recibiendo engagement</span></div>
+        <!-- Los cuatro datos entran en una sola fila: son cortos y no tiene
+             sentido gastar dos renglones (y el ancho sobra) en apilarlos. -->
+        <div class="ax-gridq">
           <div class="ax-field">
             <label>@usuario de Instagram</label>
             <div class="ax-prefixed"><span>@</span><input id="client-ig" placeholder="peterjfournier" autocomplete="off" aria-describedby="fe-client-ig" /></div>
@@ -657,20 +906,19 @@
             <input id="client-name" placeholder="Peter Fournier" autocomplete="off" />
             <div class="ax-fe" id="fe-client-name"></div>
           </div>
-        </div>
-        <div class="ax-grid2">
-          <div class="ax-field">
-            <label>Estado</label>
-            <select id="client-status"><option value="active">Activo</option><option value="paused">Pausado</option></select>
-          </div>
+          <select id="client-status" class="ax-hidden" tabindex="-1" aria-hidden="true"><option value="active">Activo</option><option value="paused">Pausado</option></select>
           <div class="ax-field">
             <label>Género</label>
-            <select id="client-gender">
-              <option value="">Mixto</option>
-              <option value="male">Hombre</option>
-              <option value="female">Mujer</option>
+            <select id="client-gender" data-seg>
+              <option value="" data-ico="⚥">Mixto</option>
+              <option value="male" data-ico="♂">Hombre</option>
+              <option value="female" data-ico="♀">Mujer</option>
             </select>
           </div>
+        </div>
+        <div class="ax-help ax-hidden" id="client-gen-note">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Estos datos son <b>del sistema</b> y no se editan: el prompt genérico no es un cliente, es la capa de reglas que se aplica a todos.</span>
         </div>
       </section>
 
@@ -678,59 +926,68 @@
            cuántos manda de cada tipo y cómo salen. Antes la calidad estaba acá,
            la cantidad abajo en Tráfico y la división escondida en otra fila:
            para configurar un cliente había que saltar entre tres secciones. -->
-      <section class="ax-sec">
-        <div class="ax-sec-h"><h4>Comentarios</h4><span class="ax-sec-sub">con qué modelo se generan, cuántos manda y cómo salen</span></div>
-        <div class="ax-grid2">
-          <div class="ax-field">
-            <label>Calidad del motor</label>
-            <select id="client-quality">
-              <option value="standard">Estándar — muy buenos, costo normal</option>
-              <option value="pro">Pro — más elaborados, mayor costo</option>
-            </select>
-          </div>
-          <!-- El prompt no se muestra acá: ocupa media pantalla y casi nunca se
-               toca de entrada. Se abre a pantalla completa con este botón. -->
-          <div class="ax-field">
-            <label>Instrucciones para la IA</label>
-            <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
-              <span class="ax-prompt-teaser-ico">✎</span>
-              <span class="ax-prompt-teaser-txt">
-                <b>Ver prompt</b>
-                <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
-              </span>
-              <span class="ax-prompt-teaser-go">⤢</span>
-            </button>
-          </div>
+      <section class="ax-sec ax-sec--coment">
+        <div class="ax-sec-h"><span class="ax-sec-ico" aria-hidden="true">💬</span><h4>Comentarios</h4><span class="ax-sec-sub">con qué modelo se generan, cuántos manda y cómo salen</span></div>
+        <!-- El prompt no se edita acá: ocupa media pantalla. Va a lo ancho y
+             primero porque es lo que define el resultado; el botón lo abre a
+             pantalla completa. -->
+        <div class="ax-field">
+          <label>Instrucciones para la IA</label>
+          <button type="button" class="ax-prompt-teaser" onclick="togglePromptFull()" title="Ver y editar el prompt (⌥E)">
+            <span class="ax-prompt-teaser-ico">✎</span>
+            <span class="ax-prompt-teaser-txt">
+              <b>Ver y editar el prompt</b>
+              <span class="ax-hint" id="client-prompt-teaser-count">0 caracteres</span>
+            </span>
+            <span class="ax-prompt-teaser-kw ax-hidden" id="client-prompt-teaser-kw">🔑 palabra clave</span>
+            <span class="ax-prompt-teaser-kbd">⌥E</span>
+            <span class="ax-prompt-teaser-go">⤢</span>
+          </button>
+        </div>
+
+        <div class="ax-field">
+          <label>Calidad del motor</label>
+          <select id="client-quality" data-seg data-seg-wide>
+            <option value="standard" data-short="Estándar" data-desc="muy buenos, costo normal">Estándar — muy buenos, costo normal</option>
+            <option value="pro" data-short="Pro" data-desc="más elaborados, mayor costo">Pro — más elaborados, mayor costo</option>
+          </select>
         </div>
 
         <div class="ax-field">
           <label>Cuántos manda por post <span class="ax-hint" id="com-resumen"></span></label>
+          <!-- Una tarjeta por tipo, lado a lado. En una fila a lo ancho del modal
+               los dos casilleros quedaban pegados a la izquierda con medio metro
+               de vacío al lado. -->
           <div class="ax-com">
-            <div class="ax-com-row">
+            <div class="ax-com-card">
               <span class="ax-com-tag ax-com-tag--v">✅ Verificados</span>
-              <input type="number" min="0" id="com-verif-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios verificados" oninput="revisarComentarios()" />
-              <span class="ax-range-dash">–</span>
-              <input type="number" min="0" id="com-verif-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios verificados" oninput="revisarComentarios()" />
+              <span class="ax-com-nums">
+                <input type="number" min="0" id="com-verif-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios verificados" oninput="revisarComentarios()" />
+                <span class="ax-range-dash">–</span>
+                <input type="number" min="0" id="com-verif-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios verificados" oninput="revisarComentarios()" />
+              </span>
               <span class="ax-com-modo">⚡ salen todos juntos, ahora</span>
             </div>
-            <div class="ax-com-row">
+            <div class="ax-com-card">
               <span class="ax-com-tag ax-com-tag--nv">💬 Comunes</span>
-              <input type="number" min="0" max="80" id="com-comunes-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios comunes" oninput="revisarComentarios()" />
-              <span class="ax-range-dash">–</span>
-              <input type="number" min="0" max="80" id="com-comunes-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios comunes" oninput="revisarComentarios()" />
+              <span class="ax-com-nums">
+                <input type="number" min="0" max="80" id="com-comunes-min" class="ax-com-min" placeholder="mín" aria-label="Mínimo de comentarios comunes" oninput="revisarComentarios()" />
+                <span class="ax-range-dash">–</span>
+                <input type="number" min="0" max="80" id="com-comunes-max" class="ax-com-max" placeholder="máx" aria-label="Máximo de comentarios comunes" oninput="revisarComentarios()" />
+              </span>
               <span class="ax-com-modo">✂ en 2 tandas · tope 80 por día</span>
             </div>
             <div class="ax-fe" id="com-fe"></div>
           </div>
           <div class="ax-help">
             <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <span>Al abrir un post de este cliente, la herramienta <b>autocompleta sola</b> cuántos comentarios mandar de cada tipo, con un número al azar dentro del rango — el vendedor lo puede cambiar antes de publicar. Dejalo vacío para cargarlo a mano cada vez. Los <b>comunes</b> no se pueden mandar todos juntos: salen en <b>dos tandas</b> (una ahora y otra en el próximo turno), por eso el tope de 80 por día.</span>
+            <span>La herramienta <b>autocompleta sola</b> un número al azar dentro del rango al abrir un post, y el vendedor lo puede cambiar antes de publicar. Vacío = se carga a mano.</span>
           </div>
         </div>
       </section>
 
-      <section class="ax-sec">
-        <div class="ax-sec-h"><h4>Tráfico</h4><span class="ax-sec-sub">de dónde sale la plata y cuánto engagement se manda</span></div>
+      <section class="ax-sec ax-sec--trafico">
+        <div class="ax-sec-h"><span class="ax-sec-ico" aria-hidden="true">📈</span><h4>Tráfico</h4><span class="ax-sec-sub">de dónde sale la plata y cuánto engagement se manda</span></div>
         <div class="ax-field">
           <label>¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
           <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
@@ -741,7 +998,7 @@
           <div class="ax-ranges" id="ranges-box"></div>
         <div class="ax-help">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <span>Al armar la orden en la herramienta, la cantidad se elige <b>sola al azar</b> dentro del rango — no un número fijo. Dejalo vacío si no querés autocompletar. Si el tipo tiene varias <b>calidades</b> en el CRM, elegí cuál usar; en automático va la base. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango. Con <b>dividido</b> el total se manda en varias partes espaciadas a lo largo del día en vez de todo de una.</span>
+          <span>La cantidad se elige <b>sola al azar</b> dentro del rango, no es un número fijo. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango.</span>
           </div>
         </div>
 
@@ -771,6 +1028,16 @@
             </span>
           </label>
           <textarea id="client-prompt" spellcheck="true" oninput="updatePromptCount()" placeholder="Ej: Actuá como seguidores reales de un influencer de fitness. Comentarios cortos y variados, con buena onda, en el idioma del post. Nada genérico tipo 'nice post' o 'great content'…"></textarea>
+          <!-- Los posts de este cliente piden una palabra ("comment CLAUDE y te
+               mando el PDF"): sus comentarios son N veces esa palabra, no
+               comentarios de verdad. Vive acá adentro porque es lo que decide
+               si este prompt se usa o se ignora — y es un caso raro, no algo
+               que merezca su propio campo en la ficha. -->
+          <label class="ax-kw" id="client-keyword-field" title="Todos sus posts generan una sola palabra repetida. La palabra se detecta del post y el vendedor la confirma.">
+            <input type="checkbox" id="client-keyword-mode" />
+            <span class="ax-sw" aria-hidden="true"></span>
+            <span class="ax-kw-txt">Este cliente usa <b>comentarios de palabra clave</b><span class="ax-kw-desc">Una sola palabra repetida, sacada del post. Con esto prendido, el prompt no se usa.</span></span>
+          </label>
           <div class="ax-help">
             <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             <span id="client-prompt-help">Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos.</span>
@@ -780,7 +1047,10 @@
       </div><!-- /.ax-split -->
 
       <div class="ax-modal-actions ax-modal-actions--sticky">
-        <span class="ax-dirty" id="client-dirty">Cambios sin guardar</span>
+        <div class="ax-mo-foot">
+          <span class="ax-dirty" id="client-dirty">Cambios sin guardar</span>
+          <span class="ax-kbdhint"><kbd>⌘</kbd><kbd>↵</kbd> guardar · <kbd>Esc</kbd> cerrar</span>
+        </div>
         <button class="ax-btn" onclick="closeClientModal()">Cancelar</button>
         <button class="ax-btn ax-btn--primary" id="client-save" onclick="saveClient()">Guardar cliente</button>
       </div>
@@ -910,6 +1180,6 @@
   </div>
 
   <div class="ax-toast" id="toast"></div>
-  <script src="/static/admin.js?v=1785500700"></script>
+  <script src="/static/admin.js?v=1785700200"></script>
 </body>
 </html>
