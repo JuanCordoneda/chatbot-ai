@@ -11,7 +11,8 @@ from typing import Optional
 from werkzeug.security import check_password_hash
 
 from common.db import db_available, session_scope
-from common.models import Account, User, Client, PromptRequest, UsageEvent
+from common.models import (Account, User, Client, PromptRequest, UsageEvent,
+                           PendingOrder)
 from common import crypto
 
 
@@ -983,3 +984,179 @@ def usage_counts_all_accounts() -> list[dict]:
                 row[action] += n
             row["total"] += n
         return sorted(rows.values(), key=lambda r: r["total"], reverse=True)
+
+
+# ── Cola de órdenes pendientes ────────────────────────────────────────────────
+
+# Backoff entre reintentos, en minutos. Arranca rápido (una caída de red suele
+# durar segundos) y se abre para no martillar un CRM que está caído de verdad.
+# Después del último valor se repite cada 60 min hasta agotar MAX_INTENTOS.
+BACKOFF_MIN = [1, 2, 5, 10, 20, 30, 60]
+MAX_INTENTOS = 24          # con el backoff de arriba, ~20 horas de reintentos
+
+
+def _pending_order_to_dict(p: PendingOrder) -> dict:
+    return {
+        "id": p.id,
+        "account_id": p.account_id,
+        "user_id": p.user_id,
+        "post_url": p.post_url,
+        "client_ig_username": p.client_ig_username,
+        "payload": p.payload or {},
+        "estado": p.estado,
+        "intentos": p.intentos,
+        "ultimo_error": p.ultimo_error,
+        "proximo_intento": p.proximo_intento.isoformat() if p.proximo_intento else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "enviada_at": p.enviada_at.isoformat() if p.enviada_at else None,
+    }
+
+
+def encolar_orden(post_url: str, payload: dict, *, account_id=None, user_id=None,
+                  client_ig_username: str = "", error: str = "") -> Optional[dict]:
+    """Guarda una orden que no se pudo enviar, para reintentarla sola.
+
+    Devuelve None si no hay DB: sin persistencia no hay cola posible, y el
+    llamador tiene que seguir informando el error como antes en vez de mentirle
+    al vendedor diciéndole que quedó encolada.
+    """
+    if not db_available():
+        return None
+    with session_scope() as s:
+        p = PendingOrder(
+            account_id=account_id,
+            user_id=user_id,
+            post_url=post_url,
+            client_ig_username=(client_ig_username or "") or None,
+            payload=payload,
+            estado="pendiente",
+            intentos=0,
+            ultimo_error=(error or "")[:2000] or None,
+            # Primer reintento ya mismo: si fue un parpadeo de red, sale en la
+            # próxima vuelta del worker y el vendedor casi no lo nota.
+            proximo_intento=_utcnow_naive(),
+        )
+        s.add(p)
+        s.flush()
+        return _pending_order_to_dict(p)
+
+
+def _utcnow_naive():
+    from datetime import datetime, timezone
+    return datetime.now(tz=timezone.utc)
+
+
+def tomar_orden_para_reintentar() -> Optional[dict]:
+    """Reclama UNA orden vencida y la marca 'enviando', en una sola transacción.
+
+    El claim atómico (UPDATE ... WHERE estado='pendiente') es lo que evita que
+    dos workers —o dos réplicas del servicio— manden la misma orden al CRM y le
+    cobren dos veces al cliente. Devuelve None si no hay nada que hacer.
+    """
+    if not db_available():
+        return None
+    from sqlalchemy import or_
+    ahora = _utcnow_naive()
+    with session_scope() as s:
+        # with_for_update(skip_locked) deja que varios workers trabajen en
+        # paralelo sobre filas distintas sin bloquearse entre ellos.
+        q = (s.query(PendingOrder)
+               .filter(PendingOrder.estado == "pendiente")
+               .filter(or_(PendingOrder.proximo_intento == None,      # noqa: E711
+                           PendingOrder.proximo_intento <= ahora))
+               .order_by(PendingOrder.created_at.asc()))
+        try:
+            p = q.with_for_update(skip_locked=True).first()
+        except Exception:
+            # SQLite y otros backends sin SKIP LOCKED: cae al claim simple. Con
+            # un solo worker (el caso actual) es igual de seguro.
+            p = q.first()
+        if p is None:
+            return None
+        p.estado = "enviando"
+        p.intentos = (p.intentos or 0) + 1
+        s.flush()
+        return _pending_order_to_dict(p)
+
+
+def marcar_orden_enviada(orden_id: int) -> None:
+    if not db_available():
+        return
+    with session_scope() as s:
+        p = s.query(PendingOrder).filter(PendingOrder.id == orden_id).first()
+        if p:
+            p.estado = "enviada"
+            p.enviada_at = _utcnow_naive()
+
+
+def reprogramar_orden(orden_id: int, error: str, *, reintentable: bool = True) -> dict:
+    """Devuelve la orden al estado que corresponda tras un intento fallido.
+
+    reintentable=False es el caso delicado: el envío pudo haber llegado al CRM.
+    Se marca 'revisar' y NO se reintenta nunca sola — que un humano mire Growi
+    antes de arriesgar una orden duplicada.
+    """
+    from datetime import timedelta
+    if not db_available():
+        return {}
+    with session_scope() as s:
+        p = s.query(PendingOrder).filter(PendingOrder.id == orden_id).first()
+        if not p:
+            return {}
+        p.ultimo_error = (error or "")[:2000] or None
+        if not reintentable:
+            p.estado = "revisar"
+            p.proximo_intento = None
+        elif p.intentos >= MAX_INTENTOS:
+            p.estado = "fallida"
+            p.proximo_intento = None
+        else:
+            idx = min(p.intentos - 1, len(BACKOFF_MIN) - 1)
+            espera = BACKOFF_MIN[max(idx, 0)]
+            p.estado = "pendiente"
+            p.proximo_intento = _utcnow_naive() + timedelta(minutes=espera)
+        s.flush()
+        return _pending_order_to_dict(p)
+
+
+def list_pending_orders(account_id=None, estados=None, limite: int = 100) -> list[dict]:
+    """Cola visible para el panel. Sin account_id, la de todas las cuentas."""
+    if not db_available():
+        return []
+    with session_scope() as s:
+        q = s.query(PendingOrder)
+        if account_id is not None:
+            q = q.filter(PendingOrder.account_id == account_id)
+        if estados:
+            q = q.filter(PendingOrder.estado.in_(list(estados)))
+        q = q.order_by(PendingOrder.created_at.desc()).limit(limite)
+        return [_pending_order_to_dict(p) for p in q.all()]
+
+
+def contar_ordenes_en_cola() -> dict:
+    """Resumen por estado, para el healthcheck y el panel."""
+    if not db_available():
+        return {}
+    from sqlalchemy import func
+    with session_scope() as s:
+        filas = (s.query(PendingOrder.estado, func.count(PendingOrder.id))
+                   .group_by(PendingOrder.estado).all())
+        return {estado: total for estado, total in filas}
+
+
+def cancelar_orden(orden_id: int, account_id=None) -> bool:
+    """Baja manual de una orden encolada (el vendedor ya la cargó a mano, o no
+    la quiere más). account_id acota para que nadie cancele órdenes ajenas."""
+    if not db_available():
+        return False
+    with session_scope() as s:
+        q = s.query(PendingOrder).filter(PendingOrder.id == orden_id)
+        if account_id is not None:
+            q = q.filter(PendingOrder.account_id == account_id)
+        p = q.first()
+        # 'enviando' no se cancela: hay un worker con el envío en vuelo.
+        if not p or p.estado in ("enviada", "enviando"):
+            return False
+        p.estado = "cancelada"
+        p.proximo_intento = None
+        return True

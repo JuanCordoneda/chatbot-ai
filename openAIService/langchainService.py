@@ -313,6 +313,21 @@ def health_instagram():
         return jsonify({"ok": False, "error": str(e)}), 503
 
 
+@app.route("/health/growi", methods=["GET"])
+def health_growi():
+    """Estado del camino hacia el CRM: si hay ruta y cómo está cada proxy.
+
+    Sirve para dos cosas: mirarlo a mano cuando algo falla, y engancharlo a un
+    monitor externo (UptimeRobot y similares) que avise por su cuenta. Devuelve
+    503 cuando no hay ruta, así el monitor externo lo lee sin parsear el body.
+    """
+    from modules.growi_monitor import estado
+    e = estado()
+    # ok=None significa que el monitor todavía no corrió su primer chequeo: no
+    # es una caída, así que no devolvemos 503 (nos alertaría en cada deploy).
+    return jsonify(e), (503 if e["ok"] is False else 200)
+
+
 @app.route("/clear_session", methods=["GET"])
 def clear_session():
     phone = request.args.get("phone_number", "default")
@@ -734,6 +749,7 @@ def publicar_web():
         from modules.reporter import generar_informe
         resultado = None
         error = None
+        encolada = None
         try:
             from modules.growi_client import ejecutar_campana, GrowiUnavailable
             resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
@@ -742,6 +758,16 @@ def publicar_web():
             # Ya viene con un mensaje para el vendedor; sin el "Error en Growi:"
             # adelante ni el volcado con la IP y el puerto del proxy.
             error = str(e)
+            # No llegó a salir: en vez de perder los comentarios ya generados, la
+            # orden queda en cola y un worker la reintenta sola. Solo si el envío
+            # es seguro de repetir (si pudo haber entrado, se informa y listo).
+            if e.reintentable:
+                encolada = _encolar_pendiente(data, post_url, comentarios,
+                                              ordenes, disponible, error)
+                if encolada:
+                    error = ("No había conexión con el CRM, así que la orden quedó "
+                             "en cola y se va a enviar sola apenas vuelva. "
+                             "No hace falta que la cargues de nuevo.")
             informe = generar_informe(post_url, comentarios, None, error=error)
         except NotImplementedError as e:
             error = str(e)
@@ -759,9 +785,32 @@ def publicar_web():
             "messages": (resultado.messages if resultado else []) or [],
             "warnings": (resultado.warnings if resultado else []) or [],
             "errors": ([error] if error else []) + ((resultado.errors if resultado else []) or []),
+            # El front usa esto para mostrar "en cola" en vez de un error rojo:
+            # la orden no se perdió, solo todavía no salió.
+            "encolada": bool(encolada),
+            "encolada_id": encolada.get("id") if encolada else None,
         }})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _encolar_pendiente(data, post_url, comentarios, ordenes, disponible, error):
+    """Guarda la orden en la cola de reintentos. Devuelve None si no hay DB, y
+    en ese caso el vendedor ve el error de siempre: sin persistencia no podemos
+    prometerle que se va a reenviar sola."""
+    try:
+        from common import repository as repo
+        return repo.encolar_orden(
+            post_url,
+            {"comentarios": comentarios, "ordenes": ordenes, "disponible": disponible},
+            account_id=data.get("account_id"),
+            user_id=data.get("user_id"),
+            client_ig_username=data.get("client") or "",
+            error=error,
+        )
+    except Exception as e:
+        print(f"[cola] no pude encolar la orden: {e!r}", flush=True)
+        return None
 
 
 if __name__ == "__main__":
@@ -772,4 +821,19 @@ if __name__ == "__main__":
         precargar_whisper()
     except Exception as e:
         print(f"[whisper] no se pudo precargar: {e}", flush=True)
+
+    # Monitor del CRM: avisa por WhatsApp cuando se cae la ruta a Growi, en vez
+    # de que nos enteremos por un vendedor al que le falló una campaña.
+    try:
+        from modules.growi_monitor import arrancar as arrancar_monitor_growi
+        arrancar_monitor_growi()
+    except Exception as e:
+        print(f"[growi-health] no se pudo arrancar el monitor: {e}", flush=True)
+
+    # Worker de la cola: reenvía solo las órdenes que quedaron sin salir por red.
+    try:
+        from modules.orden_queue import arrancar as arrancar_cola
+        arrancar_cola()
+    except Exception as e:
+        print(f"[cola] no se pudo arrancar el worker: {e}", flush=True)
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)

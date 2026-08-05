@@ -157,3 +157,43 @@ class Client(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 
     account = relationship("Account", back_populates="clients")
+
+
+class PendingOrder(Base):
+    """Orden armada que NO se pudo mandar al CRM, guardada para reintentar sola.
+
+    Nació de una caída del proxy de salida: el vendedor generaba 89 comentarios,
+    apretaba Publicar, y el envío fallaba por un problema de red. Los comentarios
+    se perdían y había que rehacer todo a mano. Con esta tabla, una caída de 20
+    minutos es un retraso de 20 minutos en vez de trabajo tirado.
+
+    IMPORTANTE: solo se encolan los envíos que sabemos que NUNCA salieron
+    (fallo al conectar). Si el POST llegó al CRM y lo que se cortó fue la
+    respuesta, la orden pudo haber entrado: reintentarla la duplicaría, así que
+    esa queda para revisión manual. Ver growi_client._falló_al_conectar.
+    """
+    __tablename__ = "pending_orders"
+
+    id = Column(Integer, primary_key=True)
+    # Nullable: el flujo del bot de WhatsApp no tiene cuenta asociada todavía.
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"),
+                        nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"),
+                     nullable=True, index=True)
+    post_url = Column(Text, nullable=False)
+    client_ig_username = Column(String(100), nullable=True)
+    # Todo lo necesario para reconstruir el envío tal cual:
+    # {"comentarios": [...], "ordenes": [...], "disponible": 150.0}
+    payload = Column(JSON, nullable=False)
+    # pendiente → en cola | enviando → la tomó un worker | enviada → OK
+    # fallida   → se agotaron los reintentos | revisar → puede haber entrado
+    estado = Column(String(20), nullable=False, default="pendiente",
+                    server_default="pendiente", index=True)
+    intentos = Column(Integer, nullable=False, default=0, server_default="0")
+    ultimo_error = Column(Text, nullable=True)
+    # Cuándo volver a intentar. Indexado porque el worker filtra por esto.
+    proximo_intento = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow,
+                        onupdate=_utcnow)
+    enviada_at = Column(DateTime(timezone=True), nullable=True)

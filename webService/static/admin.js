@@ -122,6 +122,7 @@ function switchTab(name) {
   if (name === "uso") loadUso();
   if (name === "usuarios") loadUsuarios();
   if (name === "pedidos") loadPedidos();
+  if (name === "cola") loadCola();
 }
 
 // ── Modales ──
@@ -2171,6 +2172,97 @@ async function cerrarPedido(id, status) {
   } catch (e) { toast(e.message, "bad"); }
 }
 
+// ── Cola de órdenes que no salieron al CRM ───────────────────────────────────
+// Un envío puede fallar por red (proxy caído). En vez de perder los comentarios
+// ya generados, la orden queda encolada y un worker la reintenta sola. Esta
+// vista existe para que eso no sea invisible: sin ella, una orden en "revisar"
+// no la mira nadie hasta que el cliente reclama.
+
+let colaCache = [];
+
+const COLA_ESTADOS = {
+  pendiente: { txt: "En espera", cls: "ax-pill--paused" },
+  enviando:  { txt: "Enviando",  cls: "ax-pill--paused" },
+  enviada:   { txt: "Enviada",   cls: "ax-pill--active" },
+  revisar:   { txt: "Revisar",   cls: "ax-pill--paused" },
+  fallida:   { txt: "Fallida",   cls: "" },
+  cancelada: { txt: "Cancelada", cls: "" },
+};
+
+async function loadCola() {
+  const sel = document.getElementById("cola-estado");
+  const estados = sel ? sel.value : "pendiente,enviando,revisar";
+  try {
+    const d = await api("GET", `/api/ordenes-pendientes${estados ? `?estados=${estados}` : ""}`);
+    colaCache = d.ordenes || [];
+    renderCola();
+    // El contador de la pestaña cuenta lo que REQUIERE atención: lo que espera
+    // salir más lo que quedó trabado. Las enviadas no suman: ya están.
+    const c = d.conteo || {};
+    setTxt("tab-cola-cnt", (c.pendiente || 0) + (c.enviando || 0) + (c.revisar || 0) + (c.fallida || 0));
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function colaCard(o) {
+  const meta = COLA_ESTADOS[o.estado] || { txt: o.estado, cls: "" };
+  const cerrada = ["enviada", "cancelada"].includes(o.estado);
+  const p = o.payload || {};
+  const nComs = (p.comentarios || []).length;
+  const nOrds = (p.ordenes || []).length;
+
+  // "revisar" es el caso delicado: el envío pudo haber llegado al CRM. Nunca se
+  // reintenta solo, y hay que decir POR QUÉ o el admin no sabe qué hacer.
+  const aviso = o.estado === "revisar"
+    ? `<div class="ax-ped-txt">Puede haber entrado en Growi. Revisá el CRM antes de volver a mandarla: reintentarla a ciegas duplicaría la orden.</div>`
+    : o.estado === "fallida"
+    ? `<div class="ax-ped-txt">Se agotaron los reintentos. Hay que cargarla a mano o volver a generarla.</div>`
+    : "";
+  const err = o.ultimo_error && !cerrada
+    ? `<div class="ax-sub" style="opacity:.8;">Último error: ${esc(o.ultimo_error)}</div>` : "";
+  const reintento = o.estado === "pendiente" && o.proximo_intento
+    ? ` · próximo intento ${fechaCorta(o.proximo_intento)}` : "";
+
+  return `
+    <div class="ax-card ${cerrada ? "ax-dimmed" : ""}" style="align-items:flex-start;">
+      <div class="ax-avatar" style="${avatarStyle(o.client_ig_username || "?")}">${esc(initials("", o.client_ig_username || "?"))}</div>
+      <div class="ax-main">
+        <div class="ax-name">
+          ${o.client_ig_username ? "@" + esc(o.client_ig_username) : "Sin cliente"}
+          <span class="ax-pill ${meta.cls}"><span class="ax-pdot"></span>${meta.txt}</span>
+        </div>
+        <div class="ax-sub">
+          ${nOrds} ${nOrds === 1 ? "orden" : "órdenes"} · ${nComs} comentarios ·
+          ${o.intentos} ${o.intentos === 1 ? "intento" : "intentos"} · ${fechaCorta(o.created_at)}${reintento}
+        </div>
+        <div class="ax-sub"><a href="${esc(o.post_url)}" target="_blank" rel="noopener">Ver el post</a></div>
+        ${aviso}${err}
+      </div>
+      <div class="ax-acts">
+        ${cerrada ? "" : `<button class="ax-btn ax-btn--sm" onclick="cancelarOrdenCola(${o.id})">Dar de baja</button>`}
+      </div>
+    </div>`;
+}
+
+function renderCola() {
+  const list = document.getElementById("cola-list");
+  if (!list) return;
+  if (!colaCache.length) {
+    list.innerHTML = emptyState("No hay órdenes en cola",
+      "Cuando un envío al CRM falle por conexión, la orden queda acá y se reintenta sola.");
+    return;
+  }
+  list.innerHTML = colaCache.map(colaCard).join("");
+}
+
+async function cancelarOrdenCola(id) {
+  if (!confirm("¿Dar de baja esta orden? No se va a enviar al CRM.")) return;
+  try {
+    await api("POST", `/api/ordenes-pendientes/${id}/cancelar`);
+    toast("Orden dada de baja", "ok");
+    loadCola();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
 // ── Asistente de IA (solo admin) ─────────────────────────────────────────────
 // Reescribe el prompt del cliente abierto según una instrucción en castellano.
 // NO guarda: deja la propuesta en el textarea para revisarla y guardarla a mano.
@@ -2246,4 +2338,8 @@ function undoAiPrompt() {
     selectedVendedor = MY_ACCOUNT || "me";
     loadClients();
   }
+  // En ambos modos: el badge de "En cola" tiene que estar cargado de entrada,
+  // sin que haya que abrir la pestaña. Es justamente lo que nadie va a mirar si
+  // no lo ve solo.
+  loadCola();
 })();

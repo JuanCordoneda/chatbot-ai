@@ -1121,6 +1121,9 @@
       </div>
       <div class="ax-seg" role="tablist">
         <div class="ax-tab ax-on" data-tab="clientes" onclick="switchTab('clientes')">Clientes <span class="ax-cnt" id="tab-cli-cnt">0</span></div>
+        <!-- Órdenes que no salieron al CRM. La ve también el vendedor (acotada a
+             su cuenta): es SU trabajo el que quedó esperando. -->
+        <div class="ax-tab" data-tab="cola" onclick="switchTab('cola')">En cola <span class="ax-cnt" id="tab-cola-cnt">0</span></div>
         {% if is_admin %}
         <div class="ax-tab" data-tab="pedidos" onclick="switchTab('pedidos')">Pedidos <span class="ax-cnt" id="tab-ped-cnt">0</span></div>
         <div class="ax-tab" data-tab="usuarios" onclick="switchTab('usuarios')">Usuarios <span class="ax-cnt" id="tab-usr-cnt">0</span></div>
@@ -1200,6 +1203,27 @@
            aria-live que se destruye y se recrea no anuncia nada. -->
       <div class="ax-seg-src" id="cli-live" role="status" aria-live="polite"></div>
       <div class="ax-list" id="clientes-list"></div>
+    </section>
+
+    <!-- Cola de reintentos: órdenes que no pudieron salir al CRM (proxy caído,
+         red). El worker las reenvía solo; acá se ven y se pueden dar de baja.
+         Las que quedan en "revisar" son las que SÍ o SÍ necesitan a un humano. -->
+    <section class="ax-panel" id="panel-cola">
+      <div class="ax-toolbar">
+        <div class="ax-field" style="margin:0;min-width:200px;">
+          <label for="cola-estado" style="font-size:.72rem;">Estado</label>
+          <select id="cola-estado" onchange="loadCola()">
+            <option value="pendiente,enviando,revisar">Abiertas</option>
+            <option value="pendiente">En espera</option>
+            <option value="revisar">A revisar</option>
+            <option value="fallida">Fallidas</option>
+            <option value="enviada">Enviadas</option>
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <button class="ax-btn" onclick="loadCola()">Actualizar</button>
+      </div>
+      <div class="ax-list" id="cola-list"></div>
     </section>
 
     {% if is_admin %}

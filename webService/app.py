@@ -111,8 +111,28 @@ DISPONIBLE       = float(os.environ.get("GROWI_DISPONIBLE", "150"))
 
 # El CRM ata la sesión a la IP que se loguea; se rutea por un proxy de IP fija
 # si está configurado (ver openAIService/modules/growi_client.py, misma idea).
+# Admite varios separados por coma, con failover (ver common/proxy_pool.py).
+try:
+    from common.proxy_pool import ProxyPool, proxies_de
+except Exception:
+    # Mismo criterio que el import de `common.repository` de más arriba: correr
+    # el webService suelto (sin el paquete común en el path) tiene que seguir
+    # funcionando. Sin pool, se usa el primer proxy y listo.
+    def proxies_de(p):
+        return {"http": p, "https": p} if p else {}
+
+    class ProxyPool:
+        def __init__(self, raw="", cooldown=0):
+            self._proxies = [x.strip() for x in (raw or "").split(",") if x.strip()]
+
+        def candidatos(self):
+            return self._proxies or [None]
+
+        def marcar_muerto(self, p): pass
+
+        def marcar_vivo(self, p): pass
+
 _GROWI_PROXY_URL = os.environ.get("GROWI_HTTP_PROXY", "")
-_GROWI_PROXIES = {"http": _GROWI_PROXY_URL, "https": _GROWI_PROXY_URL} if _GROWI_PROXY_URL else None
 _GROWI_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
@@ -203,28 +223,55 @@ def _growi_login_with(cfg, verify=True):
     """Abre una sesión autenticada contra el CRM con las credenciales dadas.
     Con verify, comprueba que el login haya funcionado de verdad (mismo patrón
     que openAIService/growi_client) y falla fuerte si no."""
-    s = requests.Session()
-    s.headers.update({"user-agent": _GROWI_USER_AGENT})
-    proxy = cfg.get("crm_proxy")
-    if proxy:
-        s.proxies.update({"http": proxy, "https": proxy})
     url = cfg.get("crm_url") or GROWI_CRM_URL
-    s.post(
-        f"{url}/cuenta/login.php",
-        data={"correo": cfg.get("crm_email", ""), "password": cfg.get("crm_password", "")},
-        headers={
-            "content-type": "application/x-www-form-urlencoded",
-            "referer": f"{url}/cuenta/login.php",
-            "origin": url,
-        },
-        timeout=15,
+    # crm_proxy puede traer VARIOS proxies separados por coma: se prueban en
+    # orden y gana el primero que responda. Con uno solo se comporta igual que
+    # antes. Ojo: sin este parseo, una lista se pasaría entera como si fuera una
+    # única URL de proxy y no conectaría con ninguno.
+    pool = ProxyPool(cfg.get("crm_proxy") or "")
+    ultimo_error = None
+
+    for proxy in pool.candidatos():
+        s = requests.Session()
+        s.headers.update({"user-agent": _GROWI_USER_AGENT})
+        s.proxies.update(proxies_de(proxy))
+        try:
+            s.post(
+                f"{url}/cuenta/login.php",
+                data={"correo": cfg.get("crm_email", ""), "password": cfg.get("crm_password", "")},
+                headers={
+                    "content-type": "application/x-www-form-urlencoded",
+                    "referer": f"{url}/cuenta/login.php",
+                    "origin": url,
+                },
+                timeout=(5, 15),
+            )
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            ultimo_error = e
+            pool.marcar_muerto(proxy)
+            print(f"[growi-web] proxy caído, pruebo el siguiente ({e.__class__.__name__})",
+                  flush=True)
+            continue
+
+        estado = _growi_session_ok(s, url)
+        if estado is None:
+            # No se pudo comprobar por un problema de red: puede ser este proxy.
+            ultimo_error = ultimo_error or RuntimeError("sesión no verificable")
+            pool.marcar_muerto(proxy)
+            continue
+        if verify and estado is False:
+            # Credenciales rechazadas: cambiar de proxy no arregla nada.
+            raise GrowiAuthError(
+                f"El CRM rechazó el login de {cfg.get('crm_email') or '(sin email)'}. "
+                "Revisá el usuario y la contraseña de Growi en la ficha del vendedor."
+            )
+        pool.marcar_vivo(proxy)
+        return s
+
+    raise requests.exceptions.ConnectionError(
+        f"No hay ruta hasta el CRM por ninguno de los proxies configurados "
+        f"({ultimo_error.__class__.__name__ if ultimo_error else 'sin detalle'})"
     )
-    if verify and _growi_session_ok(s, url) is False:
-        raise GrowiAuthError(
-            f"El CRM rechazó el login de {cfg.get('crm_email') or '(sin email)'}. "
-            "Revisá el usuario y la contraseña de Growi en la ficha del vendedor."
-        )
-    return s
 
 
 def _growi_validate_credentials(cfg):
@@ -748,7 +795,14 @@ def publicar():
     try:
         resp = requests.post(
             f"{OPENAI_SERVICE_URL}/publicar",
-            json={"url": post_url, "comentarios": comentarios, "ordenes": ordenes, "disponible": disponible},
+            # account_id/user_id viajan para que, si la orden termina en la cola
+            # de reintentos, quede atribuida al vendedor que la mandó y se pueda
+            # ver desde el panel de su cuenta.
+            json={"url": post_url, "comentarios": comentarios, "ordenes": ordenes,
+                  "disponible": disponible,
+                  "account_id": session.get("account_id"),
+                  "user_id": session.get("user_id"),
+                  "client": data.get("client")},
             timeout=60,
         )
         resp.raise_for_status()
@@ -1485,6 +1539,38 @@ def prompt_requests_update(request_id):
         resolved_by=session.get("username", ""),
     )
     return jsonify({"request": p})
+
+
+# ── Cola de órdenes pendientes de envío al CRM ───────────────────────────────
+
+@app.route("/api/ordenes-pendientes", methods=["GET"])
+@require_login
+@_repo_error_response
+def ordenes_pendientes_list():
+    """Órdenes que no pudieron salir al CRM y su estado en la cola de reintentos.
+
+    Sin esta vista, una orden que queda en 'revisar' o 'fallida' es invisible:
+    el worker deja de tocarla y nadie se entera hasta que el cliente reclama.
+    """
+    # El admin ve la cola de TODAS las cuentas; el vendedor solo la suya.
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    estados = [e for e in (request.args.get("estados") or "").split(",") if e]
+    return jsonify({
+        "ordenes": _repo.list_pending_orders(account_id, estados or None),
+        "conteo": _repo.contar_ordenes_en_cola(),
+    })
+
+
+@app.route("/api/ordenes-pendientes/<int:orden_id>/cancelar", methods=["POST"])
+@require_login
+@_repo_error_response
+def ordenes_pendientes_cancelar(orden_id):
+    """Baja manual: el vendedor ya la cargó a mano en Growi, o no la quiere más."""
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    ok = _repo.cancelar_orden(orden_id, account_id)
+    if not ok:
+        return jsonify({"error": "No se pudo cancelar (ya salió, o la está enviando el worker)"}), 400
+    return jsonify({"ok": True})
 
 
 # ── Asistente de IA para reescribir prompts (ADMIN ONLY) ─────────────────────
