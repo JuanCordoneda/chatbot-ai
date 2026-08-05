@@ -1755,13 +1755,23 @@ async function irAOrdenes() {
   document.getElementById("ordenes-hero-avatar").textContent = clientName.charAt(0).toUpperCase();
   document.getElementById("orden-link").value = currentUrl;
 
-  await actualizarProductos();
-  // Órdenes de tráfico precreadas con los rangos configurados (del cliente si el
-  // post es de uno, del genérico si no). Va después de actualizarProductos
-  // porque necesita el catálogo para resolver el producto de cada tipo.
-  await _precrearOrdenesDeRangos();
-  renderOrdenes();
-  prepararVentaPicker();
+  // Traer productos + rangos tarda; sin feedback parece que la página se trabó.
+  const ovOrdenes = document.getElementById("ordenes-overlay");
+  const ovTexto   = document.getElementById("ordenes-loading-text");
+  ovOrdenes?.classList.remove("hidden");
+  try {
+    if (ovTexto) ovTexto.textContent = "Cargando productos...";
+    await actualizarProductos();
+    // Órdenes de tráfico precreadas con los rangos configurados (del cliente si el
+    // post es de uno, del genérico si no). Va después de actualizarProductos
+    // porque necesita el catálogo para resolver el producto de cada tipo.
+    if (ovTexto) ovTexto.textContent = "Armando órdenes de tráfico...";
+    await _precrearOrdenesDeRangos();
+    renderOrdenes();
+    prepararVentaPicker();
+  } finally {
+    ovOrdenes?.classList.add("hidden");
+  }
 
   // Ocultar panel de seleccionados y counter al pasar al form
   document.getElementById("panel-seleccionados").classList.add("hidden");
@@ -1800,9 +1810,12 @@ async function actualizarProductos() {
       try {
         if (!_productosCache[rsId]) {
           const resp = await fetch(`/api/productos?rrss=${rsId}`);
-          if (!resp.ok) throw new Error("Error al cargar productos");
-          const data = await resp.json();
-          if (data.error) throw new Error(data.error);
+          // El backend manda {"error": "..."} con el motivo real (proxy caído,
+          // credenciales, CRM abajo). Antes se pisaba con un "Error al cargar
+          // productos" pelado y no se sabía qué estaba fallando.
+          const data = await resp.json().catch(() => null);
+          if (!resp.ok || !data || data.error)
+            throw new Error(data?.error || `Error al cargar productos (HTTP ${resp.status})`);
           _productosCache[rsId] = Object.entries(data).map(([grupo, items]) => ({
             grupo,
             items: items.map(p => ({ id: p.id, nombre: p.label })),

@@ -43,6 +43,24 @@
     </div>
   </div>
 
+  <!-- Overlay de transición a la pantalla de órdenes -->
+  <div id="ordenes-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <div class="overlay-spinner">
+        <svg viewBox="0 0 50 50" class="spinner-svg">
+          <circle cx="25" cy="25" r="20" fill="none" stroke="#1a1a1a" stroke-width="3.5"/>
+          <circle cx="25" cy="25" r="20" fill="none" stroke="#F5A800" stroke-width="3.5"
+            stroke-linecap="round" stroke-dasharray="31.4 94.2"
+            class="spinner-arc"/>
+        </svg>
+        <img src="/static/growi.png" alt="GROWI" class="overlay-logo-sm" />
+      </div>
+      <p class="overlay-title">Preparando órdenes...</p>
+      <p class="overlay-status" id="ordenes-loading-text">Armando las tandas...</p>
+      <div class="overlay-bar"><span></span></div>
+    </div>
+  </div>
+
   <div class="app">
 
     <!-- Header -->
