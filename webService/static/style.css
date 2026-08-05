@@ -172,20 +172,62 @@ body.light::after {
   align-items: center;
   justify-content: space-between;
   padding: 16px 32px;
-  border-bottom: 1px solid rgba(255,255,255,0.15);
   /* fixed (no sticky): el zoom de .app rompe position:sticky en Chrome */
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   box-sizing: border-box;
-  background: color-mix(in srgb, var(--bg) 90%, transparent);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  /* El glow amarillo del fondo (body::after) queda detrás del header y se cortaba
+     en seco. No alcanza con transparencia + backdrop-filter (el zoom de .app lo
+     rompe en Chrome): el header repinta el mismo degradado encima, así el color
+     sigue de largo sin escalón. */
+  background:
+    radial-gradient(ellipse 900px 320px at 50% -55%,
+      rgba(250,185,0,0.20) 0%,
+      rgba(250,185,0,0.09) 45%,
+      transparent 75%),
+    color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
   z-index: 50;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.16);
+  box-shadow: 0 10px 30px -18px rgba(0,0,0,0.5);
 }
-body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
+body.light .header {
+  background:
+    radial-gradient(ellipse 900px 320px at 50% -55%,
+      rgba(250,185,0,0.15) 0%,
+      rgba(250,185,0,0.07) 45%,
+      transparent 75%),
+    color-mix(in srgb, var(--bg) 82%, transparent);
+  box-shadow: 0 10px 30px -20px rgba(0,0,0,0.25);
+}
+
+/* El borde inferior se desvanece hacia los lados: sin el corte duro de punta a
+   punta que partía el degradado. */
+.header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(to right,
+    transparent 0%,
+    rgba(255,255,255,0.12) 18%,
+    rgba(255,255,255,0.12) 82%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+body.light .header::after {
+  background: linear-gradient(to right,
+    transparent 0%,
+    rgba(0,0,0,0.10) 18%,
+    rgba(0,0,0,0.10) 82%,
+    transparent 100%
+  );
+}
 
 .header-left { display: flex; align-items: center; gap: 14px; }
 
@@ -246,47 +288,59 @@ body.light .header { box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
   min-width: 0;
 }
 
+/* Los botones del header son chips sueltos: cada acción se lee como propia en
+   vez de una barra segmentada donde todo parece el mismo control. */
 .header-btn-group {
   display: flex;
   align-items: center;
-  height: 32px;
+  gap: 6px;
   box-sizing: border-box;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 999px;
-  overflow: hidden;
-  padding: 0 2px;
+  padding: 0;
 }
 
 .header-action-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  background: transparent;
-  border: none;
+  height: 30px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
   color: var(--muted2);
   font-family: var(--font);
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0 12px;
+  padding: 0 13px;
   border-radius: 999px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.13s, color 0.13s;
+  transition: background 0.13s, color 0.13s, border-color 0.13s, transform 0.12s;
 }
-/* Separadores como líneas finas entre botones (no bordes de caja). */
-.header-action-btn + .header-action-btn { box-shadow: -1px 0 0 var(--border); }
-.header-action-btn:hover { box-shadow: none; }
-.header-action-btn:hover + .header-action-btn { box-shadow: none; }
 
 .header-action-btn svg { opacity: 0.8; }
 
 .header-action-btn:hover {
   background: var(--surface3);
+  border-color: var(--border);
   color: var(--text);
+  transform: translateY(-1px);
 }
 .header-action-btn:hover svg { opacity: 1; }
+.header-action-btn:active { transform: translateY(0); }
+
+/* La acción principal (clientes / admin) arranca marcada. */
+.header-action-btn--primary {
+  color: var(--text);
+  border-color: rgba(250,185,0,0.35);
+}
+.header-action-btn--primary svg { color: var(--yellow); opacity: 1; }
+.header-action-btn--primary:hover { border-color: var(--yellow); }
+
+/* Salir es destructivo: se separa del grupo de navegación. */
+.header-action-btn[href="/logout"] { margin-left: 4px; }
+.header-action-btn[href="/logout"]:hover {
+  color: #ff8f8f;
+  border-color: rgba(255,120,120,0.4);
+}
 
 .header-action-btn--icon {
   padding: 0 9px;
@@ -3071,7 +3125,7 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   .header-tag, .header-sep { display: none; }
 
   /* Misma armonía que en desktop, un escalón más chico. */
-  .header-btn-group { height: 28px; }
+  .header-btn-group { gap: 5px; }
 
   /* En mobile queda solo el avatar: el mail completo no entra al lado del logo. */
   .header-user-name { display: none; }
@@ -3423,6 +3477,9 @@ input:focus-visible {
   outline: 2px solid var(--yellow);
   outline-offset: 2px;
 }
+
+/* El wrapper .ig-field ya dibuja el estado de foco redondeado */
+.ig-input:focus-visible { outline: none; }
 
 .btn-ghost { transition: background 0.14s, color 0.14s, border-color 0.14s, transform 0.12s; }
 .btn-ghost:hover { transform: translateY(-1px); }
@@ -4580,7 +4637,11 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
     padding: 11px 12px;
     border-radius: 9px;
     font-size: 0.86rem;
-    box-shadow: none !important;   /* el divisor vertical del grupo no aplica */
+    /* Dentro del panel son filas, no chips: sin caja propia. */
+    background: transparent;
+    border: none;
+    transform: none;
+    margin-left: 0;
   }
   .header-btn-group .header-action-btn svg { width: 16px; height: 16px; opacity: 0.85; }
   .header-btn-group .header-action-btn:active { background: var(--surface3); }
