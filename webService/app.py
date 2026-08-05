@@ -191,7 +191,12 @@ def _account_crm_cfg(account_id):
             cfg = _repo.get_account_crm_config(account_id)
             if cfg and cfg.get("crm_email"):
                 cfg["crm_url"] = cfg.get("crm_url") or GROWI_CRM_URL
-                # El proxy es infra COMPARTIDA (la IP que el CRM tiene en whitelist).
+                # El proxy es infra COMPARTIDA (la IP de salida estable).
+                # OJO: acá decía que el CRM tenía esa IP "en whitelist". Es
+                # FALSO y confunde el diagnóstico: el CRM acepta el login desde
+                # cualquier IP (verificado). Lo que hace es atar la sesión a la
+                # IP del login, y Railway rota la suya entre requests: por eso
+                # hace falta un proxy ESTABLE, no uno autorizado.
                 # Si la cuenta del vendedor no lo tiene cargado, usamos el del .env;
                 # sin esto sus pedidos salen directos y el CRM los bloquea (por eso
                 # solo andaba el admin, que usa la config del .env).

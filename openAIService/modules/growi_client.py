@@ -413,9 +413,16 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
     # El CRM ata la sesión a la IP que se loguea y Railway rota la IP de salida
     # entre requests, asi que un 401 puede ser solo mala suerte de que el login
     # y el POST salieron por IPs distintas. Reintentamos con login fresco unas
-    # cuantas veces para aumentar la chance de que coincidan (mitigación
-    # temporal hasta tener un proxy de IP fija -> GROWI_HTTP_PROXY).
-    max_intentos = 4
+    # cuantas veces para aumentar la chance de que coincidan.
+    #
+    # Sin proxy configurado ese sorteo es el ÚNICO mecanismo que tenemos, así
+    # que se reintenta bastante más: cada vuelta son dos requests baratos contra
+    # la alternativa de perder una campaña entera con los comentarios generados.
+    # (Verificado que el CRM NO tiene whitelist de IPs: acepta el login desde
+    # cualquier lado. El proxy sirve para tener IP ESTABLE, no para ser
+    # autorizado, así que correr sin él es un modo degradado válido.)
+    max_intentos = int(os.environ.get(
+        "GROWI_MAX_REINTENTOS_401", "12" if not _POOL.configurado else "4"))
     for intento in range(1, max_intentos + 1):
         try:
             resp = session.post(
