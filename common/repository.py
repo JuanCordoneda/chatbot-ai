@@ -272,17 +272,18 @@ class RepoError(Exception):
     traduce a un 400 con mensaje claro."""
 
 
-def list_clients(account_id: int) -> list[dict]:
+def list_clients(account_id: Optional[int] = None) -> list[dict]:
+    """Clientes de una cuenta. account_id=None trae los de TODAS las cuentas: lo
+    usa el admin, que necesita ver/probar los clientes de cualquier vendedor."""
     if not db_available():
         return []
     with session_scope() as s:
         # Los reservados son del sistema: nunca salen en la lista de clientes (el
         # panel del admin los agrega aparte, marcados como reservados).
-        cs = (s.query(Client)
-              .filter(Client.account_id == account_id,
-                      Client.ig_username.notin_(SYSTEM_IGS))
-              .order_by(Client.display_name, Client.ig_username)
-              .all())
+        q = s.query(Client).filter(Client.ig_username.notin_(SYSTEM_IGS))
+        if account_id is not None:
+            q = q.filter(Client.account_id == account_id)
+        cs = q.order_by(Client.display_name, Client.ig_username).all()
         return [_client_to_dict(c) for c in cs]
 
 

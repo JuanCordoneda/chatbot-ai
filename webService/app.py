@@ -1759,9 +1759,17 @@ def prompt_ai():
 
 
 def _followers_clients():
-    """Clientes de la cuenta de la sesión, para el selector de la pantalla."""
+    """Clientes para el selector de la pantalla. El vendedor ve los suyos; el
+    ADMIN ve los de TODOS los vendedores (necesita poder probar cualquiera), con
+    el nombre del vendedor al lado para saber de quién es cada uno."""
     if _repo is None:
         return []
+    if session.get("is_admin"):
+        clients = _repo.list_clients()
+        nombres = {v["id"]: v.get("name") or "" for v in _repo.list_vendedores()}
+        for c in clients:
+            c["vendedor"] = nombres.get(c.get("account_id"), "")
+        return [c for c in clients if not c.get("reserved")]
     acc = session.get("account_id")
     if not acc:
         return []

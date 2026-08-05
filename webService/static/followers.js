@@ -73,7 +73,12 @@ async function cargarClientes() {
     return;
   }
   sel.innerHTML = '<option value="" selected>— Ninguno (uso el link) —</option>' +
-    clientes.map(c => `<option value="${c.id}">${esc(c.display_name || c.ig_username)} · @${esc(c.ig_username)}</option>`).join("");
+    clientes.map(c => {
+      // El admin ve clientes de todos los vendedores: sin el nombre del vendedor
+      // dos clientes homónimos de cuentas distintas son indistinguibles.
+      const v = c.vendedor ? ` — ${esc(c.vendedor)}` : "";
+      return `<option value="${c.id}">${esc(c.display_name || c.ig_username)} · @${esc(c.ig_username)}${v}</option>`;
+    }).join("");
 }
 
 function clienteElegido() {
@@ -81,7 +86,11 @@ function clienteElegido() {
   if (id) return clientes.find(c => c.id === id) || null;
   // Sin selección manda el link: si es de un cliente cargado, vale igual.
   const u = igUsernameDe($("fw-link").value);
-  return u ? (clientes.find(c => c.ig_username === u) || null) : null;
+  if (!u) return null;
+  // Un mismo @usuario puede estar cargado en más de un vendedor (el admin los ve
+  // todos): gana el activo.
+  const match = clientes.filter(c => c.ig_username === u);
+  return match.find(c => c.status === "active") || match[0] || null;
 }
 
 function onClienteChange() {
