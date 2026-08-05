@@ -125,9 +125,15 @@ def _chequear_una_vez() -> None:
         _ultimo_aviso = 0.0
     elif not ok and antes is not False:
         # Primera vez que lo vemos caído (incluye el arranque con todo caído).
+        # El CRM NO tiene whitelist de IPs (verificado): acepta el login desde
+        # cualquier lado. Si no hay ruta, el problema es el proxy en sí, o la
+        # conexión. Decirlo bien importa: mandar a "revisar la whitelist" hace
+        # perder tiempo buscando un permiso que no existe.
         _avisar(f"🔴 No hay conexión con el CRM de Growi. Los vendedores no pueden "
                 f"publicar órdenes.\n\nDetalle: {detalle}\n"
-                f"Revisar el proxy de salida y que su IP siga en la whitelist del CRM.")
+                f"Revisar que el proxy de salida esté vivo. Si no vuelve, se puede "
+                f"trabajar sin proxy: borrar GROWI_HTTP_PROXY y vaciar el proxy de "
+                f"cada vendedor en /admin.")
         _ultimo_aviso = ahora
     elif not ok and ahora - _ultimo_aviso > RECORDATORIO:
         minutos = round((ahora - caido_desde) / 60)
