@@ -1009,6 +1009,10 @@ let vistosStream = new Set();
 
 function agregarComentarioFiltrado(texto, index) {
   if (generoDeHeader(texto)) { agregarComentario(texto, index); return; }
+  // Modo palabra clave: los comentarios REPETIDOS son el producto (40 veces la
+  // misma palabra, variando la escritura). Este filtro los colapsaba a las
+  // pocas formas distintas y la tanda quedaba en 4 comentarios.
+  if (currentKeyword) { agregarComentario(texto, index); return; }
   const n = normComentario(texto);
   if (vistosStream.has(n)) return;
   vistosStream.add(n);
@@ -1053,8 +1057,10 @@ function agregarComentario(texto, index) {
   const tipo = tiposGenerados[i];
   // Dentro del objetivo de la ficha: viene marcado. El vendedor destilda lo que
   // no le guste en vez de tener que elegir 80 comentarios a mano.
-  const autoElegido = !tipoForzado &&
-    (tipo === "verificado" ? asignadosV <= objetivoV : asignadosNV <= objetivoNV);
+  // Modo palabra clave: la tanda entera es el pedido (N veces la misma palabra),
+  // no hay nada que elegir entre comentarios — van todos marcados de una.
+  const autoElegido = currentKeyword ? true : (!tipoForzado &&
+    (tipo === "verificado" ? asignadosV <= objetivoV : asignadosNV <= objetivoNV));
 
   const item = document.createElement("div");
   item.className = "comentario-item" + (autoElegido ? " selected" : "");
@@ -1342,7 +1348,9 @@ async function cargarMas(tipo) {
         if (evento.tipo === "comentario") {
           // Los encabezados de género se procesan siempre (marcan la sección);
           // los comentarios reales, solo si no son un casi-duplicado de lo cargado.
-          if (generoDeHeader(evento.texto)) {
+          // En modo palabra clave todo es la misma palabra: el filtro de
+          // casi-duplicados tiraría la tanda entera.
+          if (currentKeyword || generoDeHeader(evento.texto)) {
             agregarComentario(evento.texto, baseIndex + evento.index);
           } else {
             const info = infoComentario(evento.texto);

@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import threading
+import random
 import anthropic
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -83,6 +84,32 @@ def _datos_cliente(ig_username: str, es_cliente: bool):
     except Exception as e:
         print(f"[cliente] datos no disponibles ({e})", flush=True)
         return {}, None, None
+
+
+def _completar_tanda_keyword(comentarios: list[str], repeticiones: int) -> list[str]:
+    """Lleva CADA forma de escritura de la tanda a `repeticiones` apariciones.
+
+    En este modo la repetición NO es un defecto: todos los comentarios son la
+    misma palabra y lo único que varía es cómo está escrita (TOOLKIT / Toolkit /
+    toolkit...). Lo que el modelo aporta son esas formas; la cantidad la ponemos
+    nosotros. Con 4 formas y repeticiones=15 la tanda son 60 comentarios.
+
+    Las repeticiones van MEZCLADAS, no en bloques: publicadas en orden serían
+    quince TOOLKIT seguidos y después quince Toolkit, que es justo lo que delata
+    al bot. Lo ya emitido no se toca (el front ya lo mostró): solo se agrega."""
+    formas = list(dict.fromkeys(c.strip() for c in comentarios if c.strip()))
+    if not formas or repeticiones < 1:
+        return comentarios
+    ya = {f: 0 for f in formas}
+    for c in comentarios:
+        c = c.strip()
+        if c in ya:
+            ya[c] += 1
+    extra = []
+    for f in formas:
+        extra.extend([f] * max(0, repeticiones - ya[f]))
+    random.shuffle(extra)
+    return comentarios + extra
 
 
 def _cliente_es_keyword(ig_username: str) -> bool:
@@ -631,6 +658,16 @@ def procesar_post_web():
                     job["comentarios"] = []
                     job["current_chunk"] = ""
                     job["resets"] += 1
+            # Modo palabra clave: lo que la IA aporta son las FORMAS de escritura;
+            # la cantidad la ponemos nosotros repitiendo cada una N veces.
+            if keyword and not job["cancelado"]:
+                from modules.ai_generator import KEYWORD_REPETICIONES
+                antes = len(job["comentarios"])
+                job["comentarios"] = _completar_tanda_keyword(job["comentarios"], KEYWORD_REPETICIONES)
+                if len(job["comentarios"]) > antes:
+                    print(f"[keyword] {antes} líneas de la IA → {len(job['comentarios'])} "
+                          f"comentarios ({KEYWORD_REPETICIONES} por forma)", flush=True)
+
             t_ai = time.time() - t1
             print(f"[TIMING] ai generation: {t_ai:.2f}s | total: {time.time()-t0:.2f}s", flush=True)
             job["progreso"].append(f"[debug] IA: {t_ai:.2f}s | total: {time.time()-t0:.2f}s")

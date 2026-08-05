@@ -60,9 +60,15 @@ GENERIC_CLIENT_ID = "__generico__"
 # /admin, igual que el genérico) con el .txt de la imagen como fallback.
 KEYWORD_CLIENT_ID = "__keyword__"
 
-# Cantidad fija de comentarios por tanda. Por env var y no hardcodeada: cambiar
-# cuántos salen es tocar una variable y reiniciar, no redeployar.
-KEYWORD_CANTIDAD = int(os.environ.get("CROW_KEYWORD_CANTIDAD", "40"))
+# Cuántas líneas le pedimos al modelo. No es el total de la tanda: de acá salen
+# las FORMAS de escritura distintas (TOOLKIT / Toolkit / toolkit...), que después
+# se repiten. Por env var y no hardcodeada: cambiarlo es tocar una variable y
+# reiniciar, no redeployar.
+KEYWORD_CANTIDAD = int(os.environ.get("CROW_KEYWORD_CANTIDAD", "15"))
+
+# Veces que se repite CADA forma de escritura. Con 4 formas y 15 repeticiones la
+# tanda son 60 comentarios: es la cantidad que se publica, no un tope.
+KEYWORD_REPETICIONES = int(os.environ.get("CROW_KEYWORD_REPETICIONES", "15"))
 
 
 # El prompt final se arma en DOS CAPAS:
