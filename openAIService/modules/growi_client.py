@@ -4,6 +4,7 @@ Growi CRM client — envía las órdenes ya armadas por el frontend a enviar_tra
 import os
 import json
 import random
+import time
 import requests
 from dataclasses import dataclass, field
 from datetime import date
@@ -27,6 +28,38 @@ _USER_AGENT = (
 
 _session: requests.Session | None = None
 
+# Timeouts (conectar, leer). El de conexión es corto a propósito: si el proxy de
+# IP fija está caído, el connect se cuelga hasta agotarlo y ahí recién falla.
+# Con 30s y 4 reintentos eso eran 2 minutos de espera para un error inevitable.
+_TIMEOUT = (5, 30)
+
+
+class GrowiUnavailable(RuntimeError):
+    """No pudimos *llegar* al CRM (proxy caído, red, DNS). Es distinto de que el
+    CRM nos rechace: acá no hay nada que reintentar en el momento ni credencial
+    que revisar, y sobre todo NO tiene sentido generar comentarios que después
+    no vamos a poder mandar."""
+
+
+def _es_error_de_red(e: Exception) -> bool:
+    """True si la excepción es 'no llegamos al server' y no 'el server dijo que
+    no'. ProxyError y ConnectTimeout son subclases de ConnectionError, así que
+    con el padre alcanza; Timeout cubre el read timeout."""
+    return isinstance(e, (requests.exceptions.ConnectionError,
+                          requests.exceptions.Timeout))
+
+
+def _sin_ruta(e: Exception) -> GrowiUnavailable:
+    """Mensaje de red uniforme, sin volcarle al vendedor el traceback con IPs y
+    puertos internos (que es lo que se veía en el informe: 'ProxyError ...
+    13.37.44.57:8888')."""
+    destino = "el proxy de salida" if _PROXY_URL else "el CRM"
+    print(f"[growi] sin ruta hacia el CRM via {destino}: {e!r}", flush=True)
+    return GrowiUnavailable(
+        "No se puede conectar con el CRM de Growi en este momento. "
+        "Es un problema de conexión, no de tus datos: probá de nuevo en unos minutos."
+    )
+
 
 def _login() -> requests.Session:
     """
@@ -39,18 +72,24 @@ def _login() -> requests.Session:
     if _PROXIES:
         session.proxies.update(_PROXIES)
 
-    resp = session.post(
-        f"{CRM_URL}/cuenta/login.php",
-        data={"correo": EMAIL, "password": PASSWORD},
-        headers={
-            "content-type": "application/x-www-form-urlencoded",
-            "referer": f"{CRM_URL}/cuenta/login.php",
-            "origin": CRM_URL,
-        },
-        timeout=15,
-    )
+    try:
+        session.post(
+            f"{CRM_URL}/cuenta/login.php",
+            data={"correo": EMAIL, "password": PASSWORD},
+            headers={
+                "content-type": "application/x-www-form-urlencoded",
+                "referer": f"{CRM_URL}/cuenta/login.php",
+                "origin": CRM_URL,
+            },
+            timeout=_TIMEOUT,
+        )
+        check = session.get(f"{CRM_URL}/paginas/trafico.php",
+                            allow_redirects=False, timeout=_TIMEOUT)
+    except Exception as e:
+        if _es_error_de_red(e):
+            raise _sin_ruta(e) from e
+        raise
 
-    check = session.get(f"{CRM_URL}/paginas/trafico.php", allow_redirects=False, timeout=15)
     if check.status_code != 200:
         raise NotImplementedError(
             "Login a Growi falló. Revisar GROWI_CRM_EMAIL / GROWI_CRM_PASSWORD."
@@ -68,6 +107,57 @@ def _get_session() -> requests.Session:
             )
         _session = _login()
     return _session
+
+
+# Preflight: resultado cacheado para no pagar un round-trip al CRM en cada
+# generación. El OK vale un rato largo (si anda, va a seguir andando); la falla
+# vence rápido para que apenas vuelva el proxy se pueda trabajar de nuevo.
+_PREFLIGHT_OK_TTL = 120.0
+_PREFLIGHT_FAIL_TTL = 15.0
+_preflight_cache: tuple[float, Exception | None] | None = None
+
+
+def verificar_disponible() -> None:
+    """Chequea que haya ruta hasta el CRM ANTES de generar comentarios.
+
+    Sin esto el orden era: scrapear el post, gastar los tokens de la IA, mostrarle
+    los 89 comentarios al vendedor y recién al publicar descubrir que el proxy
+    estaba muerto — trabajo y plata tirados. Cuesta ~1s y no valida credenciales
+    a propósito: solo responde "¿existe camino hasta el CRM?".
+
+    Lanza GrowiUnavailable si no hay ruta. No lanza nada si Growi no está
+    configurado: eso es una condición distinta, y la maneja quien publica.
+    """
+    global _preflight_cache
+
+    if not EMAIL or not PASSWORD or not IDVENDEDOR:
+        return  # sin configurar: no hay nada que chequear todavía
+
+    ahora = time.monotonic()
+    if _preflight_cache is not None:
+        visto, fallo = _preflight_cache
+        ttl = _PREFLIGHT_FAIL_TTL if fallo else _PREFLIGHT_OK_TTL
+        if ahora - visto < ttl:
+            if fallo:
+                raise fallo
+            return
+
+    proxies = _PROXIES or {}
+    try:
+        requests.get(f"{CRM_URL}/cuenta/login.php", proxies=proxies,
+                     headers={"user-agent": _USER_AGENT},
+                     allow_redirects=False, timeout=_TIMEOUT)
+    except Exception as e:
+        if _es_error_de_red(e):
+            fallo = _sin_ruta(e)
+            _preflight_cache = (ahora, fallo)
+            raise fallo from e
+        # Cualquier otra cosa (un 500 del CRM, TLS raro) no es "no hay ruta":
+        # dejamos seguir y que falle donde corresponde, con su propio mensaje.
+        print(f"[growi] preflight no concluyente: {e!r}", flush=True)
+        return
+
+    _preflight_cache = (ahora, None)
 
 
 # Encabezados que el CRM usa para saber el género de cada bloque de comentarios.
@@ -236,12 +326,20 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
     global _session
     max_intentos = 4
     for intento in range(1, max_intentos + 1):
-        resp = session.post(
-            f"{CRM_URL}/paginas/enviar_trafico.php",
-            json=payload,
-            headers=request_headers,
-            timeout=30,
-        )
+        try:
+            resp = session.post(
+                f"{CRM_URL}/paginas/enviar_trafico.php",
+                json=payload,
+                headers=request_headers,
+                timeout=_TIMEOUT,
+            )
+        except Exception as e:
+            # Un error de red NO se reintenta: los reintentos existen para el 401
+            # (login y POST saliendo por IPs distintas). Si no hay ruta al CRM,
+            # reintentar solo multiplica la espera por 4 antes del mismo error.
+            if _es_error_de_red(e):
+                raise _sin_ruta(e) from e
+            raise
         if resp.status_code != 401:
             break
         print(f"[growi] 401 en intento {intento}/{max_intentos}, reintentando con login fresco", flush=True)

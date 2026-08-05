@@ -5,10 +5,14 @@ from modules.post_processor import scrape_post
 from modules.ai_generator import generar_comentarios
 from modules.reporter import generar_informe
 try:
-    from modules.growi_client import ejecutar_campana
+    from modules.growi_client import (ejecutar_campana, verificar_disponible,
+                                      GrowiUnavailable)
     GROWI_AVAILABLE = True
 except Exception:
     GROWI_AVAILABLE = False
+    class GrowiUnavailable(RuntimeError):
+        """Placeholder para que los `except` de abajo sigan siendo válidos
+        cuando growi_client no se pudo importar."""
 
 
 # El esquema y el @usuario del medio son opcionales: Instagram comparte tanto
@@ -91,6 +95,14 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
     Flujo completo: scraping → generación IA → Growi → informe.
     client_id: se puede pasar manualmente, o se auto-detecta desde el owner del post via clients_map.json
     """
+    # Mismo preflight que la vía web: si no hay ruta al CRM, no scrapeamos ni
+    # generamos nada, porque el envío al final va a fallar igual.
+    if GROWI_AVAILABLE:
+        try:
+            verificar_disponible()
+        except GrowiUnavailable as e:
+            return str(e)
+
     try:
         post_data = scrape_post(post_url)
     except Exception as e:
@@ -131,6 +143,8 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
     if GROWI_AVAILABLE:
         try:
             resultado = ejecutar_campana(post_url, comentarios)
+        except GrowiUnavailable as e:
+            error_growi = str(e)
         except NotImplementedError as e:
             error_growi = str(e)
         except Exception as e:

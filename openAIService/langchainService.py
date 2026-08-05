@@ -391,6 +391,19 @@ def procesar_post_web():
     if len(keyword) > 60:
         return jsonify({"error": "La palabra clave es demasiado larga"}), 400
 
+    # Preflight del CRM: si no hay ruta hasta Growi, cortamos ACÁ. Generar la
+    # tanda igual significaba scrapear, quemar tokens de IA y hacer esperar al
+    # vendedor para que al publicar apareciera un error de proxy y se perdiera
+    # todo. El resultado está cacheado, así que no es un round-trip por tanda.
+    try:
+        from modules.growi_client import verificar_disponible, GrowiUnavailable
+        verificar_disponible()
+    except ImportError:
+        pass  # sin growi_client no hay nada que precomprobar
+    except GrowiUnavailable as e:
+        return jsonify({"error": str(e), "motivo": "growi_caido",
+                        "reintentable": True}), 503
+
     job_id = str(uuid.uuid4())
     with _jobs_lock:
         # Purga de jobs viejos: el dict crecía para siempre (cada job se queda con
@@ -722,9 +735,14 @@ def publicar_web():
         resultado = None
         error = None
         try:
-            from modules.growi_client import ejecutar_campana
+            from modules.growi_client import ejecutar_campana, GrowiUnavailable
             resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
             informe = generar_informe(post_url, comentarios, resultado)
+        except GrowiUnavailable as e:
+            # Ya viene con un mensaje para el vendedor; sin el "Error en Growi:"
+            # adelante ni el volcado con la IP y el puerto del proxy.
+            error = str(e)
+            informe = generar_informe(post_url, comentarios, None, error=error)
         except NotImplementedError as e:
             error = str(e)
             informe = generar_informe(post_url, comentarios, None, error=error)
