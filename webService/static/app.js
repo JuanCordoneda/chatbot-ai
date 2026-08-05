@@ -362,6 +362,15 @@ function manejarEvento(evento) {
   } else if (evento.tipo === "error") {
     generando = false;
     hide("loading-overlay");
+    // Falta la palabra clave: no es un error que se arregle reintentando lo
+    // mismo, es un campo vacío. Volvemos a la pantalla del link con el bloque de
+    // palabra clave abierto (el preview rápido puede no haberlo abierto: falla o
+    // llega tarde) y la sugerencia del caption ya cargada, para que sea escribir
+    // o confirmar y generar. El scrape queda cacheado, así que no se re-baja.
+    if (evento.motivo === "falta_keyword") {
+      volverAlInputPorKeyword(evento);
+      return;
+    }
     // Si el post ya se scrapeó (parcial), NO tiramos abajo la pantalla: dejamos
     // la transcripción/descripción que sí salieron y avisamos en el lugar, con
     // opción a reintentar. Solo volvemos al inicio si no hay nada que mostrar.
@@ -386,6 +395,29 @@ function mostrarIaError(msg, reintentable) {
     msg || "No se pudieron generar los comentarios. Reintentá en un momento.";
   document.getElementById("ia-error-retry").classList.toggle("hidden", !reintentable);
   banner.classList.remove("hidden");
+}
+
+// Vuelta a la pantalla del link cuando el backend cortó por falta de palabra
+// clave. El backend es el que sabe de verdad si el cliente trabaja así, así que
+// su respuesta manda sobre lo que había decidido el preview rápido.
+function volverAlInputPorKeyword(evento) {
+  hide("step-comentarios");
+  show("step-input");
+  mostrarKeyword(true);
+  const campo = document.getElementById("ig-keyword");
+  const hint = document.getElementById("ig-keyword-hint");
+  const kw = (evento.keyword_sugerida || "").trim();
+  if (kw && !campo.value.trim()) {
+    campo.value = kw;
+    keywordSugerida = kw;
+    if (hint) {
+      hint.textContent = "Detectada en el post: revisala antes de generar.";
+      hint.classList.add("ig-keyword-hint--detectada");
+    }
+  }
+  setError(evento.mensaje);
+  campo.focus();
+  campo.select();
 }
 
 // Muestra/oculta el bloque de la palabra clave. NO lo decide el vendedor: se

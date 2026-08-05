@@ -553,14 +553,26 @@ def procesar_post_web():
             # comentarios normales sería entregarle algo que no pidió, y el
             # vendedor no se daría cuenta hasta tenerlos publicados.
             if client_id and not keyword and _cliente_es_keyword(owner_ig):
-                falta = ("Este cliente trabaja con comentarios de palabra clave y "
-                         "no llegó la palabra. Escribila y volvé a generar.")
+                # Acá ya tenemos el caption completo (el preview rápido que
+                # precarga el campo puede haber fallado o no haber llegado a
+                # tiempo). Si el post dice cuál es la palabra, la mandamos como
+                # sugerencia para que el vendedor confirme en un click en vez de
+                # quedar en un callejón sin salida. Sigue siendo sugerencia: no
+                # generamos con ella sin que él la vea.
+                from modules.keyword_detect import detectar_keyword
+                sugerida = detectar_keyword(post_data.caption or "")
+                if sugerida:
+                    falta = ("Este cliente trabaja con comentarios de palabra clave. "
+                             f'En el post dice "{sugerida}": confirmala y volvé a generar.')
+                else:
+                    falta = ("Este cliente trabaja con comentarios de palabra clave y "
+                             "no llegó la palabra. Escribila y volvé a generar.")
                 job["error"] = falta
                 # error_info explícito: no es un error de la IA, no se arregla
                 # reintentando lo mismo. El clasificador lo hubiera convertido en
                 # "error de la IA, reintentá", que manda al vendedor a un loop.
                 job["error_info"] = {"mensaje": falta, "motivo": "falta_keyword",
-                                     "reintentable": False}
+                                     "reintentable": False, "keyword_sugerida": sugerida}
                 job["done"] = True
                 return
 
@@ -724,6 +736,7 @@ def procesar_post_stream(job_id):
                     # deja lo que salió y avisa que la IA falló, con opción a reintentar.
                     yield evento("error", mensaje=info["mensaje"],
                                  motivo=info["motivo"], reintentable=info["reintentable"],
+                                 keyword_sugerida=info.get("keyword_sugerida", ""),
                                  parcial=bool(job.get("scrape_ready")))
                 else:
                     yield evento("listo", **job["meta"], total=len(job["comentarios"]))
