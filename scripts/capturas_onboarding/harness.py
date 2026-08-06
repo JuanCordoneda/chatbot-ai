@@ -74,6 +74,22 @@ def api_response(path):
     return {}
 
 
+
+# Marcas que se dibujan encima de cada captura: (selector, texto, lado).
+# Se pintan en el navegador, así las coordenadas son exactas y quedan dentro
+# del PNG (también se ven al abrir la captura en grande).
+ANOTACIONES = {
+    "lista":             [("#btn-new-client", "Empezá acá", "izq")],
+    "ficha-nueva":       [(".ax-prompt-teaser", "Acá adentro se escribe el prompt", "abajo")],
+    "ficha:identidad":   [("#client-ig", "Igual que en Instagram: sin @ ni espacios", "abajo")],
+    "ficha:prompt":      [("#client-keyword-field", "Sólo para posts de sorteo", "arriba")],
+    "ficha:calidad":     [('.ax-field:has(#client-quality) .ax-opt-b[data-val="pro"]',
+                           "Más caro: sólo si el cliente lo nota", "arriba")],
+    "ficha:comentarios": [(".ax-com-card:has(#com-comunes-min)", "Estos salen en 2 tandas", "arriba")],
+    "ficha:trafico":     [("#client-venta", "De acá sale la plata", "arriba")],
+    "gen":               [("#ig-link", "Pegá el link del post", "abajo")],
+}
+
 # Se inyecta antes del JS de la app. Prepara la escena de cada captura (?shot=)
 # una vez que la interfaz terminó de renderizar.
 SHOT_JS = r"""
@@ -84,6 +100,52 @@ window.__shot = _p.get("shot") || "";
 if (_p.get("tema") === "light") {
   document.addEventListener("DOMContentLoaded", () => document.body.classList.add("light"));
 }
+
+// ── Marcas encima de la captura ─────────────────────────────────────────────
+// Un aro amarillo sobre el elemento y un cartelito al lado. Se dibujan al final,
+// cuando la escena ya está armada: antes las coordenadas serían las de otro
+// layout.
+const ANOTACIONES = __ANOTACIONES__;
+function dibujarMarcas() {
+  for (const [sel, texto, lado] of ANOTACIONES) {
+    const el = document.querySelector(sel);
+    if (!el) { console.warn("anotación sin elemento:", sel); continue; }
+    const r = el.getBoundingClientRect();
+    // Si el elemento quedó fuera de la captura, el cartel se pegaría contra un
+    // borde señalando a la nada: mejor no dibujar nada.
+    if (r.bottom > window.innerHeight - 8 || r.top < 8) {
+      console.warn("anotación fuera de la captura:", sel); continue;
+    }
+    // Las coordenadas del rect ya vienen con el zoom de .app aplicado; el
+    // overlay va en el body (sin zoom), así que se usan tal cual.
+    const aro = document.createElement("div");
+    aro.style.cssText = `position:fixed;left:${r.left - 7}px;top:${r.top - 7}px;
+      width:${r.width + 14}px;height:${r.height + 14}px;border:3px solid #FAB900;
+      border-radius:${Math.min(16, r.height / 2 + 8)}px;box-shadow:0 0 0 4px rgba(250,185,0,.22);
+      pointer-events:none;z-index:9999;`;
+    document.body.appendChild(aro);
+
+    const cartel = document.createElement("div");
+    cartel.textContent = texto;
+    cartel.style.cssText = `position:fixed;z-index:9999;background:#181818;color:#FAB900;
+      border:2px solid #FAB900;font-family:Inter,system-ui,sans-serif;font-weight:750;
+      font-size:15px;line-height:1.25;padding:6px 12px;border-radius:9px;max-width:290px;
+      box-shadow:0 8px 24px rgba(0,0,0,.5);`;
+    document.body.appendChild(cartel);
+    const c = cartel.getBoundingClientRect();
+    let x, y;
+    if (lado === "izq")        { x = r.left - c.width - 22;  y = r.top + r.height / 2 - c.height / 2; }
+    else if (lado === "arriba"){ x = r.left;                 y = r.top - c.height - 16; }
+    else                       { x = r.left;                 y = r.bottom + 16; }
+    // Que no se vaya de la captura.
+    x = Math.max(12, Math.min(x, window.innerWidth - c.width - 12));
+    y = Math.max(12, Math.min(y, window.innerHeight - c.height - 12));
+    cartel.style.left = x + "px";
+    cartel.style.top = y + "px";
+
+  }
+}
+
 window.addEventListener("load", () => setTimeout(() => {
   const s = window.__shot;
   // Deja en la página SOLO el elemento pedido, con un margen parejo alrededor.
@@ -100,17 +162,17 @@ window.addEventListener("load", () => setTimeout(() => {
     w.classList.add("app");
   };
 
-  if (!s.startsWith("ficha")) return;             // la pantalla entera
+  if (!s.startsWith("ficha")) { dibujarMarcas(); return; }   // la pantalla entera
 
   openClientModal(s === "ficha-nueva" ? undefined : 1);
   setTimeout(() => {
     const modal = document.querySelector("#client-mo .ax-modal");
-    if (s === "ficha" || s === "ficha-nueva") { modal.style.maxHeight = "none"; solo(modal); return; }
+    if (s === "ficha" || s === "ficha-nueva") { modal.style.maxHeight = "none"; solo(modal); setTimeout(dibujarMarcas, 60); return; }
     // El editor del prompt sólo existe a pantalla completa: el modal normal
     // muestra el teaser, no el textarea.
     if (s === "ficha:prompt") {
       togglePromptFull();
-      setTimeout(() => { modal.style.height = "620px"; solo(modal); }, 250);
+      setTimeout(() => { modal.style.height = "620px"; solo(modal); setTimeout(dibujarMarcas, 60); }, 250);
       return;
     }
     const que = s.split(":")[1];
@@ -125,6 +187,7 @@ window.addEventListener("load", () => setTimeout(() => {
     // De Comentarios interesa sólo el bloque de cantidades: con la sección
     // entera entra también el prompt y el foco se pierde.
     solo(que === "comentarios" ? el.querySelector(".ax-field:last-child") : el);
+    setTimeout(dibujarMarcas, 60);
   }, 700);
 }, 500));
 </script>
@@ -164,7 +227,12 @@ class H(BaseHTTPRequestHandler):
                "ayuda.html" if path == "/ayuda" else "admin.html")
         html = env.get_template(tpl).render(username="juan", is_admin=False, account_id=7)
         # El stub va antes que el JS de la app: ninguna llamada real sale.
-        html = html.replace("</head>", SHOT_JS + "</head>", 1)
+        shot = ""
+        for parte in self.path.split("?")[-1].split("&"):
+            if parte.startswith("shot="):
+                shot = parte[5:]
+        anotaciones = json.dumps(ANOTACIONES.get(shot, []))
+        html = html.replace("</head>", SHOT_JS.replace("__ANOTACIONES__", anotaciones) + "</head>", 1)
         return self._send(200, html, "text/html; charset=utf-8")
 
 

@@ -54,10 +54,14 @@
     .ob-step h3 { font-size: 1.01rem; font-weight: 750; letter-spacing: -.01em; }
     .ob-step > div > p { margin-top: 6px; font-size: .87rem; color: var(--muted); line-height: 1.65; max-width: 68ch; }
     .ob-step p b { color: var(--text); font-weight: 650; }
-    .ob-where { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: .74rem;
-      color: var(--faint); background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 7px; padding: 4px 9px; }
-    .ob-where b { color: var(--text); font-weight: 650; }
+    /* Abre el panel en otra pestaña: la guía se sigue leyendo al lado mientras
+       se carga el cliente. */
+    .ob-where { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; font-size: .78rem;
+      color: var(--text); background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 7px 12px; text-decoration: none; font-weight: 600; }
+    .ob-where:hover { border-color: var(--yellow); background: var(--surface3); }
+    .ob-where b { color: var(--yellow); font-weight: 750; }
+    .ob-where svg { opacity: .65; }
 
     /* Aviso puntual dentro de un paso. */
     .ob-tip { display: flex; gap: 9px; margin-top: 11px; font-size: .82rem; color: var(--muted);
@@ -156,9 +160,9 @@
       </div>
       <div class="header-actions">
         <div class="header-btn-group">
-          <a class="header-action-btn header-action-btn--primary" href="{% if is_admin %}/admin{% else %}/mis-clientes{% endif %}" title="Ir a cargar clientes">
+          <a class="header-action-btn header-action-btn--primary" href="/mis-clientes" target="_blank" rel="noopener" title="Abrir Mis clientes en otra pestaña">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            <span>{% if is_admin %}Admin{% else %}Mis clientes{% endif %}</span>
+            <span>Mis clientes</span>
           </a>
           <a class="header-action-btn" href="/" title="Generador de comentarios">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -183,6 +187,11 @@
         <div class="ob-kicker">Onboarding</div>
         <h1>Cargar un cliente, de principio a fin</h1>
         <p>Ocho pasos. Al final tenés una ficha lista y el primer post generándose.</p>
+        <!-- Se trabaja con las dos pestañas al lado: la guía acá, el panel allá. -->
+        <a class="ob-where" href="/mis-clientes" target="_blank" rel="noopener">
+          Abrí <b>Mis clientes</b> en otra pestaña y seguí la guía de este lado
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
       </div>
 
       <div class="ob-cols">
@@ -210,7 +219,10 @@
             <div>
               <h3>Abrí la lista de clientes</h3>
               <p>Es la pantalla donde vive todo: una ficha por cada cuenta de Instagram que atendés. Si recién arrancás, está vacía.</p>
-              <div class="ob-where">📍 Header → <b>{% if is_admin %}Admin{% else %}Mis clientes{% endif %}</b></div>
+              <a class="ob-where" href="/mis-clientes" target="_blank" rel="noopener">
+                Abrir <b>Mis clientes</b> en otra pestaña
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
               <figure class="ob-fig">
                 <img class="ob-dark" src="/static/onboarding/paso-1.png?v=1" alt="Paso 1" onclick="zoom(this)" />
                 <img class="ob-light" src="/static/onboarding/paso-1-light.png?v=1" alt="Paso 1" onclick="zoom(this)" />
@@ -315,7 +327,10 @@
               <h3>Guardá y probá con un post real</h3>
               <p>Los cambios impactan al instante: no hay que publicar ni reiniciar nada. Andá al generador, pegá un post de ese cliente y fijate que arriba de la lista aparezca su nombre — eso confirma que el @usuario quedó bien.</p>
               <p>Leé los primeros comentarios antes de publicar. Si no suenan al cliente, el prompt necesita otra vuelta: es normal ajustarlo dos o tres veces la primera semana.</p>
-              <div class="ob-where">📍 Header → <b>Comentarios</b> → pegar el link</div>
+              <a class="ob-where" href="/" target="_blank" rel="noopener">
+                Abrir el <b>generador</b> en otra pestaña
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
               <figure class="ob-fig">
                 <img class="ob-dark" src="/static/onboarding/paso-8.png?v=1" alt="Paso 8" onclick="zoom(this)" />
                 <img class="ob-light" src="/static/onboarding/paso-8-light.png?v=1" alt="Paso 8" onclick="zoom(this)" />
@@ -396,7 +411,7 @@
             </details>
           </section>
 
-          <p class="ob-foot">¿Falta algo? Pedile a tu administrador que lo sume. <a href="{% if is_admin %}/admin{% else %}/mis-clientes{% endif %}">Ir a cargar un cliente</a></p>
+          <p class="ob-foot">¿Falta algo? Pedile a tu administrador que lo sume. <a href="/mis-clientes" target="_blank" rel="noopener">Ir a cargar un cliente ↗</a></p>
         </div>
       </div>
 
