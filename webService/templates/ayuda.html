@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GROWI — Guía y preguntas frecuentes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=1785889200" />
+  <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="GROWI — Guía y preguntas frecuentes" />
+  <meta property="og:description" content="Cómo usar GROWI: primeros pasos, comentarios, followers y clientes." />
+  <meta property="og:image" content="/static/og-thumb.png?v=1" />
+  <style>
+    /* Pantalla de sólo lectura: reutiliza los tokens de style.css y define acá
+       lo suyo (prefijo hp-). No carga app.js ni admin.js, así que el tema y el
+       buscador viven al final de este archivo. */
+    .hp-main { max-width: 900px; }
+
+    .hp-search { position: sticky; top: 10px; z-index: 20; margin: 22px 0 8px; }
+    .hp-search .ig-field { margin: 0; }
+    .hp-empty { display: none; text-align: center; color: var(--faint); font-size: .9rem; padding: 26px 0; }
+    .hp-empty.on { display: block; }
+
+    /* Índice: atajo a cada bloque. En mobile se envuelve solo. */
+    .hp-toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 30px; }
+    .hp-toc a { background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 999px; padding: 7px 14px; font-size: .8rem; font-weight: 600; text-decoration: none; }
+    .hp-toc a:hover { border-color: var(--yellow); color: var(--text); }
+
+    .hp-sec { margin-bottom: 34px; scroll-margin-top: 80px; }
+    .hp-sec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .hp-sec-h .hp-ico { font-size: 1.15rem; }
+    .hp-sec-h h2 { font-size: 1.12rem; font-weight: 800; margin: 0; }
+    .hp-sec-h p { margin: 2px 0 0; font-size: .82rem; color: var(--faint); }
+
+    /* Pasos numerados de la guía. */
+    .hp-steps { display: grid; gap: 10px; }
+    .hp-step { display: flex; gap: 14px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px; }
+    .hp-step-n { flex: 0 0 26px; height: 26px; border-radius: 50%; background: var(--yellow-lo);
+      color: var(--yellow); font-weight: 800; font-size: .82rem; display: grid; place-items: center; }
+    .hp-step-b b { display: block; font-size: .95rem; font-weight: 700; margin-bottom: 4px; }
+    .hp-step-b span { font-size: .87rem; color: var(--muted); line-height: 1.6; }
+    .hp-step-b code { background: var(--surface3); border-radius: 6px; padding: 1px 6px; font-size: .82rem; }
+
+    /* Preguntas: <details> nativo, sin JS para abrir y cerrar. */
+    .hp-q { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      margin-bottom: 8px; overflow: hidden; }
+    .hp-q[hidden] { display: none; }
+    .hp-q > summary { cursor: pointer; list-style: none; padding: 14px 18px; font-size: .92rem;
+      font-weight: 650; display: flex; align-items: center; gap: 10px; }
+    .hp-q > summary::-webkit-details-marker { display: none; }
+    .hp-q > summary::after { content: "＋"; margin-left: auto; color: var(--faint); font-weight: 400; }
+    .hp-q[open] > summary::after { content: "－"; }
+    .hp-q[open] > summary { color: var(--yellow); }
+    .hp-q > summary:hover { background: var(--surface2); }
+    .hp-q-a { padding: 0 18px 16px; font-size: .88rem; color: var(--muted); line-height: 1.65; }
+    .hp-q-a b { color: var(--text); }
+    .hp-q-a ul { margin: 8px 0 0; padding-left: 18px; }
+    .hp-q-a li { margin-bottom: 5px; }
+
+    .hp-note { display: flex; gap: 10px; background: var(--yellow-lo); border: 1px solid var(--yellow-md);
+      border-radius: 14px; padding: 14px 16px; font-size: .86rem; color: var(--text); line-height: 1.6;
+      margin-top: 14px; }
+
+    .hp-foot { margin: 40px 0 10px; text-align: center; font-size: .8rem; color: var(--faint); line-height: 1.7; }
+
+    @media (max-width: 768px) {
+      .hp-search { top: 6px; }
+      .hp-step { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
+        <span class="header-sep"></span>
+        <span class="header-tag">Guía y preguntas frecuentes</span>
+        {% if username %}
+        <span class="header-sep"></span>
+        <span class="header-user" title="Sesión iniciada como {{ username }}">
+          <span class="header-user-av">{{ username[0]|upper }}</span>
+          <span class="header-user-name">{{ username }}</span>
+        </span>
+        {% endif %}
+      </div>
+      <div class="header-actions">
+        <div class="header-btn-group">
+          <a class="header-action-btn header-action-btn--primary" href="/" title="Generador de comentarios">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <span>Comentarios</span>
+          </a>
+          <a class="header-action-btn" href="/followers" title="Enviar followers a un perfil">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 8a2.3 2.3 0 100-4.6A2.3 2.3 0 006 8z" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13c.6-2 2.4-3 4.5-3s3.9 1 4.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12.5 4.5v4M14.5 6.5h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span>Followers</span>
+          </a>
+          <a class="header-action-btn" href="{% if is_admin %}/admin{% else %}/mis-clientes{% endif %}" title="{% if is_admin %}Panel de administración{% else %}Mis clientes y sus prompts{% endif %}">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span>{% if is_admin %}Admin{% else %}Mis clientes{% endif %}</span>
+          </a>
+          <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
+          <a class="header-action-btn" href="/logout" title="Cerrar sesión">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Salir</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class="main hp-main">
+
+      <div class="hero">
+        <div class="hero-eyebrow"><span class="eyebrow-dot"></span>Empezá acá</div>
+        <h1 class="hero-title">Cómo se usa<br/><span class="accent">GROWI en 5 minutos</span></h1>
+        <p class="hero-sub">Guía rápida de las tres pantallas y las respuestas a lo que todos preguntan la primera semana.</p>
+      </div>
+
+      <!-- Buscador: con ~25 preguntas, leer todo para encontrar una es peor que
+           escribir dos palabras. Filtra preguntas y secciones a la vez. -->
+      <div class="hp-search">
+        <div class="ig-field">
+          <svg class="ig-field-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input type="text" id="hp-q" class="ig-input" placeholder="Buscar en la guía… (ej: tandas, saldo, palabra clave)" autocomplete="off" spellcheck="false" oninput="filtrarAyuda()" />
+          <button type="button" class="ig-clear hidden" id="hp-clear" onclick="limpiarBusqueda()" title="Borrar" aria-label="Borrar">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <nav class="hp-toc" id="hp-toc">
+        <a href="#primeros-pasos">Primeros pasos</a>
+        <a href="#comentarios">Comentarios</a>
+        <a href="#ordenes">Órdenes y tráfico</a>
+        <a href="#followers">Followers</a>
+        <a href="#clientes">Mis clientes</a>
+        <a href="#problemas">Si algo falla</a>
+      </nav>
+
+      <p class="hp-empty" id="hp-empty">No hay resultados para esa búsqueda.</p>
+
+      <!-- ── Primeros pasos ─────────────────────────────────────────────── -->
+      <section class="hp-sec" id="primeros-pasos">
+        <div class="hp-sec-h">
+          <span class="hp-ico">🚀</span>
+          <div>
+            <h2>Primeros pasos</h2>
+            <p>Qué es GROWI y qué vas a encontrar adentro</p>
+          </div>
+        </div>
+
+        <div class="hp-steps">
+          <div class="hp-step">
+            <span class="hp-step-n">1</span>
+            <div class="hp-step-b">
+              <b>Entrás con tu usuario de GROWI</b>
+              <span>Es el mismo usuario y contraseña que usás en el panel. La sesión queda abierta en ese navegador hasta que toques <b>Salir</b>.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">2</span>
+            <div class="hp-step-b">
+              <b>Tenés tres pantallas</b>
+              <span><b>Comentarios</b> (la home): pegás el link de un post y la IA escribe los comentarios. <b>Followers</b>: mandás seguidores a un perfil. <b>Mis clientes</b>: configurás cada cliente y sus instrucciones para la IA.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">3</span>
+            <div class="hp-step-b">
+              <b>Cargá tus clientes antes de empezar</b>
+              <span>En <b>Mis clientes</b> creás una ficha por cada cuenta de Instagram que atendés. Ahí definís cómo habla la IA, cuántos comentarios manda y de qué campaña sale la plata. Sin ficha, GROWI igual genera comentarios, pero genéricos y sin descontar de una campaña asignada.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">4</span>
+            <div class="hp-step-b">
+              <b>Probá con un post real</b>
+              <span>Pegá el link de un post de un cliente tuyo, generá, revisá la lista y publicá. Todo el flujo son 4 pantallas: link → comentarios → órdenes → resultado.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hp-note">
+          <span>💡</span>
+          <span>Todo lo que hacés queda registrado a tu nombre: comentarios publicados, órdenes de tráfico y consumo de IA. Podés verlo en las pestañas <b>En cola</b> y <b>Uso</b>.</span>
+        </div>
+      </section>
+
+      <!-- ── Comentarios ────────────────────────────────────────────────── -->
+      <section class="hp-sec" id="comentarios">
+        <div class="hp-sec-h">
+          <span class="hp-ico">💬</span>
+          <div>
+            <h2>Generar y publicar comentarios</h2>
+            <p>La pantalla principal, paso por paso</p>
+          </div>
+        </div>
+
+        <div class="hp-steps">
+          <div class="hp-step">
+            <span class="hp-step-n">1</span>
+            <div class="hp-step-b">
+              <b>Pegá el link del post</b>
+              <span>Sirve cualquier link de post o reel: <code>instagram.com/p/…</code> o <code>/reel/…</code>. El botón <b>Pegar</b> lo toma del portapapeles y <b>Enter</b> genera directo. Abajo del campo aparecen los últimos posts que hiciste desde ese navegador, para repetir sin volver a copiar nada.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">2</span>
+            <div class="hp-step-b">
+              <b>GROWI lee el post</b>
+              <span>Baja el pie de página, describe la imagen y, si es video, lo transcribe. Ese contexto queda a la vista arriba de la lista: si los comentarios salieron raros, ahí ves qué entendió la IA.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">3</span>
+            <div class="hp-step-b">
+              <b>Elegí cuáles mandás</b>
+              <span>Marcá uno por uno, usá <b>Shift+click</b> para un bloque, o escribí cuántos <b>verificados</b> y cuántos <b>comunes</b> querés y tocá <b>🎲 Elegirlos solo</b>. Podés editar el texto de cualquiera, agregar uno a mano y buscar dentro de la lista.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">4</span>
+            <div class="hp-step-b">
+              <b>Publicar</b>
+              <span>Los verificados salen todos juntos, en el momento. Los comunes se parten en <b>dos tandas iguales</b>: una ahora y otra programada para el próximo turno.</span>
+            </div>
+          </div>
+        </div>
+
+        <details class="hp-q">
+          <summary>¿Cuál es la diferencia entre comentarios verificados y comunes?</summary>
+          <div class="hp-q-a">Los <b>verificados</b> salen de cuentas con tilde: se publican todos juntos y al instante. Los <b>comunes</b> salen de cuentas normales y, para no levantar sospechas, se reparten en dos tandas iguales con horas de diferencia. El tope de comunes es <b>80 por día</b> (40 + 40).</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Por qué mis comentarios comunes no salieron todos juntos?</summary>
+          <div class="hp-q-a">Porque no pueden. La mitad sale al publicar y la otra mitad queda <b>programada para el próximo turno</b>: 10:00 si publicaste a la tarde, 19:00 si publicaste a la mañana. No hay que hacer nada, salen solos.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Puedo editar un comentario antes de publicarlo?</summary>
+          <div class="hp-q-a">Sí. Hacé click sobre el texto y escribí. También podés sumar comentarios propios con <b>+ Agregar</b>. Si notás textos repetidos, el botón <b>Desmarcar repetidos</b> aparece solo y los saca de la selección.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Qué es el modo palabra clave?</summary>
+          <div class="hp-q-a">Es para sorteos y dinámicas del tipo “comentá CLAUDE”. No lo activás vos: aparece solo cuando el cliente está marcado así en su ficha. GROWI detecta la palabra del pie de página y la deja <b>editable</b> — revisala antes de generar, porque 40 comentarios con la palabra equivocada no se arreglan después.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>Generé pocos comentarios y necesito más</summary>
+          <div class="hp-q-a">Usá <b>+ Cargar más</b> abajo de la lista: agrega comentarios nuevos sin perder los que ya marcaste.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Los comentarios consumen saldo?</summary>
+          <div class="hp-q-a">No. Generar y publicar comentarios no descuenta saldo de tu campaña. El saldo se usa sólo para el <b>tráfico</b> (followers, likes, views y demás productos).</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Cuánto tarda?</summary>
+          <div class="hp-q-a">Entre 30 segundos y un par de minutos, según el post. Los videos largos tardan más porque hay que transcribirlos. El reloj del cartel de carga te dice cuánto lleva; si cerrás la pestaña, el proceso se corta.</div>
+        </details>
+      </section>
+
+      <!-- ── Órdenes ────────────────────────────────────────────────────── -->
+      <section class="hp-sec" id="ordenes">
+        <div class="hp-sec-h">
+          <span class="hp-ico">📈</span>
+          <div>
+            <h2>Órdenes y tráfico</h2>
+            <p>Mandar likes, views y demás al post</p>
+          </div>
+        </div>
+
+        <div class="hp-steps">
+          <div class="hp-step">
+            <span class="hp-step-n">1</span>
+            <div class="hp-step-b">
+              <b>Elegí red social y producto</b>
+              <span>Instagram viene por defecto. Al elegir el producto se muestra la <b>demora estimada</b> y el <b>costo total</b> se calcula solo con la cantidad.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">2</span>
+            <div class="hp-step-b">
+              <b>Cantidad y link</b>
+              <span>Si el cliente tiene rangos configurados, el botón <b>🎲 Al azar</b> elige un número dentro de su rango. La cantidad inicial es lo que el post ya tiene.</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">3</span>
+            <div class="hp-step-b">
+              <b>Cuándo enviar</b>
+              <span><b>Ahora</b>, <b>Programar</b> para una fecha y hora, o <b>Dividir en 3 / en 5</b> para partir la cantidad en varias órdenes espaciadas por el intervalo que elijas (mínimo 45 minutos).</span>
+            </div>
+          </div>
+          <div class="hp-step">
+            <span class="hp-step-n">4</span>
+            <div class="hp-step-b">
+              <b>Agregá todas las que necesites y Solicitar</b>
+              <span>Podés acumular varias órdenes para el mismo post — likes, views, guardados — y mandarlas de una sola vez.</span>
+            </div>
+          </div>
+        </div>
+
+        <details class="hp-q">
+          <summary>¿Qué es “esta publicación no es de ningún cliente tuyo”?</summary>
+          <div class="hp-q-a">Quiere decir que el @usuario del post no coincide con ninguna ficha de <b>Mis clientes</b>. En ese caso tenés que elegir a mano <b>de qué campaña se descuenta</b> el envío. Si el post sí es de un cliente tuyo, cargalo en su ficha y no te lo vuelve a preguntar.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>No me alcanza el saldo de la campaña</summary>
+          <div class="hp-q-a">El selector muestra el saldo disponible de cada campaña. Si no alcanza, elegí otra campaña, bajá la cantidad o pedile a tu administrador que la recargue. Los comentarios se pueden publicar igual: no consumen saldo.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>Mandé la orden pero no aparece en el panel</summary>
+          <div class="hp-q-a">Si el panel estaba caído, la orden queda guardada en la pestaña <b>En cola</b> y se reintenta sola. Desde ahí podés verla y cancelarla. No la vuelvas a cargar: se duplicaría.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Puedo cancelar una orden?</summary>
+          <div class="hp-q-a">Mientras siga <b>en cola</b> (todavía no salió al panel), sí, con el botón de cancelar de esa pestaña. Una vez que salió al panel, se cancela desde el panel.</div>
+        </details>
+      </section>
+
+      <!-- ── Followers ──────────────────────────────────────────────────── -->
+      <section class="hp-sec" id="followers">
+        <div class="hp-sec-h">
+          <span class="hp-ico">👥</span>
+          <div>
+            <h2>Enviar followers</h2>
+            <p>Va a un perfil, no a un post</p>
+          </div>
+        </div>
+
+        <details class="hp-q">
+          <summary>¿Cómo mando followers a una cuenta?</summary>
+          <div class="hp-q-a">Entrá a <b>Followers</b> desde el header, pegá el link o el <code>@usuario</code> del perfil, elegí la calidad y la cantidad, confirmá el resumen de costo y listo. Sale al panel igual que cualquier otra orden.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Qué calidad conviene?</summary>
+          <div class="hp-q-a">Las opciones y sus precios salen del panel, así que son las mismas que ves ahí. Como regla: la calidad más alta tiene menos caída y más costo. Si el cliente mira la métrica de cerca, pagá la buena.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿De dónde sale la plata?</summary>
+          <div class="hp-q-a">De la campaña que elijas en el formulario, igual que en las órdenes. Si el perfil es de un cliente tuyo con campaña asignada, viene elegida sola.</div>
+        </details>
+      </section>
+
+      <!-- ── Mis clientes ───────────────────────────────────────────────── -->
+      <section class="hp-sec" id="clientes">
+        <div class="hp-sec-h">
+          <span class="hp-ico">👤</span>
+          <div>
+            <h2>Mis clientes</h2>
+            <p>La ficha que define cómo trabaja GROWI para cada cuenta</p>
+          </div>
+        </div>
+
+        <details class="hp-q">
+          <summary>¿Qué cargo en la ficha de un cliente?</summary>
+          <div class="hp-q-a">
+            <ul>
+              <li><b>Identidad</b>: @usuario de Instagram, nombre para mostrar y género de los comentarios (mixto, hombre o mujer).</li>
+              <li><b>Instrucciones para la IA</b>: cómo habla, qué dice y qué evita. Es lo que más define el resultado.</li>
+              <li><b>Calidad del motor</b>: Estándar (muy buenos, costo normal) o Pro (más elaborados, mayor costo).</li>
+              <li><b>Cuántos manda por post</b>: un rango de verificados y otro de comunes.</li>
+              <li><b>Tráfico</b>: de qué campaña sale la plata y qué cantidades mandar por producto.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Los cambios hay que publicarlos o esperar algo?</summary>
+          <div class="hp-q-a">No. Se guardan en la base y el motor los usa <b>al instante</b>, en el próximo post que generes.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Por qué cargar rangos y no un número fijo?</summary>
+          <div class="hp-q-a">Porque números siempre idénticos se notan. GROWI elige <b>solo y al azar</b> un valor dentro del rango cada vez que abrís un post, y vos lo podés cambiar antes de publicar. Si dejás el rango vacío, cargás el número a mano cada vez.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>Escribí un prompt y los comentarios no salen como quiero</summary>
+          <div class="hp-q-a">Sé concreto: quién es el cliente, qué tono usa, qué palabras nunca usaría, si va con emojis o no, largo aproximado. Si aun así no sale, usá <b>Pedir un ajuste</b> — le llega al administrador con tu texto y el del cliente, y él lo corrige.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Puedo ver los clientes de otro vendedor?</summary>
+          <div class="hp-q-a">No. Cada vendedor ve y edita <b>únicamente sus propios clientes</b>. El administrador ve todas las cuentas.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Dónde veo cuánto consumí?</summary>
+          <div class="hp-q-a">En las pestañas <b>Uso</b> y <b>Tokens</b>: comentarios generados, órdenes y gasto de IA, por mes o por rango de fechas.</div>
+        </details>
+      </section>
+
+      <!-- ── Problemas ──────────────────────────────────────────────────── -->
+      <section class="hp-sec" id="problemas">
+        <div class="hp-sec-h">
+          <span class="hp-ico">🛠</span>
+          <div>
+            <h2>Si algo falla</h2>
+            <p>Lo que pasa más seguido y cómo se resuelve</p>
+          </div>
+        </div>
+
+        <details class="hp-q">
+          <summary>“No se pudo leer el post”</summary>
+          <div class="hp-q-a">Casi siempre es una de tres: el post es de una <b>cuenta privada</b>, el link no es de un post (es de un perfil o de una story), o Instagram está limitando el acceso. Revisá el link y probá de nuevo en unos minutos.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>Salió un aviso de que la IA falló</summary>
+          <div class="hp-q-a">Pasa cuando el modelo está saturado. El post ya quedó leído, así que no perdés la transcripción: tocá <b>↻ Reintentar</b> en el mismo cartel y vuelve a generar sin empezar de cero.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>Me volvió a la pantalla de login</summary>
+          <div class="hp-q-a">Se cerró la sesión. Volvé a entrar; el trabajo que no publicaste se pierde, así que si tenías una lista larga marcada, publicá antes de dejarla mucho rato quieta.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>La página se ve rara o no actualiza</summary>
+          <div class="hp-q-a">Tocá <b>Refrescar</b> en el header. Si sigue igual, recargá con <b>Ctrl+Shift+R</b> (Cmd+Shift+R en Mac) para forzar la descarga de la versión nueva.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>¿Se puede usar desde el celular?</summary>
+          <div class="hp-q-a">Sí, las tres pantallas funcionan en el teléfono. Los botones del header se agrupan detrás del menú ☰.</div>
+        </details>
+
+        <details class="hp-q">
+          <summary>Sigo trabado</summary>
+          <div class="hp-q-a">Escribile a tu administrador con: el <b>link del post</b>, la <b>hora</b> aproximada y una <b>captura</b> del error. Con eso se ubica el caso en los registros en un minuto.</div>
+        </details>
+      </section>
+
+      <p class="hp-foot">
+        ¿Falta algo en esta guía? Pedile a tu administrador que la sume.<br/>
+        GROWI — engagement automático para Instagram.
+      </p>
+
+    </main>
+  </div>
+
+  <script>
+    // Tema: esta pantalla no carga app.js, así que replica el mismo mecanismo
+    // (clase .light en el body + localStorage) para no perder la preferencia al
+    // entrar y salir de la ayuda.
+    function toggleTheme() {
+      const isLight = document.body.classList.toggle("light");
+      localStorage.setItem("theme", isLight ? "light" : "dark");
+      document.getElementById("btn-theme").textContent = isLight ? "☾ Dark" : "☀ Light";
+    }
+    if (localStorage.getItem("theme") === "light") {
+      document.body.classList.add("light");
+      document.addEventListener("DOMContentLoaded", () => {
+        const b = document.getElementById("btn-theme");
+        if (b) b.textContent = "☾ Dark";
+      });
+    }
+
+    // Buscador. Filtra por el texto completo de cada pregunta (título + cuerpo);
+    // una sección se esconde entera cuando no le queda ninguna visible, y los
+    // pasos de la guía cuentan como texto de su sección.
+    function filtrarAyuda() {
+      const input = document.getElementById("hp-q");
+      const q = input.value.trim().toLowerCase();
+      document.getElementById("hp-clear").classList.toggle("hidden", !q);
+      const toc = document.getElementById("hp-toc");
+      let visibles = 0;
+
+      document.querySelectorAll(".hp-sec").forEach((sec) => {
+        const preguntas = sec.querySelectorAll(".hp-q");
+        let hayEnSeccion = 0;
+
+        preguntas.forEach((p) => {
+          const match = !q || p.textContent.toLowerCase().includes(q);
+          p.hidden = !match;
+          if (match) hayEnSeccion++;
+        });
+
+        // Los pasos no se filtran de a uno: o entra la sección o no.
+        const pasos = sec.querySelector(".hp-steps");
+        const matchSec = !q || sec.textContent.toLowerCase().includes(q);
+        if (pasos) pasos.hidden = q && !matchSec;
+
+        const mostrar = q ? (hayEnSeccion > 0 || (pasos && matchSec)) : true;
+        sec.hidden = !mostrar;
+        if (mostrar) visibles++;
+      });
+
+      // Con una búsqueda activa el índice no lleva a nada útil.
+      toc.style.display = q ? "none" : "";
+      document.getElementById("hp-empty").classList.toggle("on", visibles === 0);
+    }
+
+    function limpiarBusqueda() {
+      const input = document.getElementById("hp-q");
+      input.value = "";
+      filtrarAyuda();
+      input.focus();
+    }
+  </script>
+  <script src="/static/header-menu.js?v=1785889200"></script>
+</body>
+</html>
