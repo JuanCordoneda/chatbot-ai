@@ -709,6 +709,20 @@ def ayuda_page():
     )
 
 
+@app.route("/ayuda-ordenes")
+def ayuda_ordenes_page():
+    """Segunda guía: del link del post a las órdenes pedidas. Va aparte de
+    /ayuda porque son dos trabajos distintos (cargar el cliente una vez vs.
+    laburar cada post)."""
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    return render_template(
+        "ayuda-ordenes.html",
+        is_admin=session.get("is_admin", False),
+        username=session.get("username", ""),
+    )
+
+
 @app.route("/api/procesar", methods=["POST"])
 @require_login
 def procesar():

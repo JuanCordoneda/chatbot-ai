@@ -69,10 +69,61 @@ def api_response(path):
         return {"ordenes": []}
     if path.startswith("/api/prompt-requests"):
         return {"requests": []}
+    if path.startswith("/api/nombre_red"):
+        return {"nombres": {"red": "Instagram"}}
+    if path.startswith("/api/demora"):
+        return {"demora": "45"}
+    if path.startswith("/api/costo_trafico"):
+        return {"cantmin": "100", "cantmax": "10000", "costoTrafico": "3.4200"}
+    if path.startswith("/api/cantidades_usadas"):
+        return {"usadas": []}
+    if path.startswith("/api/server_time_ar"):
+        return {"ts": "2026-08-06 15:00:00"}
+    if path.startswith("/api/procesar"):
+        return {"job_id": "demo"}
     if path.startswith("/api/me"):
         return {"username": "juan", "is_admin": False}
     return {}
 
+
+
+# ── Flujo del generador (para la guía de órdenes) ───────────────────────────
+# El post, los comentarios y el costo son inventados: alcanza para que la UI se
+# comporte igual que con un post real.
+POST_DEMO = {
+    "tipo": "listo",
+    "owner_username": "peterjfournier",
+    "cliente_asignado": True,
+    "client_id": "Peter Fournier",
+    "is_video": True,
+    "gender": "male",
+    "caption": "3 ejercicios para la espalda que podés hacer en casa 💪 Guardalo para no perderlo.",
+    "photo_description": "Un entrenador en un gimnasio muestra tres ejercicios de espalda con banda elástica.",
+    "transcription": "Hoy te traigo tres ejercicios de espalda que podés hacer en casa con una banda…",
+    "ranges": {"likes": [{"min": 300, "max": 600, "prod_id": "101"}],
+               "views": [{"min": 2000, "max": 3500, "prod_id": "201"}],
+               "comentarios": {"verificados": {"min": 6, "max": 10},
+                               "comunes": {"min": 20, "max": 40}}},
+}
+
+COMENTARIOS_DEMO = [
+    "Justo lo que necesitaba para hoy", "La banda cambia todo, probé y quedé roto",
+    "Guardado para la rutina del lunes", "El segundo ejercicio me mata la espalda",
+    "Grande Peter, siempre con lo práctico", "¿Cuántas series recomendás?",
+    "Lo hice en casa y funciona", "Necesitaba algo sin máquinas, gracias",
+    "Se nota la técnica, muy claro", "Me lo mandó mi hermano y no falló",
+    "Tres ejercicios y listo, ideal", "Empiezo mañana sin excusas",
+]
+
+
+def stream_demo():
+    """Respuesta del stream de generación: el scrape, los comentarios y el listo."""
+    lineas = [{"tipo": "progreso", "mensaje": "Accediendo al post..."},
+              {**POST_DEMO, "tipo": "scrape"}]
+    for i, txt in enumerate(COMENTARIOS_DEMO):
+        lineas.append({"tipo": "comentario", "index": i, "texto": txt})
+    lineas.append(POST_DEMO)          # tipo "listo"
+    return "".join("data: " + json.dumps(l) + "\n" for l in lineas)
 
 
 # Marcas que se dibujan encima de cada captura: (selector, texto, lado).
@@ -84,10 +135,17 @@ ANOTACIONES = {
     "ficha:identidad":   [("#client-ig", "Igual que en Instagram: sin @ ni espacios", "abajo")],
     "ficha:prompt":      [("#client-keyword-field", "Sólo para posts de sorteo", "arriba")],
     "ficha:calidad":     [('.ax-field:has(#client-quality) .ax-opt-b[data-val="pro"]',
-                           "Más caro: sólo si el cliente lo nota", "arriba")],
+                           "Sólo para clientes importantes, no para todos", "arriba")],
     "ficha:comentarios": [(".ax-com-card:has(#com-comunes-min)", "Estos salen en 2 tandas", "arriba")],
     "ficha:trafico":     [("#client-venta", "De acá sale la plata", "arriba")],
     "gen":               [("#ig-link", "Pegá el link del post", "abajo")],
+    "gen-link":          [("#ig-link", "Pegá el link del post o del reel", "abajo")],
+    "gen-lista":         [(".reparto-row", "Escribí cuántos de cada tipo y los marca solo", "arriba")],
+    "gen-reparto":       [("#cant-noverif", "Los comunes salen en 2 tandas", "abajo")],
+    "gen-orden":         [("#orden-producto", "Elegí el producto: el costo se calcula solo", "abajo")],
+    "gen-cuando":        [('.cuando-pill[data-value="split3"]', "Parte la cantidad en varias órdenes", "abajo")],
+    "gen-ordenes":       [("#btn-solicitar", "Recién acá salen al panel", "arriba")],
+
 }
 
 # Se inyecta antes del JS de la app. Prepara la escena de cada captura (?shot=)
@@ -162,6 +220,54 @@ window.addEventListener("load", () => setTimeout(() => {
     w.classList.add("app");
   };
 
+
+  // ── Escenas del generador (guía de órdenes) ──────────────────────────────
+  if (s.startsWith("gen-")) {
+    const LINK = "https://www.instagram.com/p/DEMO123/";
+    const input = document.getElementById("ig-link");
+    input.value = LINK;
+    input.dispatchEvent(new Event("input"));
+    if (s === "gen-link") { dibujarMarcas(); return; }
+
+    generarComentarios();
+    setTimeout(() => {
+      // Elegir unos cuantos, como haría el vendedor antes de publicar.
+      const cajas = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]")];
+      cajas.slice(0, 6).forEach((c) => { if (!c.checked) c.click(); });
+
+      if (s === "gen-lista")   { window.scrollTo(0, 0); dibujarMarcas(); return; }
+      if (s === "gen-reparto") { solo(document.querySelector(".comments-actions-bar")); setTimeout(dibujarMarcas, 60); return; }
+
+      publicar();
+      setTimeout(() => {
+        if (s === "gen-orden")  { window.scrollTo(0, 0); dibujarMarcas(); return; }
+        if (s === "gen-cuando") {
+          // "Dividir en 3/5" sólo aparece con un producto de tráfico elegido
+          // (en comentarios no tiene sentido partir la cantidad).
+          const prod = document.getElementById("orden-producto");
+          prod.value = "101";
+          onProductoChange();
+          setTimeout(() => {
+            solo(document.querySelector(".cuando-pills").closest(".orden-field"));
+            setTimeout(dibujarMarcas, 60);
+          }, 400);
+          return;
+        }
+        if (s === "gen-ordenes") {
+          // Las órdenes precreadas con los rangos del cliente, y abajo el botón
+          // que las manda: el botón vive fuera de la tarjeta, así que se
+          // agrupan a mano para que entren los dos en la captura.
+          const caja = document.createElement("div");
+          caja.appendChild(document.getElementById("ordenes-acumuladas-card"));
+          caja.appendChild(document.querySelector("#step-ordenes .nuevo-post-bar"));
+          solo(caja);
+          setTimeout(dibujarMarcas, 60); return;
+        }
+      }, 1600);
+    }, 1600);
+    return;
+  }
+
   if (!s.startsWith("ficha")) { dibujarMarcas(); return; }   // la pantalla entera
 
   openClientModal(s === "ficha-nueva" ? undefined : 1);
@@ -207,8 +313,14 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):
+        self.do_GET()
+
     def do_GET(self):
         path = self.path.split("?")[0]
+
+        if path.startswith("/api/stream/"):
+            return self._send(200, stream_demo(), "text/event-stream")
 
         if path.startswith("/api/"):
             return self._send(200, json.dumps(api_response(self.path)), "application/json")
@@ -224,7 +336,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, fh.read(), ctype)
 
         tpl = ("index.html" if path == "/" else
-               "ayuda.html" if path == "/ayuda" else "admin.html")
+               "ayuda.html" if path == "/ayuda" else
+               "ayuda-ordenes.html" if path == "/ayuda-ordenes" else "admin.html")
         html = env.get_template(tpl).render(username="juan", is_admin=False, account_id=7)
         # El stub va antes que el JS de la app: ninguna llamada real sale.
         shot = ""

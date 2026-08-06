@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GROWI — Cómo cargar un cliente</title>
+  <title>GROWI — Cómo se arman las órdenes</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v=1785889200" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="GROWI — Cómo cargar un cliente" />
-  <meta property="og:description" content="Onboarding paso a paso." />
+  <meta property="og:title" content="GROWI — Cómo se arman las órdenes" />
+  <meta property="og:description" content="Del link del post a las órdenes en el panel." />
   <meta property="og:image" content="/static/og-thumb.png?v=1" />
   <style>
     /* Onboarding. Pantalla de sólo lectura: no carga app.js ni admin.js, así que
@@ -149,7 +149,7 @@
       <div class="header-left">
         <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
         <span class="header-sep"></span>
-        <span class="header-tag">Onboarding</span>
+        <span class="header-tag">Onboarding · órdenes</span>
         {% if username %}
         <span class="header-sep"></span>
         <span class="header-user" title="Sesión iniciada como {{ username }}">
@@ -160,13 +160,13 @@
       </div>
       <div class="header-actions">
         <div class="header-btn-group">
-          <a class="header-action-btn header-action-btn--primary" href="/mis-clientes" target="_blank" rel="noopener" title="Abrir Mis clientes en otra pestaña">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            <span>Mis clientes</span>
-          </a>
-          <a class="header-action-btn" href="/ayuda-ordenes" title="Guía: del post a las órdenes">
+          <a class="header-action-btn header-action-btn--primary" href="/" target="_blank" rel="noopener" title="Abrir el generador en otra pestaña">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-            <span>Guía de órdenes</span>
+            <span>Generador</span>
+          </a>
+          <a class="header-action-btn" href="/ayuda" title="Guía: cargar un cliente">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span>Cargar un cliente</span>
           </a>
           <a class="header-action-btn" href="/followers" title="Enviar followers a un perfil">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 8a2.3 2.3 0 100-4.6A2.3 2.3 0 006 8z" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13c.6-2 2.4-3 4.5-3s3.9 1 4.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12.5 4.5v4M14.5 6.5h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -185,11 +185,10 @@
 
       <div class="ob-head">
         <div class="ob-kicker">Onboarding</div>
-        <h1>Cargar un cliente, de principio a fin</h1>
-        <p>Ocho pasos. Al final tenés una ficha lista y el primer post generándose.</p>
-        <!-- Se trabaja con las dos pestañas al lado: la guía acá, el panel allá. -->
-        <a class="ob-where" href="/mis-clientes" target="_blank" rel="noopener">
-          Abrí <b>Mis clientes</b> en otra pestaña y seguí la guía de este lado
+        <h1>Del post a las órdenes en el panel</h1>
+        <p>Seis pasos. Empezás pegando el link y terminás con las órdenes pedidas.</p>
+        <a class="ob-where" href="/" target="_blank" rel="noopener">
+          Abrí el <b>generador</b> en otra pestaña y seguí la guía de este lado
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
       </div>
@@ -198,16 +197,14 @@
 
         <nav class="ob-nav" id="ob-nav">
           <p class="ob-nav-t">Los pasos</p>
-          <a href="#p1" class="on"><i>1</i>Abrir la lista</a>
-          <a href="#p2"><i>2</i>Nuevo cliente</a>
-          <a href="#p3"><i>3</i>Identidad</a>
-          <a href="#p4"><i>4</i>El prompt</a>
-          <a href="#p5"><i>5</i>Calidad</a>
-          <a href="#p6"><i>6</i>Cuántos comentarios</a>
-          <a href="#p7"><i>7</i>Campaña y rangos</a>
-          <a href="#p8"><i>8</i>Guardar y probar</a>
+          <a href="#p1" class="on"><i>1</i>Pegar el post</a>
+          <a href="#p2"><i>2</i>Revisar y elegir</a>
+          <a href="#p3"><i>3</i>Cuántos mandás</a>
+          <a href="#p4"><i>4</i>Las órdenes</a>
+          <a href="#p5"><i>5</i>Cuándo enviar</a>
+          <a href="#p6"><i>6</i>Solicitar</a>
           <div class="ob-nav-sep"></div>
-          <a href="#checklist"><i>✓</i>Checklist</a>
+          <a href="#despues"><i>→</i>Qué pasa después</a>
           <a href="#faq"><i>?</i>Preguntas</a>
         </nav>
 
@@ -217,17 +214,18 @@
           <section class="ob-step" id="p1">
             <div class="ob-num">1</div>
             <div>
-              <h3>Abrí la lista de clientes</h3>
-              <p>Es la pantalla donde vive todo: una ficha por cada cuenta de Instagram que atendés. Si recién arrancás, está vacía.</p>
-              <a class="ob-where" href="/mis-clientes" target="_blank" rel="noopener">
-                Abrir <b>Mis clientes</b> en otra pestaña
+              <h3>Pegá el link del post</h3>
+              <p>Sirve el link de un post o de un reel: <code>instagram.com/p/…</code> o <code>/reel/…</code>. El botón <b>Pegar</b> lo toma del portapapeles y <b>Enter</b> arranca directo. Abajo del campo quedan los últimos posts que hiciste desde ese navegador.</p>
+              <p>Mientras genera, GROWI baja el pie de página, describe la imagen y —si es video— lo transcribe. Tarda entre 30 segundos y un par de minutos. <b>No cierres la pestaña</b>: si la cerrás, el proceso se corta.</p>
+              <a class="ob-where" href="/" target="_blank" rel="noopener">
+                Abrir el <b>generador</b> en otra pestaña
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </a>
               <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-1.png?v=1" alt="Paso 1" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-1-light.png?v=1" alt="Paso 1" onclick="zoom(this)" />
+                <img class="ob-dark" src="/static/onboarding/orden-1.png?v=1" alt="Paso 1" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/orden-1-light.png?v=1" alt="Paso 1" onclick="zoom(this)" />
               </figure>
-              <p class="ob-cap">La lista de clientes. La etiqueta de la derecha te dice qué le falta a cada uno: <b>Sin prompt</b> es una ficha a medio cargar, y el aviso amarillo marca las campañas sin saldo.</p>
+              <p class="ob-cap">El link va acá. Si el post es de un cliente tuyo, GROWI lo reconoce solo por el @usuario.</p>
             </div>
           </section>
 
@@ -235,14 +233,14 @@
           <section class="ob-step" id="p2">
             <div class="ob-num">2</div>
             <div>
-              <h3>Tocá “Nuevo cliente”</h3>
-              <p>Se abre la ficha en dos columnas: a la izquierda los datos, a la derecha el prompt. Se cierra con <b>Esc</b>, pero nada se guarda hasta que toques Guardar.</p>
-              <div class="ob-tip"><span class="ob-tip-ico">!</span><span>Antes de cargar nada, pedile al cliente tres cosas: el <b>@usuario</b> exacto, <b>cómo quiere sonar</b> en los comentarios y <b>qué no quiere</b> que se diga nunca. Sin eso el prompt sale genérico.</span></div>
+              <h3>Revisá lo que leyó la IA y elegí los comentarios</h3>
+              <p>Arriba de la lista queda el contexto que usó para escribir: <b>pie de página</b>, <b>transcripción</b> y <b>descripción</b>. Si los comentarios salieron fuera de tema, mirá ahí primero — casi siempre el video no decía lo que parecía.</p>
+              <p>Cada comentario se puede editar haciendo click sobre el texto, y con <b>+ Agregar</b> sumás uno tuyo. Para elegir de a bloques, <b>Shift+click</b>. Si algo se repite, aparece <b>Desmarcar repetidos</b>.</p>
               <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-2.png?v=1" alt="Paso 2" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-2-light.png?v=1" alt="Paso 2" onclick="zoom(this)" />
+                <img class="ob-dark" src="/static/onboarding/orden-2.png?v=1" alt="Paso 2" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/orden-2-light.png?v=1" alt="Paso 2" onclick="zoom(this)" />
               </figure>
-              <p class="ob-cap">La ficha en blanco: identidad, comentarios y tráfico, todo en la misma pantalla.</p>
+              <p class="ob-cap">El nombre del cliente arriba a la izquierda confirma que el post se reconoció. Los switches de cada fila marcan si el comentario va como verificado o común.</p>
             </div>
           </section>
 
@@ -250,14 +248,14 @@
           <section class="ob-step" id="p3">
             <div class="ob-num">3</div>
             <div>
-              <h3>Identidad</h3>
-              <p>El <b>@usuario</b> es lo único que no se puede errar: es con lo que GROWI reconoce los posts de este cliente. Si no coincide, cada vez que pegues un link te va a decir que el post no es de ningún cliente tuyo.</p>
-              <p>El <b>género</b> define desde qué voz escribe la IA. Dejalo en mixto salvo que la audiencia esté marcada.</p>
+              <h3>Decidí cuántos mandás de cada tipo</h3>
+              <p>En vez de contar a mano, escribí cuántos <b>verificados</b> y cuántos <b>comunes</b> querés y tocá <b>🎲 Elegirlos solo</b>: los marca al azar por vos. Si el cliente tiene rangos cargados en su ficha, los números vienen puestos y los podés cambiar.</p>
+              <div class="ob-tip"><span class="ob-tip-ico">⏰</span><span>Los <b>comunes</b> nunca salen todos juntos: la mitad al publicar y la mitad programada para el próximo turno (10:00 si publicás a la tarde, 19:00 si publicás a la mañana). Tope de 80 por día. Los <b>verificados</b> salen todos juntos, en el momento.</span></div>
               <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-3.png?v=1" alt="Paso 3" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-3-light.png?v=1" alt="Paso 3" onclick="zoom(this)" />
+                <img class="ob-dark" src="/static/onboarding/orden-3.png?v=1" alt="Paso 3" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/orden-3-light.png?v=1" alt="Paso 3" onclick="zoom(this)" />
               </figure>
-              <p class="ob-cap">El @usuario va sin la arroba y sin espacios, igual que en Instagram.</p>
+              <p class="ob-cap">Con 8 y 29 cargados, GROWI arma las tandas solo: no hay que dividir nada a mano.</p>
             </div>
           </section>
 
@@ -265,14 +263,15 @@
           <section class="ob-step" id="p4">
             <div class="ob-num">4</div>
             <div>
-              <h3>Escribí el prompt</h3>
-              <p>Es lo que decide el resultado. Escribí lo que la IA no puede adivinar mirando el post: <b>quién comenta</b>, <b>en qué tono</b>, <b>largo</b>, si van emojis, y sobre todo <b>qué está prohibido</b>. Las prohibiciones son las que más mejoran la salida.</p>
+              <h3>“Publicar” te lleva a armar las órdenes</h3>
+              <p>Ese botón todavía <b>no manda nada</b>: pasa a la pantalla de órdenes con los comentarios ya repartidos en tandas. Si el cliente tiene rangos de tráfico cargados, sus órdenes de likes y views <b>ya vienen armadas</b> con una cantidad al azar dentro del rango.</p>
+              <p>Para sumar una orden a mano: elegí <b>red social</b> y <b>producto</b>, poné la <b>cantidad</b> y tocá <b>+ Agregar Orden</b>. El <b>costo total</b> se calcula solo y el link ya viene puesto. La <b>cantidad inicial</b> es lo que el post ya tiene, para dejar registro.</p>
+              <div class="ob-tip"><span class="ob-tip-ico">!</span><span>Si arriba dice <b>“esta publicación no es de ningún cliente tuyo”</b>, el @usuario del post no coincide con ninguna ficha: elegí a mano de qué campaña se descuenta. Los comentarios no consumen saldo; el tráfico sí.</span></div>
               <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-4.png?v=1" alt="Paso 4" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-4-light.png?v=1" alt="Paso 4" onclick="zoom(this)" />
+                <img class="ob-dark" src="/static/onboarding/orden-4.png?v=1" alt="Paso 4" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/orden-4-light.png?v=1" alt="Paso 4" onclick="zoom(this)" />
               </figure>
-              <p class="ob-cap">El editor a pantalla completa (⌥E). Abajo, el check de palabra clave: prendelo sólo si los posts de este cliente piden comentar una palabra.</p>
-              <div class="ob-tip"><span class="ob-tip-ico">🔑</span><span>Tildá <b>palabra clave</b> sólo si los posts de este cliente piden comentar una palabra (“comentá CLAUDE y te mando el PDF”). Con eso tildado el prompt se ignora: los comentarios son esa palabra repetida.</span></div>
+              <p class="ob-cap">Arriba, el cliente y cuántas órdenes van. Abajo, las que GROWI ya armó con los rangos de la ficha.</p>
             </div>
           </section>
 
@@ -280,14 +279,14 @@
           <section class="ob-step" id="p5">
             <div class="ob-num">5</div>
             <div>
-              <h3>Elegí la calidad del motor</h3>
-              <p><b>Estándar</b> es lo que va en la mayoría de los clientes: los comentarios salen muy bien y el costo es el normal.</p>
-              <p><b>Pro</b> es sólo para <b>clientes importantes</b> — los que facturan más, los que revisan los comentarios uno por uno o los que tienen una marca cuidada. No lo pongas en todos: cuesta bastante más en consumo de IA y en la mayoría de las cuentas la diferencia no se nota.</p>
+              <h3>Elegí cuándo se envía</h3>
+              <p><b>Ahora</b> sale al toque. <b>Programar</b> pide fecha y hora. <b>Dividir en 3</b> o <b>en 5</b> parte la cantidad en varias órdenes espaciadas por el intervalo que elijas: en minutos (mínimo 45) o en días, para que el crecimiento no sea un escalón.</p>
+              <p>Dividir sólo aparece con productos de tráfico — en comentarios no tiene sentido, porque las tandas ya las arma el sistema.</p>
               <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-5.png?v=1" alt="Paso 5" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-5-light.png?v=1" alt="Paso 5" onclick="zoom(this)" />
+                <img class="ob-dark" src="/static/onboarding/orden-5.png?v=1" alt="Paso 5" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/orden-5-light.png?v=1" alt="Paso 5" onclick="zoom(this)" />
               </figure>
-              <p class="ob-cap">Por defecto va <b>Estándar</b>. Pro se reserva para los clientes importantes, no se pone en todos.</p>
+              <p class="ob-cap">El intervalo se pregunta al elegir Dividir: 45 minutos es el mínimo.</p>
             </div>
           </section>
 
@@ -295,59 +294,26 @@
           <section class="ob-step" id="p6">
             <div class="ob-num">6</div>
             <div>
-              <h3>Cuántos comentarios manda por post</h3>
-              <p>Se carga un <b>rango</b>, no un número: GROWI elige uno al azar dentro del rango cada vez que abrís un post, y vos lo podés cambiar antes de publicar. Si lo dejás vacío, cargás el número a mano siempre.</p>
+              <h3>Revisá la lista y tocá Solicitar</h3>
+              <p>Acumulá todas las órdenes que necesite el post — comentarios, likes, views, guardados — y mandalas de una sola vez. Cada fila se puede editar con el lápiz o borrar con la ×, y arriba está el <b>total estimado</b>.</p>
+              <p><b>Solicitar</b> es el único botón que manda: recién ahí salen al panel.</p>
               <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-6.png?v=1" alt="Paso 6" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-6-light.png?v=1" alt="Paso 6" onclick="zoom(this)" />
+                <img class="ob-dark" src="/static/onboarding/orden-6.png?v=1" alt="Paso 6" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/orden-6-light.png?v=1" alt="Paso 6" onclick="zoom(this)" />
               </figure>
-              <p class="ob-cap">Cargado así, cada post sale con entre 6 y 10 verificados y entre 20 y 40 comunes.</p>
-              <div class="ob-tip"><span class="ob-tip-ico">⏰</span><span>Los <b>comunes</b> nunca salen juntos: la mitad al publicar y la mitad en el próximo turno (10:00 si publicaste a la tarde, 19:00 si fue a la mañana). Tope de 80 por día.</span></div>
+              <p class="ob-cap">Comentarios verificados ahora, los comunes en dos turnos, y el tráfico con su costo. Todo sale con un solo Solicitar.</p>
             </div>
           </section>
 
-          <!-- ── 7 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p7">
-            <div class="ob-num">7</div>
-            <div>
-              <h3>De dónde sale la plata y cuánto tráfico manda</h3>
-              <p>Elegí la <b>campaña</b> del cliente: de ahí se descuenta cada envío de tráfico. Sin campaña asignada, cada vez que armes una orden te va a preguntar de cuál descontar.</p>
-              <p>Después prendé los tipos que le mandás — likes, views, saves — y poné un rango a cada uno. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto.</p>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-7.png?v=1" alt="Paso 7" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-7-light.png?v=1" alt="Paso 7" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">Con dos tipos prendidos, cada post de este cliente precrea dos órdenes de tráfico solas.</p>
-            </div>
-          </section>
-
-          <!-- ── 8 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p8">
-            <div class="ob-num">8</div>
-            <div>
-              <h3>Guardá y probá con un post real</h3>
-              <p>Los cambios impactan al instante: no hay que publicar ni reiniciar nada. Andá al generador, pegá un post de ese cliente y fijate que arriba de la lista aparezca su nombre — eso confirma que el @usuario quedó bien.</p>
-              <p>Leé los primeros comentarios antes de publicar. Si no suenan al cliente, el prompt necesita otra vuelta: es normal ajustarlo dos o tres veces la primera semana.</p>
-              <a class="ob-where" href="/" target="_blank" rel="noopener">
-                Abrir el <b>generador</b> en otra pestaña
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </a>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/paso-8.png?v=1" alt="Paso 8" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/paso-8-light.png?v=1" alt="Paso 8" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">El generador. Pegás el link y, si el post es de un cliente cargado, su nombre aparece arriba de la lista de comentarios.</p>
-            </div>
-          </section>
-
-          <!-- ── Checklist ─────────────────────────────────────────────── -->
-          <div class="ob-check" id="checklist">
-            <h3>Antes de dar el cliente por cargado</h3>
-            <label><input type="checkbox" /><span>El @usuario es idéntico al de Instagram, sin la @ ni espacios</span></label>
-            <label><input type="checkbox" /><span>El prompt dice qué <b>no</b> hacer, no sólo qué hacer</span></label>
-            <label><input type="checkbox" /><span>Los rangos de verificados y comunes están cargados</span></label>
-            <label><input type="checkbox" /><span>Tiene campaña asignada y saldo suficiente</span></label>
-            <label><input type="checkbox" /><span>Generaste un post de prueba y el nombre del cliente aparece arriba</span></label>
+          <!-- ── Después ───────────────────────────────────────────────── -->
+          <div class="ob-check" id="despues">
+            <h3>Qué pasa después de Solicitar</h3>
+            <p style="font-size:.85rem;color:var(--muted);line-height:1.7">
+              Las órdenes salen al panel y ahí siguen su curso normal. Si el panel estaba caído,
+              quedan en la pestaña <b>En cola</b> y el sistema las reintenta solo — <b>no las vuelvas
+              a cargar</b>, se duplican. Desde esa pestaña también las podés cancelar mientras no
+              hayan salido; una vez en el panel, se cancelan desde el panel.
+            </p>
           </div>
 
           <!-- ── FAQ ───────────────────────────────────────────────────── -->
@@ -362,33 +328,28 @@
             <p class="ob-empty" id="ob-empty">Sin resultados.</p>
 
             <details class="ob-q">
-              <summary>Cambié el prompt, ¿cuándo aplica?</summary>
-              <div class="ob-a">En el próximo post que generes. Nada se cachea ni hay que reiniciar.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>“Esta publicación no es de ningún cliente tuyo”</summary>
-              <div class="ob-a">El @usuario del post no coincide con ninguna ficha tuya. Corregilo en la ficha, o elegí a mano de qué campaña se descuenta ese envío.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>El prompt no me da los comentarios que quiero</summary>
-              <div class="ob-a">Agregá prohibiciones concretas y un ejemplo de comentario bueno. Si aun así no sale, usá <b>Pedir un ajuste</b>: le llega al administrador con tu texto y él lo corrige.</div>
-            </details>
-
-            <details class="ob-q">
               <summary>¿Los comentarios gastan saldo de la campaña?</summary>
-              <div class="ob-a">No. El saldo se consume sólo con el tráfico (followers, likes, views). Podés comentar con la campaña en cero.</div>
+              <div class="ob-a">No. El saldo se consume sólo con el tráfico (likes, views, followers). Podés publicar comentarios con la campaña en cero.</div>
             </details>
 
             <details class="ob-q">
-              <summary>¿Cómo marco muchos comentarios sin ir de a uno?</summary>
-              <div class="ob-a">Escribí cuántos verificados y cuántos comunes querés y tocá <b>🎲 Elegirlos solo</b>. Para bloques, <b>Shift+click</b>. Si hay textos repetidos aparece <b>Desmarcar repetidos</b>.</div>
+              <summary>Toqué Publicar, ¿ya se mandó?</summary>
+              <div class="ob-a">No. <b>Publicar</b> arma las órdenes y te lleva a la pantalla de revisión. Lo único que manda es <b>Solicitar</b>.</div>
             </details>
 
             <details class="ob-q">
-              <summary>Mandé una orden y no aparece en el panel</summary>
-              <div class="ob-a">Si el panel estaba caído queda en la pestaña <b>En cola</b> y se reintenta sola. <b>No la vuelvas a cargar</b>: se duplica.</div>
+              <summary>¿Por qué aparecen órdenes que yo no cargué?</summary>
+              <div class="ob-a">Son las de los <b>rangos del cliente</b>: si su ficha tiene likes o views configurados, GROWI las precrea con una cantidad al azar dentro del rango. Podés editarlas o borrarlas antes de solicitar.</div>
+            </details>
+
+            <details class="ob-q">
+              <summary>No me alcanza el saldo de la campaña</summary>
+              <div class="ob-a">El selector muestra el disponible de cada una: elegí otra campaña, bajá la cantidad o pedí recarga. Los comentarios se publican igual.</div>
+            </details>
+
+            <details class="ob-q">
+              <summary>Generé pocos comentarios usables</summary>
+              <div class="ob-a"><b>+ Cargar más</b> genera otra tanda sin perder lo que ya marcaste. Si el problema se repite con ese cliente, el que necesita una vuelta es el prompt.</div>
             </details>
 
             <details class="ob-q">
@@ -402,17 +363,12 @@
             </details>
 
             <details class="ob-q">
-              <summary>¿Puedo ver los clientes de otro vendedor?</summary>
-              <div class="ob-a">No. Fichas, órdenes en cola y consumo están acotados a tu cuenta. El administrador ve todas.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>¿Dónde veo lo que consumí?</summary>
-              <div class="ob-a">Pestañas <b>Uso</b> y <b>Tokens</b>: órdenes, comentarios y gasto de IA, por mes o por rango de fechas.</div>
+              <summary>Quiero mandar followers, no comentarios</summary>
+              <div class="ob-a">Eso va por <b>Followers</b>: es a un <b>perfil</b>, no a un post. Pegás el @usuario, elegís calidad y cantidad, y sale al panel igual que cualquier orden.</div>
             </details>
           </section>
 
-          <p class="ob-foot">Con el cliente cargado, seguí con <a href="/ayuda-ordenes">cómo se arman las órdenes</a>. <a href="/mis-clientes" target="_blank" rel="noopener">Ir a cargar un cliente ↗</a></p>
+          <p class="ob-foot">¿Es tu primer cliente? Empezá por <a href="/ayuda">cómo cargar un cliente</a>. <a href="/" target="_blank" rel="noopener">Ir al generador ↗</a></p>
         </div>
       </div>
 
@@ -474,14 +430,7 @@
         enlaces.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
       });
     }, { rootMargin: "-8% 0px -72% 0px" });
-    document.querySelectorAll(".ob-step, #checklist, #faq").forEach((s) => obs.observe(s));
-
-    // El checklist se recuerda por navegador: cargar clientes lleva varias
-    // sesiones y volver a tildar todo cada vez sería inútil.
-    document.querySelectorAll(".ob-check input").forEach((c, i) => {
-      c.checked = localStorage.getItem("ob-check-" + i) === "1";
-      c.addEventListener("change", () => localStorage.setItem("ob-check-" + i, c.checked ? "1" : "0"));
-    });
+    document.querySelectorAll(".ob-step, #despues, #faq").forEach((s) => obs.observe(s));
   </script>
   <script src="/static/header-menu.js?v=1785889200"></script>
 </body>

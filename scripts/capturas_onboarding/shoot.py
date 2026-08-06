@@ -28,6 +28,14 @@ SHOTS = [
     ("paso-6", "/mis-clientes", "ficha:comentarios",  900, 700, True),
     ("paso-7", "/mis-clientes", "ficha:trafico",      900, 1000, True),
     ("paso-8", "/",             "gen",               1460, 980, True),
+
+    # Guía de órdenes (/ayuda-ordenes)
+    ("orden-1", "/", "gen-link",    1460, 980, True),
+    ("orden-2", "/", "gen-lista",   1460, 1250, True),
+    ("orden-3", "/", "gen-reparto", 1200, 700, True),
+    ("orden-4", "/", "gen-orden",   1460, 1250, True),
+    ("orden-5", "/", "gen-cuando",  1000, 500, True),
+    ("orden-6", "/", "gen-ordenes", 1200, 900, True),
 ]
 
 MAX_W = 1400   # ancho final (se captura a 2x y se baja a esto)
