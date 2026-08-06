@@ -350,15 +350,51 @@ def _fetch_fast(shortcode: str) -> dict:
 
 _MOSAICO_MAX_IMAGENES = int(os.environ.get("MOSAICO_MAX_IMAGENES", "10"))
 
+# Lado máximo (px) de lo que le mandamos al modelo. El costo de una llamada de
+# visión es proporcional a los píxeles (~ancho*alto/750 tokens), y la imagen no
+# se manda una sola vez: va a la descripción Y a cada intento de generación de
+# comentarios. Una foto de IG cruda (1080x1350) son ~1950 tokens; a 1024 de lado
+# son ~1100, y para "qué se ve en esta foto" la descripción no cambia.
+# Por env var para poder subirlo sin redeployar si algún cliente necesita leer
+# texto muy chico.
+_VISION_MAX_LADO = int(os.environ.get("VISION_MAX_LADO", "1024"))
+_VISION_JPEG_QUALITY = int(os.environ.get("VISION_JPEG_QUALITY", "80"))
+
 
 def _tile_px(n: int) -> int:
     """Px por celda del mosaico. Con pocas fotos agrandamos las celdas (se lee
-    mejor el texto chico); con muchas achicamos para no inflar la imagen."""
+    mejor el texto chico); con muchas achicamos para no inflar la imagen.
+    El lienzo final igual se recorta a _VISION_MAX_LADO."""
     if n <= 4:
         return 768
     if n <= 9:
         return 512
     return 384
+
+
+def _reducir_imagen(raw: bytes, media_type: str) -> tuple[bytes, str]:
+    """Baja la imagen a _VISION_MAX_LADO de lado mayor y la reencoda en JPEG.
+    Si Pillow no está o algo falla, devuelve la original (peor costo, no error)."""
+    if _VISION_MAX_LADO <= 0:
+        return raw, media_type
+    try:
+        import io
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(raw))
+        if max(img.size) <= _VISION_MAX_LADO and (media_type or "").endswith("jpeg"):
+            return raw, media_type
+        img = img.convert("RGB")
+        img.thumbnail((_VISION_MAX_LADO, _VISION_MAX_LADO), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=_VISION_JPEG_QUALITY, optimize=True)
+        chico = buf.getvalue()
+        print(f"[image] reducida a {img.width}x{img.height} "
+              f"({len(raw)} -> {len(chico)} bytes)", flush=True)
+        return chico, "image/jpeg"
+    except Exception as e:
+        print(f"[image] no se pudo reducir la imagen: {e}", flush=True)
+        return raw, media_type
 
 
 def _armar_mosaico(imagenes: list[bytes]) -> tuple[str, str]:
@@ -410,9 +446,16 @@ def _armar_mosaico(imagenes: list[bytes]) -> tuple[str, str]:
                    fill=(255, 255, 255), font=fuente, anchor="mm")
             d.rectangle([x0, y0, x0 + tile - 1, y0 + tile - 1], outline=(0, 0, 0), width=2)
 
+        # El lienzo se arma grande (los números y el texto chico se dibujan
+        # nítidos) y recién al final se baja al lado máximo de visión: así
+        # pagamos tokens por una imagen de 1024 y no de 1536.
+        if _VISION_MAX_LADO > 0 and max(lienzo.size) > _VISION_MAX_LADO:
+            lienzo.thumbnail((_VISION_MAX_LADO, _VISION_MAX_LADO), Image.LANCZOS)
+
         buf = io.BytesIO()
-        lienzo.save(buf, format="JPEG", quality=85)
+        lienzo.save(buf, format="JPEG", quality=_VISION_JPEG_QUALITY, optimize=True)
         print(f"[mosaico] {len(fotos)} imágenes en grilla {cols}x{filas} "
+              f"-> {lienzo.width}x{lienzo.height} "
               f"({len(buf.getvalue())} bytes)", flush=True)
         return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
     except Exception as e:
@@ -638,10 +681,11 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostDa
 
     if len(descargadas) == 1:
         import base64
-        image_b64 = base64.b64encode(descargadas[0][0]).decode()
-        image_media_type = descargadas[0][1]
+        raw, ct = _reducir_imagen(*descargadas[0])
+        image_b64 = base64.b64encode(raw).decode()
+        image_media_type = ct
         n_imagenes = 1
-        print(f"[image] imagen del post descargada ({len(descargadas[0][0])} bytes, {image_media_type})", flush=True)
+        print(f"[image] imagen del post descargada ({len(raw)} bytes, {image_media_type})", flush=True)
     elif len(descargadas) > 1:
         image_b64, image_media_type = _armar_mosaico([c for c, _ in descargadas])
         if image_b64:
@@ -649,8 +693,9 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostDa
         else:
             # Sin Pillow o mosaico fallido: al menos describimos la primera.
             import base64
-            image_b64 = base64.b64encode(descargadas[0][0]).decode()
-            image_media_type = descargadas[0][1]
+            raw, ct = _reducir_imagen(*descargadas[0])
+            image_b64 = base64.b64encode(raw).decode()
+            image_media_type = ct
             n_imagenes = 1
 
     # Descripción visual para mostrarle al vendedor: la genera la IA mirando la
