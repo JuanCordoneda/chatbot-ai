@@ -37,6 +37,11 @@ class PostData:
 def _motivo_desc_error(err: str) -> str:
     """Mensaje corto para el vendedor cuando la descripción por IA falla."""
     e = (err or "").lower()
+    # Rechazo por políticas: no es un error transitorio, reintentar no cambia
+    # nada. Se lo decimos así para que el vendedor no se quede apretando de nuevo.
+    if "rechaz" in e or "refusal" in e:
+        return ("La IA no quiso describir esta imagen. Generá igual: los "
+                "comentarios se hacen con el texto del post.")
     if "overloaded" in e or "529" in e:
         return "No se pudo describir la imagen: la IA está saturada. Reintentá en unos segundos."
     if "rate_limit" in e or "429" in e:

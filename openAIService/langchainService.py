@@ -40,6 +40,13 @@ def _clasificar_error_ia(err: str) -> dict:
         return {"motivo": "instagram", "reintentable": True,
                 "mensaje": (err or "").strip() or
                            "No se pudo leer el post de Instagram. Reintentá en un minuto."}
+    # Rechazo por políticas de la IA: NO es transitorio. Reintentar el mismo post
+    # da el mismo rechazo, así que se le dice al vendedor que cambie de post en
+    # lugar de mandarlo a apretar el botón de nuevo.
+    if "rechaz" in e or "refusal" in e:
+        return {"motivo": "rechazo", "reintentable": False,
+                "mensaje": "La IA rechazó generar comentarios para este post. "
+                           "Probá con otro post; si pasa seguido, avisá al administrador."}
     if "overloaded" in e or "529" in e:
         return {"motivo": "saturada", "reintentable": True,
                 "mensaje": "La IA está saturada en este momento. "
@@ -84,6 +91,40 @@ def _datos_cliente(ig_username: str, es_cliente: bool):
     except Exception as e:
         print(f"[cliente] datos no disponibles ({e})", flush=True)
         return {}, None, None
+
+
+# Margen sobre el objetivo del cliente: el vendedor descarta algunos y mueve
+# otros de lista, así que pedir justo lo que se publica lo deja sin resto. 20% y
+# un piso de 30 es lo que venía usando de hecho (el sobrante de los ~70 fijos).
+_RESERVA_COMENTARIOS = 1.2
+_MIN_PEDIDO = 30
+_MAX_PEDIDO = 140     # tope de sanidad: nadie publica más que esto en un post
+
+
+def _cantidad_a_pedir(ranges: dict) -> int:
+    """Cuántos comentarios pedirle a la IA según la ficha del cliente.
+
+    Antes se pedían ~70 SIEMPRE, sin relación con lo que el cliente publica, y
+    eso desperdiciaba en las dos direcciones: al que publica 40 le sobraban 30
+    (salida paga, que es el lado caro y no se cachea), y al que publica 80 le
+    faltaban, así que el vendedor tenía que apretar "Cargar más" y disparar una
+    generación entera de nuevo.
+
+    Se usa el MÁXIMO de cada rango, no un valor al azar: el front tira el random
+    después y no podemos quedarnos cortos. Devuelve 0 si el cliente no tiene
+    comentarios configurados, y ahí el generador cae en su default de siempre.
+    """
+    com = (ranges or {}).get("comentarios") or {}
+    total = 0
+    for k in ("verificados", "comunes"):
+        entrada = com.get(k) or {}
+        try:
+            total += int(entrada.get("max") or 0)
+        except (TypeError, ValueError):
+            continue
+    if total <= 0:
+        return 0
+    return max(_MIN_PEDIDO, min(_MAX_PEDIDO, round(total * _RESERVA_COMENTARIOS)))
 
 
 def _completar_tanda_keyword(comentarios: list[str], repeticiones: int) -> list[str]:
@@ -642,6 +683,10 @@ def procesar_post_web():
                 n_imagenes=post_data.n_imagenes,
                 keyword=keyword,
                 shortcode=post_data.shortcode,
+                # Cuántos pedirle a la IA sale de la ficha del cliente, no de un
+                # 70 fijo (ver _cantidad_a_pedir). En "Cargar más" no se toca: el
+                # vendedor ya cubrió el objetivo y lo que quiere es más resto.
+                cantidad=0 if evitar else _cantidad_a_pedir(ranges),
             ):
                 # Cortar acá deja de consumir el stream de la API: la conexión
                 # se cierra al salir del for y no se generan más comentarios.

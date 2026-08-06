@@ -291,11 +291,18 @@ _OUT_BASE_NO = ("- Sin numeración, sin guiones, sin comillas y sin títulos de 
                 "encabezado(s) indicado(s) y los comentarios, uno por línea.")
 
 
-def _system_output_format(client_gender) -> str:
+# Cuántos comentarios se piden cuando el llamador no dice nada. Es el número que
+# estuvo hardcodeado siempre; hoy el front puede pasar el objetivo real de la
+# ficha del cliente (verificados + comunes) y entonces este default no se usa.
+_COMENTARIOS_DEFAULT = int(os.environ.get("CROW_COMENTARIOS_DEFAULT", "70"))
+
+
+def _system_output_format(client_gender, cantidad: int = 0) -> str:
+    n = cantidad if cantidad and cantidad > 0 else _COMENTARIOS_DEFAULT
     if client_gender == "male":
         return (
             "\n\nFORMATO DE SALIDA (obligatorio):\n"
-            "- Generá ~70 comentarios en total, uno por línea, listos para publicar.\n"
+            f"- Generá ~{n} comentarios en total, uno por línea, listos para publicar.\n"
             "- La primera línea debe ser EXACTAMENTE:\nhombres:\n"
             "- Debajo, todos los comentarios (todos escritos por hombres).\n"
             "- No incluyas el encabezado \"mujeres:\".\n" + _OUT_BASE_NO
@@ -303,7 +310,7 @@ def _system_output_format(client_gender) -> str:
     if client_gender == "female":
         return (
             "\n\nFORMATO DE SALIDA (obligatorio):\n"
-            "- Generá ~70 comentarios en total, uno por línea, listos para publicar.\n"
+            f"- Generá ~{n} comentarios en total, uno por línea, listos para publicar.\n"
             "- La primera línea debe ser EXACTAMENTE:\nmujeres:\n"
             "- Debajo, todos los comentarios (todos escritos por mujeres).\n"
             "- No incluyas el encabezado \"hombres:\".\n" + _OUT_BASE_NO
@@ -311,7 +318,7 @@ def _system_output_format(client_gender) -> str:
     # mixto (None u otro)
     return (
         "\n\nFORMATO DE SALIDA (obligatorio):\n"
-        "- Generá ~70 comentarios en total, completamente mezclados dentro de cada sección.\n"
+        f"- Generá ~{n} comentarios en total, completamente mezclados dentro de cada sección.\n"
         "- Primero la línea EXACTAMENTE:\nmujeres:\n"
         "seguida de ~la mitad de los comentarios, escritos por mujeres, uno por línea.\n"
         "- Después la línea EXACTAMENTE:\nhombres:\n"
@@ -320,12 +327,13 @@ def _system_output_format(client_gender) -> str:
     )
 
 
-def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "") -> str:
+def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "", cantidad: int = 0) -> str:
     """El prompt completo, en un solo string. Es lo que se usaba siempre; hoy
     quedó como envoltorio de _load_prompt_partes para no romper llamadores."""
     partes = _load_prompt_partes(
         caption, comentarios_existentes, client_id, transcription, photo_description,
-        is_video, evitar, account_id, has_image, client_gender, n_imagenes, keyword)
+        is_video, evitar, account_id, has_image, client_gender, n_imagenes, keyword,
+        cantidad)
     return "".join(p for p in (partes.template, partes.contexto, partes.tanda) if p)
 
 
@@ -356,7 +364,7 @@ class _Prompt:
         self.cacheable = cacheable
 
 
-def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "") -> _Prompt:
+def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "", cantidad: int = 0) -> _Prompt:
     # Modo keyword: camino aparte y completo (ver KEYWORD_CLIENT_ID). Nada del
     # contexto del post entra acá. No se cachea: son ~500 tokens, por debajo del
     # mínimo cacheable de la API, así que el marcador no haría nada.
@@ -455,7 +463,7 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     # No es editable desde el panel. Solo se agrega si el prompt no lo trae ya
     # embebido (prompts viejos con "FORMATO DE SALIDA" adentro siguen funcionando).
     if "formato de salida" not in template.lower():
-        prompt += _system_output_format(client_gender)
+        prompt += _system_output_format(client_gender, cantidad)
 
     # Un template con marcadores lleva el caption adentro: deja de ser estable
     # entre posts y cachearlo sería pagar el recargo de escritura sin lecturas.
@@ -463,10 +471,29 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     return _Prompt(prompt_template, contexto, prompt, cacheable)
 
 
+class _Rechazo(Exception):
+    """La IA rechazó el pedido por políticas.
+
+    No es un error de red ni saturación: la API contesta 200 con el contenido
+    vacío y stop_reason="refusal". Reintentar es inútil (el mismo pedido se
+    rechaza igual) y hace perder ~10 segundos de backoff para terminar mostrando
+    "generación cortada", que miente sobre la causa. Con esta excepción se corta
+    en el primer intento y el vendedor se entera del motivo real.
+    """
+
+
 # Si una generación devuelve menos de esto, asumimos que el stream se cortó
-# (throttling / corte prematuro de la API) y reintentamos desde cero.
+# (throttling / corte prematuro de la API). Antes se descartaba TODO y se
+# regeneraba de cero: 19 comentarios buenos a la basura y se re-pagaba la salida
+# completa (que es el lado caro y no se cachea). Ahora, si llegó algo aprovechable
+# se completa la tanda pidiendo SOLO los que faltan (ver _MIN_PARA_COMPLETAR).
 _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
+
+# Piso para "completar" en vez de "regenerar". Debajo de esto lo que llegó es tan
+# poco que probablemente la llamada falló de entrada (no vale la pena arrastrar
+# 2 comentarios), así que se descarta y se reintenta limpio.
+_MIN_PARA_COMPLETAR = 8
 
 
 # ── Perillas de costo ─────────────────────────────────────────────────────────
@@ -555,9 +582,9 @@ def _bloques(prompt: "_Prompt", image_b64: str, image_media_type: str) -> list |
     return bloques
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "") -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0) -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword, shortcode=shortcode):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword, shortcode=shortcode, cantidad=cantidad):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -565,7 +592,7 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = ""):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
     (el consumidor debe descartar lo emitido hasta ese punto).
@@ -587,24 +614,53 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     modelo = _MODEL_STANDARD if modo_keyword else _modelo(client_quality)
     print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}"
           + (f" keyword={keyword!r}" if modo_keyword else ""), flush=True)
-    prompt = _load_prompt_partes(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes, keyword=keyword)
+    prompt = _load_prompt_partes(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes, keyword=keyword, cantidad=cantidad)
+
+    # Cuántos comentarios se pidieron de verdad. Sirve para dos cosas: saber
+    # cuántos faltan si la tanda queda corta, y no pedir 70 cuando el cliente
+    # publica 40 (la salida es el lado caro y no se cachea).
+    cantidad_pedida = KEYWORD_CANTIDAD if modo_keyword else (
+        cantidad if cantidad and cantidad > 0 else _COMENTARIOS_DEFAULT)
 
     # El piso de "generación cortada" es relativo a lo que se pidió: con 40
-    # comentarios de una palabra, el fijo de 70 no aplica.
-    minimo = max(1, int(KEYWORD_CANTIDAD * 0.75)) if modo_keyword else _MIN_COMENTARIOS
+    # comentarios de una palabra, el fijo de 70 no aplica. Con un objetivo chico
+    # tampoco: pedir 25 y exigir 20 dejaba casi sin margen.
+    minimo = (max(1, int(KEYWORD_CANTIDAD * 0.75)) if modo_keyword
+              else min(_MIN_COMENTARIOS, max(1, int(cantidad_pedida * 0.75))))
 
     content = _bloques(prompt, image_b64 if has_image else "", image_media_type)
     extra = _extra_body(modo_keyword)
 
+    # Comentarios que ya se le entregaron al consumidor y NO se van a descartar.
+    # Si la tanda queda corta, la vuelta siguiente los pasa como "a evitar" y pide
+    # solo los que faltan, en vez de tirar todo y re-pagar la salida completa.
+    acumulados: list[str] = []
+
     prev_motivo = None
     for intento in range(1, _MAX_INTENTOS + 1):
         if intento > 1:
-            print(f"[ai] {prev_motivo}, reintento {intento}/{_MAX_INTENTOS}", flush=True)
-            yield ("reset", None)
+            print(f"[ai] {prev_motivo}, reintento {intento}/{_MAX_INTENTOS}"
+                  + (f" — completando (ya hay {len(acumulados)})" if acumulados else ""),
+                  flush=True)
+            if acumulados:
+                # COMPLETAR: no se emite "reset", así que el consumidor conserva
+                # lo que ya mostró y esta vuelta solo agrega lo que falta. El
+                # prompt se rearma con los acumulados en la lista de "no repetir"
+                # (el mismo mecanismo de "Cargar más").
+                prompt = _load_prompt_partes(
+                    caption, comentarios_existentes, client_id, transcription,
+                    photo_description, is_video, (evitar or []) + acumulados,
+                    has_image=has_image, client_gender=client_gender,
+                    n_imagenes=n_imagenes, keyword=keyword,
+                    cantidad=max(1, cantidad_pedida - len(acumulados)))
+                content = _bloques(prompt, image_b64 if has_image else "", image_media_type)
+            else:
+                yield ("reset", None)
             time.sleep(3 * (intento - 1))  # backoff: 3s, 6s (overloaded suele ser transitorio)
 
         count = 0
         buffer = ""
+        nuevos: list[str] = []      # lo de ESTA vuelta (por si hay que conservarlo)
         try:
             with _client.messages.stream(
                 model=modelo,
@@ -630,6 +686,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                         line = line.strip()
                         if line:
                             count += 1
+                            nuevos.append(line)
                             yield ("comentario", line)
                 # Los tokens se leen del mensaje final, ya adentro del `with`.
                 # Acá es donde se ve cuánto pesa el thinking: entra en output_tokens.
@@ -639,12 +696,24 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                 # que se regenere la tanda entera (sería el colmo: gastar el doble
                 # por culpa del contador de gastos).
                 try:
+                    final = stream.get_final_message()
                     _registrar_uso("keyword" if modo_keyword else "generacion",
-                                   modelo, stream.get_final_message().usage,
+                                   modelo, final.usage,
                                    intento=intento, client_id=client_id,
                                    shortcode=shortcode)
+                    stop = getattr(final, "stop_reason", None)
                 except Exception as e:
                     print(f"[tokens] no se pudo medir la generación: {e}", flush=True)
+                    stop = None
+                # Rechazo por políticas: no se reintenta. Sin esto se leía como
+                # "generación cortada" y se quemaban los 3 intentos con 9s de
+                # backoff, para terminar mostrándole al vendedor un motivo falso.
+                if stop == "refusal" and count == 0:
+                    raise _Rechazo(
+                        "La IA rechazó generar comentarios para este post. "
+                        "Probá con otro post o avisá al administrador.")
+        except _Rechazo:
+            raise
         except Exception as e:
             # overloaded_error y otros transitorios de la API: reintentar desde cero
             if intento == _MAX_INTENTOS:
@@ -654,12 +723,25 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
         if buffer.strip():
             count += 1
+            nuevos.append(buffer.strip())
             yield ("comentario", buffer.strip())
 
-        # generación completa (o último intento): la damos por buena
-        if count >= minimo or intento == _MAX_INTENTOS:
+        total = len(acumulados) + count
+
+        # tanda completa (o último intento): la damos por buena
+        if total >= minimo or intento == _MAX_INTENTOS:
             return
-        prev_motivo = f"generación cortada ({count} líneas)"
+
+        # Quedó corta. Si lo que hay ya es aprovechable, se CONSERVA y la vuelta
+        # siguiente pide solo el resto; si es casi nada, seguramente la llamada
+        # falló de entrada y no vale la pena arrastrarlo: se descarta y se
+        # reintenta limpio (el "reset" de arriba avisa al consumidor).
+        if total >= _MIN_PARA_COMPLETAR:
+            acumulados = acumulados + nuevos
+            prev_motivo = f"tanda corta ({total} de {cantidad_pedida})"
+        else:
+            acumulados = []
+            prev_motivo = f"generación cortada ({total} líneas)"
 
 
 def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "",
@@ -735,13 +817,30 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
             resp = _client.messages.create(
                 model=_MODEL_VISION,
                 # Una línea por foto: con carruseles largos 500 tokens cortaban
-                # la descripción a la mitad.
+                # la descripción a la mitad. OJO: el thinking (abajo) también
+                # consumía de este cupo, así que parte de esos cortes eran el
+                # modelo razonando, no la descripción siendo larga.
                 max_tokens=500 + 150 * max(0, n_imagenes - 1),
                 messages=[{"role": "user", "content": content}],
+                # Thinking APAGADO explícito. Describir en 5 oraciones lo que se
+                # ve en una foto no necesita planificación, y en claude-sonnet-5
+                # omitir el campo NO lo apaga: el adaptive es el default. Sin
+                # esto se pagaba razonamiento a precio de salida en cada post
+                # —con effort `high`, que es el default cuando no se manda— para
+                # una tarea trivial.
+                extra_body={"thinking": {"type": "disabled"}},
             )
             _registrar_uso("descripcion", _MODEL_VISION, resp.usage,
                            intento=intento, shortcode=shortcode)
+            # Rechazo por políticas: la API devuelve 200 con contenido vacío. No
+            # se reintenta (el mismo pedido va a volver a ser rechazado): se
+            # corta y el llamador le explica al vendedor por qué no hay
+            # descripción, en vez de dejarlo en silencio.
+            if getattr(resp, "stop_reason", None) == "refusal":
+                raise _Rechazo("la IA rechazó describir esta imagen")
             return "".join(b.text for b in resp.content if b.type == "text").strip()
+        except _Rechazo:
+            raise
         except Exception as e:
             ultimo_error = e
             print(f"[describe] error describiendo imagen (intento {intento}/2): {e}", flush=True)
