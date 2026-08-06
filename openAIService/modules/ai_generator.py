@@ -62,7 +62,8 @@ def _tarifa(model: str) -> tuple[float, float]:
 
 
 def _registrar_uso(kind: str, model: str, usage, *, intento: int = 1,
-                   client_id=None, shortcode: str = "") -> None:
+                   client_id=None, shortcode: str = "",
+                   account_id=None, user_id=None) -> None:
     """Loguea el consumo de una llamada: por consola siempre, en la DB si se puede.
 
     La línea de consola es la que sirve el primer día (sin migrar nada) y la que
@@ -96,6 +97,9 @@ def _registrar_uso(kind: str, model: str, usage, *, intento: int = 1,
             cache_read_tokens=cache_read, cache_creation_tokens=cache_write,
             costo_usd=costo,
             client_ig_username=(client_id or None), shortcode=(shortcode or None),
+            # Sin esto la fila queda sin dueño y el panel de gasto por vendedor
+            # tiene que adivinar la cuenta a partir del @cliente.
+            account_id=account_id, user_id=user_id,
         )
     except Exception as e:
         print(f"[tokens] no se pudo registrar en DB: {e}", flush=True)
@@ -582,9 +586,9 @@ def _bloques(prompt: "_Prompt", image_b64: str, image_media_type: str) -> list |
     return bloques
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0) -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0, account_id=None, user_id=None) -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword, shortcode=shortcode, cantidad=cantidad):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword, shortcode=shortcode, cantidad=cantidad, account_id=account_id, user_id=user_id):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -592,7 +596,7 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0, account_id=None, user_id=None):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
     (el consumidor debe descartar lo emitido hasta ese punto).
@@ -700,7 +704,8 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                     _registrar_uso("keyword" if modo_keyword else "generacion",
                                    modelo, final.usage,
                                    intento=intento, client_id=client_id,
-                                   shortcode=shortcode)
+                                   shortcode=shortcode,
+                                   account_id=account_id, user_id=user_id)
                     stop = getattr(final, "stop_reason", None)
                 except Exception as e:
                     print(f"[tokens] no se pudo medir la generación: {e}", flush=True)
@@ -746,7 +751,8 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
 def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "",
                      n_imagenes: int = 1, es_video: bool = False,
-                     shortcode: str = "") -> str:
+                     shortcode: str = "", account_id=None, user_id=None,
+                     client_id: str | None = None) -> str:
     """Describe textualmente la imagen de un post (para mostrarla al usuario como
     si fuera el pie de página). Llamada de visión corta, en español. Devuelve ""
     ante cualquier problema (el llamador simplemente no muestra descripción)."""
@@ -831,7 +837,9 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
                 extra_body={"thinking": {"type": "disabled"}},
             )
             _registrar_uso("descripcion", _MODEL_VISION, resp.usage,
-                           intento=intento, shortcode=shortcode)
+                           intento=intento, shortcode=shortcode,
+                           client_id=client_id,
+                           account_id=account_id, user_id=user_id)
             # Rechazo por políticas: la API devuelve 200 con contenido vacío. No
             # se reintenta (el mismo pedido va a volver a ser rechazado): se
             # corta y el llamador le explica al vendedor por qué no hay

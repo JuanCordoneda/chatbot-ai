@@ -471,6 +471,19 @@ def procesar_post_web():
     # Modo keyword: la tanda es N veces esta palabra, variando la escritura. Sin
     # contexto del post, sin transcripción y sin visión (ver ai_generator).
     keyword = (data.get("keyword") or "").strip()
+
+    # Quién dispara la generación. Viene del webService (que es el que tiene la
+    # sesión) y solo se usa para imputar el gasto de tokens; si no viene, la
+    # generación funciona igual, la fila queda sin dueño.
+    def _int_o_none(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    account_id = _int_o_none(data.get("account_id"))
+    user_id = _int_o_none(data.get("user_id"))
+
     if len(keyword) > 60:
         return jsonify({"error": "La palabra clave es demasiado larga"}), 400
 
@@ -576,7 +589,10 @@ def procesar_post_web():
             if job["step"] != "transcription" and not keyword:
                 job["step"] = "transcription"
 
-            post_data = scrape_post(post_url, ligero=bool(keyword))
+            # El cliente todavía no se detectó (sale del post ya scrapeado), así
+            # que la visión se imputa por cuenta/usuario nomás.
+            post_data = scrape_post(post_url, ligero=bool(keyword),
+                                    account_id=account_id, user_id=user_id)
             t_scrape = time.time() - t0
             print(f"[TIMING] scrape: {t_scrape:.2f}s", flush=True)
 
@@ -687,6 +703,8 @@ def procesar_post_web():
                 # 70 fijo (ver _cantidad_a_pedir). En "Cargar más" no se toca: el
                 # vendedor ya cubrió el objetivo y lo que quiere es más resto.
                 cantidad=0 if evitar else _cantidad_a_pedir(ranges),
+                # Quién paga esta tanda: alimenta el panel de gasto por vendedor.
+                account_id=account_id, user_id=user_id,
             ):
                 # Cortar acá deja de consumir el stream de la API: la conexión
                 # se cierra al salir del for y no se generan más comentarios.

@@ -639,8 +639,13 @@ def _cache_put(shortcode: str, data: "PostData"):
         print(f"[cache] no se pudo persistir el post {shortcode}: {e}", flush=True)
 
 
-def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostData:
-    """ligero: modo keyword. Los comentarios son una sola palabra, así que no
+def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
+                account_id=None, user_id=None, client_id: str | None = None) -> PostData:
+    """account_id/user_id/client_id: a quién se le imputa el gasto de la llamada
+    de visión (la única de este módulo que quema tokens). Sin esto la descripción
+    del post salía sin dueño y no aparecía en el panel de gasto por vendedor.
+
+    ligero: modo keyword. Los comentarios son una sola palabra, así que no
     hace falta ni la imagen, ni la descripción visual, ni la transcripción del
     video: solo quién es el dueño del post (para la campaña) y el caption (para
     mostrarlo). Se saltea todo lo caro y lento — que es casi todo el scrape.
@@ -775,7 +780,8 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostDa
             from modules.ai_generator import describir_imagen
             desc_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             desc_future = desc_executor.submit(describir_imagen, b64, media_type,
-                                               caption, n, es_video, shortcode)
+                                               caption, n, es_video, shortcode,
+                                               account_id, user_id, client_id)
         except Exception as e:
             print(f"[describe] no disponible ({e})", flush=True)
 

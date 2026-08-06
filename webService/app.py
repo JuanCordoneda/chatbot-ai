@@ -716,7 +716,12 @@ def procesar():
     try:
         resp = requests.post(
             f"{OPENAI_SERVICE_URL}/procesar_post",
-            json={"url": post_url, "evitar": evitar, "keyword": keyword},
+            json={"url": post_url, "evitar": evitar, "keyword": keyword,
+                  # Para imputar los tokens al vendedor que generó (panel de
+                  # gasto). Va la cuenta de la SESIÓN, no ?vendedor=: el gasto
+                  # es de quien aprieta el botón.
+                  "account_id": session.get("account_id"),
+                  "user_id": session.get("user_id")},
             timeout=30,
         )
         resp.raise_for_status()
@@ -1804,6 +1809,47 @@ def uso():
         return jsonify({"vendedores": filas})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _fecha_arg(nombre):
+    """Lee un ?desde=/?hasta= en formato YYYY-MM-DD. Una fecha mal escrita se
+    ignora (se cae al default del repo) en vez de tirar un 400: el panel no
+    puede quedar en blanco porque el navegador mandó otro formato."""
+    from datetime import datetime
+    v = (request.args.get(nombre) or "").strip()
+    if not v:
+        return None
+    try:
+        return datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        print(f"[tokens] fecha {nombre}={v!r} inválida, la ignoro", flush=True)
+        return None
+
+
+@app.route("/api/tokens", methods=["GET"])
+@require_admin
+def tokens():
+    """Gasto de IA (tokens y dólares) por vendedor, por rango de fechas y con el
+    corte mensual. A diferencia de /api/uso, que cuenta acciones, acá se ve la
+    plata: qué cuenta consume, con qué usuario adentro, y cuánto se va en
+    reintentos.
+
+    ?desde/?hasta son YYYY-MM-DD y ambos INCLUSIVOS (es lo que espera quien elige
+    "del 1 al 31 de agosto"). Adentro `hasta` se convierte en exclusivo.
+    """
+    vacio = {"vendedores": [], "total": {}, "sin_atribuir": {}}
+    if _repo is None:
+        return jsonify(vacio)
+    from datetime import timedelta
+    desde = _fecha_arg("desde")
+    hasta = _fecha_arg("hasta")
+    if hasta is not None:
+        hasta = hasta + timedelta(days=1)
+    try:
+        return jsonify(_repo.gasto_por_vendedor(desde=desde, hasta=hasta) or vacio)
+    except Exception as e:
+        print(f"[tokens] no pude calcular el gasto: {e!r}", flush=True)
+        return jsonify({"error": "No pude calcular el gasto de IA"}), 500
 
 
 @app.route("/api/cantidades_usadas", methods=["GET"])
