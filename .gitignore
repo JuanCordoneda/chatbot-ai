@@ -11,3 +11,5 @@ venv/
 *.db
 admin-key.json
 *.ofc
+.env.bak
+.env.*
