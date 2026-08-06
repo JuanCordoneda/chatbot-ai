@@ -321,10 +321,47 @@ def _system_output_format(client_gender) -> str:
 
 
 def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "") -> str:
+    """El prompt completo, en un solo string. Es lo que se usaba siempre; hoy
+    quedó como envoltorio de _load_prompt_partes para no romper llamadores."""
+    partes = _load_prompt_partes(
+        caption, comentarios_existentes, client_id, transcription, photo_description,
+        is_video, evitar, account_id, has_image, client_gender, n_imagenes, keyword)
+    return "".join(p for p in (partes.template, partes.contexto, partes.tanda) if p)
+
+
+class _Prompt:
+    """El prompt partido en tres tramos, del más estable al más volátil. La razón
+    es el CACHÉ DE PROMPT: la API cobra los tokens ya cacheados a ~0.1x, pero el
+    match es por PREFIJO — un byte distinto invalida todo lo que sigue. Partirlo
+    así hace que cada tramo se reuse todo lo que puede:
+
+      template — el genérico + el prompt del cliente. Igual para TODOS los posts
+                 de ese cliente: es el tramo que pega en la tanda del post
+                 siguiente.
+      contexto — caption, descripción visual, transcripción, notas del mosaico.
+                 Igual para todas las tandas del MISMO post: es el que pega en
+                 "Cargar más" y en los reintentos (que hoy re-pagan todo).
+      tanda    — los comentarios a evitar y el formato de salida. Cambia en cada
+                 llamada, así que no se cachea nunca.
+    """
+
+    def __init__(self, template: str, contexto: str, tanda: str, cacheable: bool):
+        self.template = template
+        self.contexto = contexto
+        self.tanda = tanda
+        # False cuando el template trae {caption}/{comentarios_existentes}
+        # embebidos: ahí el texto del post queda INTERCALADO en el template, el
+        # tramo estable deja de ser estable y cachear solo pagaría el recargo de
+        # escritura (1.25x) sin lecturas. Los prompts nuevos no tienen marcadores.
+        self.cacheable = cacheable
+
+
+def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "") -> _Prompt:
     # Modo keyword: camino aparte y completo (ver KEYWORD_CLIENT_ID). Nada del
-    # contexto del post entra acá.
+    # contexto del post entra acá. No se cachea: son ~500 tokens, por debajo del
+    # mínimo cacheable de la API, así que el marcador no haría nada.
     if keyword.strip():
-        return _keyword_prompt(keyword, evitar)
+        return _Prompt(_keyword_prompt(keyword, evitar), "", "", cacheable=False)
 
     template = _load_template(client_id, account_id)
 
@@ -344,9 +381,13 @@ def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str
     tiene_caption_tok = "{caption}" in template
     tiene_coments_tok = "{comentarios_existentes}" in template
     # Reemplazo dirigido (no .format): otras llaves { } que escriba el usuario no rompen nada.
-    prompt = (template
-              .replace("{caption}", caption)
-              .replace("{comentarios_existentes}", existentes_str))
+    prompt_template = (template
+                       .replace("{caption}", caption)
+                       .replace("{comentarios_existentes}", existentes_str))
+
+    # Desde acá se arma el tramo del CONTEXTO DEL POST (ver _Prompt): todo lo que
+    # es igual para todas las tandas de este post pero distinto entre posts.
+    prompt = ""
 
     if not tiene_caption_tok and caption:
         prompt += f"\n\nTexto del post (caption):\n---\n{caption}\n---"
@@ -391,6 +432,13 @@ def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str
     # tanda para que el modelo NO la repita ni la parafrasee (era la causa de los
     # casi-duplicados entre tandas: cada llamada es stateless y sin esto re-inventa
     # variaciones de lo mismo).
+    contexto = prompt
+
+    # Desde acá, el tramo de LA TANDA: lo único que cambia entre un "Generar" y un
+    # "Cargar más" del mismo post. Va al final para que todo lo anterior sea un
+    # prefijo reusable.
+    prompt = ""
+
     if evitar:
         evitar_str = "\n".join(f"- {c}" for c in evitar)
         prompt += (
@@ -409,13 +457,91 @@ def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str
     if "formato de salida" not in template.lower():
         prompt += _system_output_format(client_gender)
 
-    return prompt
+    # Un template con marcadores lleva el caption adentro: deja de ser estable
+    # entre posts y cachearlo sería pagar el recargo de escritura sin lecturas.
+    cacheable = not (tiene_caption_tok or tiene_coments_tok)
+    return _Prompt(prompt_template, contexto, prompt, cacheable)
 
 
 # Si una generación devuelve menos de esto, asumimos que el stream se cortó
 # (throttling / corte prematuro de la API) y reintentamos desde cero.
 _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
+
+
+# ── Perillas de costo ─────────────────────────────────────────────────────────
+#
+# Todo por env var para poder medir y ajustar sin redeploy. El thinking es el
+# ítem más caro de la generación (más que los comentarios en sí), así que tiene
+# que poder apagarse y compararse contra la calidad, no quedar clavado.
+
+# Caché de prompt: cobra los tokens ya vistos a ~0.1x, pero la ESCRITURA cuesta
+# 1.25x. Conviene cuando hay reuso (varios posts del mismo cliente seguidos,
+# "Cargar más", reintentos) y es levemente contraproducente con tráfico muy
+# espaciado. Mirá cache_read_tokens vs cache_creation_tokens en token_usage para
+# saber cuál es tu caso: si la lectura no supera a la escritura, poné 0.
+_PROMPT_CACHE = os.environ.get("CROW_PROMPT_CACHE", "1").strip() not in ("0", "false", "no")
+
+# Cuánto "piensa" el modelo antes de escribir. Se prendió para bajar el bot-feel,
+# y en la práctica es ~40% del costo del post. "off" lo apaga; los niveles válidos
+# son low | medium | high | xhigh | max.
+_THINKING = os.environ.get("CROW_THINKING", "adaptive").strip().lower()
+_EFFORT = os.environ.get("CROW_EFFORT", "medium").strip().lower()
+
+# ¿Se le manda la imagen también a la generación, o alcanza con la descripción
+# visual en texto que ya generó la llamada de visión? Mandarla cuesta ~1100
+# tokens por intento. En 1 se comporta como siempre; en 0 se ahorra eso a costa
+# de que el modelo no vea la foto (solo la lea). Para A/B, no para prender y
+# olvidarse.
+_VISION_EN_GENERACION = os.environ.get("CROW_VISION_EN_GENERACION", "1").strip() not in ("0", "false", "no")
+
+
+def _extra_body(modo_keyword: bool) -> dict:
+    """Los kwargs de thinking/effort que el SDK pineado (anthropic 0.54.0) no
+    expone. En modo keyword no hay nada que planear (es la misma palabra N veces):
+    pensar solo suma latencia y tokens."""
+    if modo_keyword or _THINKING in ("off", "0", "no", "disabled", ""):
+        return {}
+    return {"thinking": {"type": "adaptive"},
+            "output_config": {"effort": _EFFORT}}
+
+
+def _bloques(prompt: "_Prompt", image_b64: str, image_media_type: str) -> list | str:
+    """Arma el `content` del mensaje, con los breakpoints del caché de prompt.
+
+    El orden importa y no es casual: el caché matchea por PREFIJO, así que va de
+    lo más estable a lo más volátil —
+
+        [template del cliente] (breakpoint) [imagen] [contexto del post] (breakpoint) [tanda]
+
+    El template va PRIMERO para que pegue entre posts distintos del mismo cliente
+    (es lo que más se repite). La imagen va antes del contexto porque el contexto
+    es el que dice "arriba tenés la IMAGEN": queda arriba de verdad.
+
+    Sin caché o sin imagen devuelve la forma simple de siempre.
+    """
+    cachear = _PROMPT_CACHE and prompt.cacheable
+    imagen = None
+    if image_b64:
+        imagen = {"type": "image", "source": {"type": "base64",
+                                              "media_type": image_media_type or "image/jpeg",
+                                              "data": image_b64}}
+    # Sin nada que cachear ni imagen: un string pelado, como antes.
+    if not cachear and imagen is None:
+        return "".join(p for p in (prompt.template, prompt.contexto, prompt.tanda) if p)
+
+    marca = {"cache_control": {"type": "ephemeral"}} if cachear else {}
+    bloques: list = [{"type": "text", "text": prompt.template, **marca}]
+    if imagen is not None:
+        bloques.append(imagen)
+    if prompt.contexto:
+        # Segundo breakpoint: cierra "template + imagen + contexto", que es el
+        # prefijo que comparten todas las tandas y todos los reintentos del mismo
+        # post. Es el que hace que un "Cargar más" no re-pague el post entero.
+        bloques.append({"type": "text", "text": prompt.contexto, **marca})
+    if prompt.tanda:
+        bloques.append({"type": "text", "text": prompt.tanda})
+    return bloques
 
 
 def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "") -> list[str]:
@@ -443,27 +569,21 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     keyword = (keyword or "").strip()
     modo_keyword = bool(keyword)
     # En modo keyword la imagen no se manda aunque venga: no aporta nada a
-    # escribir una palabra y se paga igual.
-    has_image = bool(image_b64) and not modo_keyword
+    # escribir una palabra y se paga igual. _VISION_EN_GENERACION la saca también
+    # del resto de los posts (queda solo la descripción visual en texto).
+    has_image = bool(image_b64) and not modo_keyword and _VISION_EN_GENERACION
     # Escribir la misma palabra 40 veces no mejora con el modelo caro.
     modelo = _MODEL_STANDARD if modo_keyword else _modelo(client_quality)
     print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}"
           + (f" keyword={keyword!r}" if modo_keyword else ""), flush=True)
-    prompt = _load_prompt(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes, keyword=keyword)
+    prompt = _load_prompt_partes(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes, keyword=keyword)
 
     # El piso de "generación cortada" es relativo a lo que se pidió: con 40
     # comentarios de una palabra, el fijo de 70 no aplica.
     minimo = max(1, int(KEYWORD_CANTIDAD * 0.75)) if modo_keyword else _MIN_COMENTARIOS
 
-    if has_image:
-        content = [
-            {"type": "image", "source": {"type": "base64",
-                                          "media_type": image_media_type or "image/jpeg",
-                                          "data": image_b64}},
-            {"type": "text", "text": prompt},
-        ]
-    else:
-        content = prompt
+    content = _bloques(prompt, image_b64 if has_image else "", image_media_type)
+    extra = _extra_body(modo_keyword)
 
     prev_motivo = None
     for intento in range(1, _MAX_INTENTOS + 1):
@@ -481,19 +601,14 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                 # consume de este cupo; con 4096 podría cortar la tanda de ~70.
                 max_tokens=8192,
                 messages=[{"role": "user", "content": content}],
-                # EXPERIMENTO (adaptive thinking): que el modelo planee la
-                # distribución de largos/voces y evite repetir ANTES de escribir,
-                # para bajar el "bot-feel". effort=medium acota cuánto piensa así
-                # no penaliza tanto la latencia del streaming en vivo.
+                # thinking/effort: el modelo planea la distribución de largos y
+                # voces ANTES de escribir, para bajar el "bot-feel". Es el ítem
+                # más caro de la llamada (~40% del costo del post), así que sale
+                # de CROW_THINKING / CROW_EFFORT y se puede apagar o bajar sin
+                # redeploy — ver _extra_body.
                 # Va por extra_body porque el SDK pineado (anthropic 0.54.0) no
-                # expone estos kwargs; extra_body los inyecta en el body del request.
-                # Revertir = borrar este extra_body y volver max_tokens=4096.
-                # En modo keyword no hay nada que planear (es la misma palabra N
-                # veces): pensar solo suma latencia y tokens.
-                extra_body={} if modo_keyword else {
-                    "thinking": {"type": "adaptive"},
-                    "output_config": {"effort": "medium"},
-                },
+                # expone estos kwargs; extra_body los inyecta en el body.
+                extra_body=extra,
             ) as stream:
                 for text in stream.text_stream:
                     buffer += text
