@@ -228,6 +228,61 @@
     .ax-uso-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
     .ax-tablecard { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
 
+    /* ── Gasto de IA por vendedor ──────────────────────────────────────────
+       Misma fila que "Uso" pero con dos números que no se pueden mezclar:
+       tokens (volumen) y dólares (lo que se paga). La barra compara costo
+       entre vendedores; los tokens van en texto para no sugerir que 1 token
+       de entrada vale lo mismo que uno de salida. */
+    .ax-tok-kpis { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+    .ax-tok-kpi { flex: 1 1 150px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 13px 16px; }
+    .ax-tok-kpi b { display: block; font-size: 1.35rem; font-weight: 800; }
+    .ax-tok-kpi span { font-size: .78rem; color: var(--faint); }
+    .ax-tok-kpi--warn { border-color: var(--yellow-md); background: var(--yellow-lo); }
+
+    /* Atajos de mes */
+    .ax-tok-meses { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ax-tok-mes { padding: 8px 13px; border-radius: 999px; font-size: .82rem; font-weight: 600;
+      border: 1px solid var(--border2); background: var(--surface2); color: var(--muted);
+      cursor: pointer; user-select: none; }
+    .ax-tok-mes:hover { border-color: var(--muted2); }
+    .ax-tok-mes.ax-on { background: var(--yellow); border-color: var(--yellow); color: #1a1a1a; }
+
+    /* Evolución mensual: barras verticales, una por mes del rango. */
+    .ax-tok-meses-chart { display: flex; align-items: flex-end; gap: 10px; height: 128px;
+      padding: 14px 16px 0; margin-bottom: 14px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 16px; overflow-x: auto; }
+    .ax-tok-meses-chart:empty { display: none; }
+    .ax-tok-mb { flex: 1 1 0; min-width: 42px; display: flex; flex-direction: column;
+      align-items: center; justify-content: flex-end; height: 100%; gap: 5px; cursor: pointer; }
+    .ax-tok-mb i { display: block; width: 100%; border-radius: 6px 6px 0 0; background: var(--yellow);
+      min-height: 3px; }
+    /* El mes sin gasto se ve como un hueco gris, no como "no existe". */
+    .ax-tok-mb.ax-cero i { background: var(--surface2); }
+    .ax-tok-mb b { font-size: .72rem; font-weight: 700; white-space: nowrap; }
+    .ax-tok-mb span { font-size: .68rem; color: var(--faint); white-space: nowrap; }
+
+    .ax-tok-row { padding: 13px 16px; border-bottom: 1px solid var(--border); }
+    .ax-tok-row:last-child { border-bottom: none; }
+    .ax-tok-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; cursor: pointer; }
+    .ax-tok-name { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: .92rem; min-width: 0; }
+    .ax-tok-name em { font-style: normal; color: var(--faint); font-weight: 500; font-size: .8rem; }
+    .ax-tok-costo { text-align: right; font-weight: 800; font-size: 1.05rem; white-space: nowrap; }
+    .ax-tok-costo small { display: block; font-size: .72rem; font-weight: 500; color: var(--faint); }
+    .ax-tok-bar { height: 7px; border-radius: 5px; background: var(--surface2); margin-top: 9px; overflow: hidden; }
+    .ax-tok-bar i { display: block; height: 100%; background: var(--yellow); }
+    /* Lo gastado en reintentos va superpuesto en rojo: es plata tirada. */
+    .ax-tok-bar i.ax-tok-waste { background: #ff6b6b; margin-top: -7px; }
+    .ax-tok-det { display: none; margin-top: 11px; padding-left: 37px; font-size: .82rem; color: var(--muted); }
+    .ax-tok-row.ax-on .ax-tok-det { display: block; }
+    .ax-tok-det ul { list-style: none; margin: 5px 0 0; padding: 0; }
+    .ax-tok-det li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+    .ax-tok-det h5 { margin: 9px 0 0; font-size: .76rem; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--faint); font-weight: 700; }
+    @media (max-width: 640px) {
+      .ax-tok-det { padding-left: 0; }
+    }
+
     .ax-mo { position: fixed; inset: 0; z-index: 90; display: none; align-items: center; justify-content: center; padding: 18px;
       background: rgba(0,0,0,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .ax-mo.ax-on { display: flex; }
@@ -1129,6 +1184,7 @@
         <div class="ax-tab" data-tab="usuarios" onclick="switchTab('usuarios')">Usuarios <span class="ax-cnt" id="tab-usr-cnt">0</span></div>
         <div class="ax-tab" data-tab="vendedores" onclick="switchTab('vendedores')">Vendedores <span class="ax-cnt" id="tab-ven-cnt">0</span></div>
         <div class="ax-tab" data-tab="uso" onclick="switchTab('uso')">Uso</div>
+        <div class="ax-tab" data-tab="tokens" onclick="switchTab('tokens')">Tokens</div>
         {% endif %}
       </div>
     </div>
@@ -1281,6 +1337,30 @@
         <span><i style="background:#86efac"></i> Enviar tráfico</span>
       </div>
       <div class="ax-tablecard" id="uso-list"></div>
+    </section>
+
+    <!-- Gasto de IA por vendedor. Es el mismo dato que la línea [tokens] de los
+         logs, pero agrupado y con plata al lado. -->
+    <section class="ax-panel" id="panel-tokens">
+      <div class="ax-toolbar">
+        <!-- Atajos de mes: el caso normal es "cuánto gastamos en agosto", y eso
+             no debería costar elegir dos fechas a mano. El rango de abajo queda
+             para lo que no es un mes calendario. -->
+        <div class="ax-tok-meses" id="tok-meses"></div>
+        <div class="ax-field" style="margin:0">
+          <label for="tok-desde">Desde</label>
+          <input type="date" id="tok-desde" onchange="loadTokens()" />
+        </div>
+        <div class="ax-field" style="margin:0">
+          <label for="tok-hasta">Hasta</label>
+          <input type="date" id="tok-hasta" onchange="loadTokens()" />
+        </div>
+      </div>
+      <div class="ax-tok-kpis" id="tok-kpis"></div>
+      <!-- Evolución mes a mes del total: es lo que responde "¿estamos gastando
+           más que el mes pasado?" antes de mirar vendedor por vendedor. -->
+      <div class="ax-tok-meses-chart" id="tok-chart"></div>
+      <div class="ax-tablecard" id="tokens-list"></div>
     </section>
     {% endif %}
   </div>
@@ -1600,6 +1680,6 @@
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/header-menu.js?v=1785802900"></script>
-  <script src="/static/admin.js?v=1785802900"></script>
+  <script src="/static/admin.js?v=1785900002"></script>
 </body>
 </html>

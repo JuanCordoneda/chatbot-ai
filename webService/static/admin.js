@@ -120,6 +120,7 @@ function switchTab(name) {
   document.querySelectorAll(".ax-panel").forEach(p => p.classList.remove("ax-on"));
   document.getElementById("panel-" + name).classList.add("ax-on");
   if (name === "uso") loadUso();
+  if (name === "tokens") loadTokens();
   if (name === "usuarios") loadUsuarios();
   if (name === "pedidos") loadPedidos();
   if (name === "cola") loadCola();
@@ -1910,6 +1911,197 @@ async function loadUso() {
       </div>`;
     }).join("");
   } catch (e) { toast(e.message, "bad"); }
+}
+
+// ── Tokens (gasto de IA por vendedor) ────────────────────────────────────────
+// "Uso" cuenta acciones; esto cuenta plata. Son dos preguntas distintas: un
+// vendedor puede generar poco y gastar mucho (posts con carrusel, reintentos,
+// cliente en calidad pro).
+
+// Los montos son chicos (centavos por tanda): con 2 decimales casi todo se ve
+// como $0.00 y parece que no gasta nadie.
+function usd(n) {
+  const v = Number(n || 0);
+  if (!v) return "$0";
+  return v < 1 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`;
+}
+
+function miles(n) {
+  const v = Number(n || 0);
+  return v >= 1e6 ? (v / 1e6).toFixed(1) + "M"
+       : v >= 1e3 ? (v / 1e3).toFixed(1) + "k"
+       : String(v);
+}
+
+const TOK_KINDS = { generacion: "Generación", keyword: "Keyword", descripcion: "Descripción (visión)" };
+const TOK_MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+// "2026-08" -> "Ago 2026". Sin new Date(clave): parsear "2026-08" como fecha lo
+// interpreta en UTC y en Argentina devolvía el mes anterior.
+function mesLabel(clave, conAño = true) {
+  const [a, m] = String(clave).split("-");
+  const nom = TOK_MESES[Number(m) - 1] || clave;
+  return conAño ? `${nom} ${a}` : nom;
+}
+
+// Último día del mes: día 0 del siguiente. Sirve para el ?hasta= del atajo.
+function _finDeMes(a, m) { return new Date(a, m + 1, 0); }
+function _iso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Los últimos 6 meses como chips. El mes es la unidad con la que se factura y
+// con la que se piensa el gasto, así que va primero; el rango libre es el escape.
+function renderTokMeses() {
+  const box = document.getElementById("tok-meses");
+  if (!box) return;
+  const hoy = new Date();
+  const chips = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    chips.push(`<div class="ax-tok-mes" data-desde="${_iso(d)}" data-hasta="${_iso(_finDeMes(d.getFullYear(), d.getMonth()))}"
+      onclick="tokElegirMes(this)">${mesLabel(_iso(d).slice(0, 7), d.getFullYear() !== hoy.getFullYear())}</div>`);
+  }
+  // "Todo el período" = sin fechas: el backend cae a sus últimos 6 meses.
+  chips.push(`<div class="ax-tok-mes ax-on" data-desde="" data-hasta="" onclick="tokElegirMes(this)">Últimos 6 meses</div>`);
+  box.innerHTML = chips.join("");
+}
+
+function tokElegirMes(el) {
+  document.getElementById("tok-desde").value = el.dataset.desde;
+  document.getElementById("tok-hasta").value = el.dataset.hasta;
+  loadTokens();
+}
+
+async function loadTokens() {
+  const box = document.getElementById("tokens-list");
+  if (!box) return;
+  if (!document.getElementById("tok-meses").children.length) renderTokMeses();
+
+  const desde = document.getElementById("tok-desde").value;
+  const hasta = document.getElementById("tok-hasta").value;
+  // El chip queda marcado solo si el rango coincide exacto con él: si tocaste
+  // las fechas a mano, ninguno miente diciendo que estás viendo ese mes.
+  document.querySelectorAll("#tok-meses .ax-tok-mes").forEach(c =>
+    c.classList.toggle("ax-on", c.dataset.desde === desde && c.dataset.hasta === hasta));
+
+  if (desde && hasta && desde > hasta) {
+    toast("La fecha 'desde' es posterior a 'hasta'", "bad");
+    return;
+  }
+
+  const qs = new URLSearchParams();
+  if (desde) qs.set("desde", desde);
+  if (hasta) qs.set("hasta", hasta);
+  box.innerHTML = '<div class="ax-skeleton"></div><div class="ax-skeleton"></div>';
+  try {
+    const d = await api("GET", `/api/tokens?${qs}`);
+    renderTokens(d);
+  } catch (e) {
+    box.innerHTML = emptyState("No pude traer el gasto", e.message);
+    document.getElementById("tok-chart").innerHTML = "";
+    toast(e.message, "bad");
+  }
+}
+
+// Barras del total mes a mes. Clickear una barra filtra a ese mes.
+function renderTokChart(serie) {
+  const box = document.getElementById("tok-chart");
+  // Con un solo mes no hay evolución que mostrar: el KPI ya dice el número.
+  if (!serie || serie.length < 2) { box.innerHTML = ""; return; }
+  const max = Math.max(...serie.map(m => m.costo_usd), 0.0001);
+  box.innerHTML = serie.map(m => {
+    const [a, mm] = m.mes.split("-");
+    const fin = _iso(_finDeMes(Number(a), Number(mm) - 1));
+    return `<div class="ax-tok-mb ${m.costo_usd ? "" : "ax-cero"}"
+      title="${mesLabel(m.mes)}: ${usd(m.costo_usd)} · ${miles(m.llamadas)} llamadas"
+      onclick="tokElegirMes({dataset:{desde:'${m.mes}-01',hasta:'${fin}'}})">
+      <b>${usd(m.costo_usd)}</b>
+      <i style="height:${Math.max(3, (m.costo_usd / max) * 100)}%"></i>
+      <span>${mesLabel(m.mes, false)}</span>
+    </div>`;
+  }).join("");
+}
+
+function renderTokens(d) {
+  const box = document.getElementById("tokens-list");
+  const kpis = document.getElementById("tok-kpis");
+  const vs = d.vendedores || [];
+  const total = d.total || {};
+  const huerfano = d.sin_atribuir || {};
+
+  renderTokChart(total.por_mes);
+
+  const desperdicio = Number(total.costo_reintentos_usd || 0);
+  const rango = d.desde && d.hasta ? `${d.desde} → ${d.hasta}` : "período";
+  const meses = (total.por_mes || []).filter(m => m.costo_usd);
+  // Con más de un mes, el promedio mensual es lo que sirve para proyectar; con
+  // uno solo repetiría el total y confunde.
+  const prom = meses.length > 1
+    ? meses.reduce((s, m) => s + m.costo_usd, 0) / meses.length : 0;
+  kpis.innerHTML = [
+    `<div class="ax-tok-kpi"><b>${usd(total.costo_usd)}</b><span>Gasto total · ${esc(rango)}</span></div>`,
+    prom ? `<div class="ax-tok-kpi"><b>${usd(prom)}</b><span>Promedio por mes (${meses.length} meses con gasto)</span></div>` : "",
+    `<div class="ax-tok-kpi"><b>${miles(total.llamadas)}</b><span>Llamadas a la IA</span></div>`,
+    `<div class="ax-tok-kpi"><b>${miles(total.input_tokens)} / ${miles(total.output_tokens)}</b><span>Tokens entrada / salida</span></div>`,
+    // Los reintentos son generaciones descartadas: el número sube cuando la IA
+    // viene cortando tandas, y ahí hay algo para revisar.
+    desperdicio ? `<div class="ax-tok-kpi ax-tok-kpi--warn"><b>${usd(desperdicio)}</b><span>Gastado en reintentos</span></div>` : "",
+    // Lo viejo (antes de que se guardara el vendedor) o lo que no se pudo
+    // resolver. Se muestra aparte para que la suma de la tabla cierre.
+    huerfano.llamadas ? `<div class="ax-tok-kpi"><b>${usd(huerfano.costo_usd)}</b><span>Sin vendedor identificado</span></div>` : "",
+  ].join("");
+
+  if (!vs.length) {
+    box.innerHTML = emptyState("Sin gasto registrado",
+      "Cuando el equipo genere comentarios vas a ver acá cuánto consume cada vendedor.");
+    return;
+  }
+
+  const max = Math.max(...vs.map(v => v.costo_usd), 0.0001);
+  box.innerHTML = vs.map((v, i) => {
+    const nm = v.name || v.crm_email || "?";
+    const waste = v.costo_reintentos_usd || 0;
+    const kinds = Object.entries(v.por_kind || {}).sort((a, b) => b[1] - a[1]);
+    // Aviso honesto: parte del número puede venir de filas viejas imputadas por
+    // el @cliente, no de una atribución directa.
+    const est = v.estimado
+      ? `<em title="Llamadas sin vendedor guardado, imputadas por el @cliente">· ${v.estimado} estimadas</em>` : "";
+    return `<div class="ax-tok-row" id="tok-row-${i}">
+      <div class="ax-tok-head" onclick="document.getElementById('tok-row-${i}').classList.toggle('ax-on')">
+        <div class="ax-tok-name">
+          <div class="ax-avatar" style="width:28px;height:28px;border-radius:8px;font-size:.78rem;${avatarStyle(nm)}">${esc((nm[0] || "?").toUpperCase())}</div>
+          ${esc(nm)} ${est}
+        </div>
+        <div class="ax-tok-costo">${usd(v.costo_usd)}
+          <small>${miles(v.llamadas)} llamadas · ${miles(v.input_tokens)} in / ${miles(v.output_tokens)} out</small>
+        </div>
+      </div>
+      <div class="ax-tok-bar">
+        <i style="width:${(v.costo_usd / max) * 100}%"></i>
+        <i class="ax-tok-waste" style="width:${(waste / max) * 100}%"></i>
+      </div>
+      <div class="ax-tok-det">
+        <h5>Mes a mes</h5>
+        <ul>${(v.por_mes || []).map(m =>
+          `<li><span>${esc(mesLabel(m.mes))}</span><span>${usd(m.costo_usd)} · ${miles(m.llamadas)} llamadas</span></li>`
+        ).join("") || "<li>—</li>"}</ul>
+        <h5>Por usuario</h5>
+        <ul>${(v.usuarios || []).map(u =>
+          `<li><span>${esc(u.username)}</span><span>${usd(u.costo_usd)} · ${miles(u.llamadas)} llamadas</span></li>`
+        ).join("") || "<li>Sin desglose</li>"}</ul>
+        <h5>Por tipo de llamada</h5>
+        <ul>${kinds.map(([k, c]) =>
+          `<li><span>${esc(TOK_KINDS[k] || k)}</span><span>${usd(c)}</span></li>`
+        ).join("") || "<li>—</li>"}</ul>
+        <h5>Clientes que más consumen</h5>
+        <ul>${(v.clientes || []).map(c =>
+          `<li><span>@${esc(c.clave)}</span><span>${usd(c.costo_usd)} · ${miles(c.llamadas)} llamadas</span></li>`
+        ).join("") || "<li>—</li>"}</ul>
+        ${waste ? `<h5>Reintentos</h5><ul><li><span>Generaciones descartadas</span><span>${usd(waste)}</span></li></ul>` : ""}
+      </div>
+    </div>`;
+  }).join("");
 }
 
 // ── Usuarios (logins) ────────────────────────────────────────────────────────

@@ -1245,6 +1245,195 @@ def resumen_tokens(dias: int = 30, account_id=None) -> dict:
         }
 
 
+def _mes_inicio(dt):
+    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _sumar_meses(dt, n: int):
+    """Corre una fecha N meses (n negativo va para atrás). Siempre sobre el día 1,
+    así que no hay que preocuparse por los meses de 30/31 días ni por febrero."""
+    mes = dt.month - 1 + n
+    return _mes_inicio(dt).replace(year=dt.year + mes // 12, month=mes % 12 + 1)
+
+
+def gasto_por_vendedor(desde=None, hasta=None, meses_default: int = 6) -> dict:
+    """Cuánto gastó cada vendedor en un rango de fechas, con el corte por mes.
+
+    desde/hasta son datetimes (naive, UTC — igual que created_at). `hasta` es
+    EXCLUSIVO: el llamador que quiere "todo agosto" pasa 1/8 y 1/9, y no hay que
+    razonar sobre el último segundo del día. Sin rango se toman los últimos
+    `meses_default` meses calendario completos, incluido el actual.
+
+    Dos detalles que importan para leer bien el número:
+
+    1) Hasta que se agregó la atribución, las filas de token_usage se guardaban
+       con account_id NULL. Para no tirar ese histórico, la fila sin dueño se le
+       imputa a la cuenta del @cliente (clients.ig_username). Lo que no se pueda
+       resolver ni así queda aparte, en `sin_atribuir`, en vez de repartirse
+       entre los vendedores y ensuciarles el número.
+    2) Un mismo @cliente cargado en dos cuentas es ambiguo: en ese caso NO se
+       adivina, la fila cae en `sin_atribuir`.
+    """
+    if not db_available():
+        return {}
+    from datetime import timedelta
+    from sqlalchemy import String, case, func
+
+    ahora = _utcnow_naive()
+    if desde is None:
+        desde = _sumar_meses(ahora, -(max(1, meses_default) - 1))
+    if hasta is None:
+        hasta = _sumar_meses(ahora, 1)      # fin del mes actual (exclusivo)
+    if hasta <= desde:                       # rango dado vuelta: no reventamos
+        hasta = desde
+
+    # Clave de mes "YYYY-MM" sin funciones propias del motor: castear el
+    # timestamp a texto y cortar da lo mismo en Postgres y en SQLite, y evita
+    # tener un date_trunc/strftime distinto por backend.
+    mes_col = func.substr(func.cast(TokenUsage.created_at, String), 1, 7)
+
+    with session_scope() as s:
+        # @cliente -> cuenta, solo cuando es inequívoco (ver punto 2).
+        dueño = {}
+        for ig, acc_id, n in (s.query(Client.ig_username, func.min(Client.account_id),
+                                      func.count(func.distinct(Client.account_id)))
+                              .group_by(Client.ig_username).all()):
+            if n == 1:
+                dueño[ig] = acc_id
+
+        usuarios = {u.id: u.username for u in s.query(User).all()}
+
+        filas = (
+            s.query(TokenUsage.account_id, TokenUsage.user_id,
+                    TokenUsage.client_ig_username, TokenUsage.kind,
+                    mes_col.label("mes"),
+                    func.count(TokenUsage.id),
+                    func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+                    func.coalesce(func.sum(TokenUsage.output_tokens), 0),
+                    func.coalesce(func.sum(TokenUsage.cache_read_tokens), 0),
+                    func.coalesce(func.sum(TokenUsage.cache_creation_tokens), 0),
+                    func.coalesce(func.sum(TokenUsage.costo_usd), 0.0),
+                    func.coalesce(func.sum(
+                        case((TokenUsage.intento > 1, TokenUsage.costo_usd), else_=0.0)), 0.0))
+            .filter(TokenUsage.created_at >= desde, TokenUsage.created_at < hasta)
+            .group_by(TokenUsage.account_id, TokenUsage.user_id,
+                      TokenUsage.client_ig_username, TokenUsage.kind, mes_col)
+            .all()
+        )
+
+        def _nuevo(**extra):
+            base = {"llamadas": 0, "input_tokens": 0, "output_tokens": 0,
+                    "cache_read_tokens": 0, "cache_creation_tokens": 0,
+                    "costo_usd": 0.0, "costo_reintentos_usd": 0.0}
+            base.update(extra)
+            return base
+
+        def _sumar(dst, n, tin, tout, cr, cw, costo, reint):
+            dst["llamadas"] += n
+            dst["input_tokens"] += int(tin)
+            dst["output_tokens"] += int(tout)
+            dst["cache_read_tokens"] += int(cr)
+            dst["cache_creation_tokens"] += int(cw)
+            dst["costo_usd"] += float(costo)
+            dst["costo_reintentos_usd"] += float(reint)
+
+        cuentas = {
+            a.id: _nuevo(account_id=a.id, name=a.name, crm_email=a.crm_email,
+                         active=a.active, usuarios={}, clientes={}, por_kind={},
+                         por_mes={}, estimado=0)   # llamadas resueltas por @cliente
+            for a in s.query(Account).all()
+        }
+        sin_atribuir = _nuevo(por_kind={})
+        total = _nuevo(por_mes={})
+
+        def _mes(dst, mes, n, costo):
+            m = dst["por_mes"].setdefault(mes, {"mes": mes, "llamadas": 0, "costo_usd": 0.0})
+            m["llamadas"] += n
+            m["costo_usd"] += float(costo)
+
+        for (acc_id, uid, ig, kind, mes, n, tin, tout, cr, cw, costo, reint) in filas:
+            _sumar(total, n, tin, tout, cr, cw, costo, reint)
+            _mes(total, mes, n, costo)
+            estimada = False
+            if acc_id is None:
+                acc_id = dueño.get(ig)
+                estimada = acc_id is not None
+            cuenta = cuentas.get(acc_id) if acc_id is not None else None
+            if cuenta is None:
+                _sumar(sin_atribuir, n, tin, tout, cr, cw, costo, reint)
+                sin_atribuir["por_kind"][kind] = round(
+                    sin_atribuir["por_kind"].get(kind, 0.0) + float(costo), 4)
+                continue
+
+            _sumar(cuenta, n, tin, tout, cr, cw, costo, reint)
+            _mes(cuenta, mes, n, costo)
+            if estimada:
+                cuenta["estimado"] += n
+            cuenta["por_kind"][kind] = round(
+                cuenta["por_kind"].get(kind, 0.0) + float(costo), 4)
+            if ig:
+                c = cuenta["clientes"].setdefault(ig, {"clave": ig, "llamadas": 0,
+                                                       "costo_usd": 0.0})
+                c["llamadas"] += n
+                c["costo_usd"] += float(costo)
+            # El desglose por usuario es lo que permite decir "de los $12 de esta
+            # cuenta, $9 los gastó fulano". Las filas viejas no lo tienen.
+            clave_u = uid if uid is not None else 0
+            u = cuenta["usuarios"].setdefault(
+                clave_u, _nuevo(user_id=uid,
+                                username=usuarios.get(uid) or "(sin identificar)"))
+            _sumar(u, n, tin, tout, cr, cw, costo, reint)
+
+        def _limpiar(d):
+            d["costo_usd"] = round(d["costo_usd"], 4)
+            d["costo_reintentos_usd"] = round(d["costo_reintentos_usd"], 4)
+            return d
+
+        def _serie(d):
+            """Meses ordenados cronológicamente, rellenando con cero los que no
+            tuvieron gasto: si falta el mes vacío, la comparación mes a mes
+            miente (un mes sin actividad parecía no existir)."""
+            por_mes = d.pop("por_mes", {})
+            serie, cur = [], _mes_inicio(desde)
+            fin = hasta
+            while cur < fin:
+                clave = cur.strftime("%Y-%m")
+                m = por_mes.get(clave) or {"mes": clave, "llamadas": 0, "costo_usd": 0.0}
+                serie.append({"mes": clave, "llamadas": m["llamadas"],
+                              "costo_usd": round(float(m["costo_usd"]), 4)})
+                cur = _sumar_meses(cur, 1)
+            d["por_mes"] = serie
+            return d
+
+        vendedores = []
+        for c in cuentas.values():
+            if not c["llamadas"]:
+                c.pop("por_mes", None)
+                continue          # cuentas que no gastaron nada no ensucian la tabla
+            _serie(c)
+            c["usuarios"] = sorted((_limpiar(u) for u in c["usuarios"].values()),
+                                   key=lambda u: -u["costo_usd"])
+            c["clientes"] = sorted(
+                ({"clave": v["clave"], "llamadas": v["llamadas"],
+                  "costo_usd": round(v["costo_usd"], 4)}
+                 for v in c["clientes"].values()),
+                key=lambda v: -v["costo_usd"])[:10]
+            vendedores.append(_limpiar(c))
+        vendedores.sort(key=lambda v: -v["costo_usd"])
+
+        return {
+            # El rango que se usó DE VERDAD (el front pudo no mandar ninguno, o
+            # mandar uno inválido): así el título dice lo que se está mirando.
+            "desde": desde.strftime("%Y-%m-%d"),
+            # `hasta` es exclusivo internamente; afuera se devuelve el último día
+            # incluido, que es lo que el usuario eligió y espera ver.
+            "hasta": (hasta - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "total": _serie(_limpiar(total)),
+            "vendedores": vendedores,
+            "sin_atribuir": _limpiar(sin_atribuir),
+        }
+
+
 # ── Caché persistente de posts ────────────────────────────────────────────────
 
 # Un post no cambia: la imagen, la transcripción y la descripción son las mismas
