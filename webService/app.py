@@ -696,6 +696,19 @@ def followers_page():
     return resp
 
 
+@app.route("/ayuda")
+def ayuda_page():
+    """Guía de uso y preguntas frecuentes. Es la pantalla que se le pasa a todo
+    cliente nuevo: estática, sin llamadas a la API, sólo lectura."""
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    return render_template(
+        "ayuda.html",
+        is_admin=session.get("is_admin", False),
+        username=session.get("username", ""),
+    )
+
+
 @app.route("/api/procesar", methods=["POST"])
 @require_login
 def procesar():
@@ -1846,10 +1859,28 @@ def tokens():
     if hasta is not None:
         hasta = hasta + timedelta(days=1)
     try:
-        return jsonify(_repo.gasto_por_vendedor(desde=desde, hasta=hasta) or vacio)
+        datos = _repo.gasto_por_vendedor(desde=desde, hasta=hasta) or dict(vacio)
     except Exception as e:
         print(f"[tokens] no pude calcular el gasto: {e!r}", flush=True)
         return jsonify({"error": "No pude calcular el gasto de IA"}), 500
+
+    # Lo que Anthropic facturó de verdad, para contrastar con nuestro estimado.
+    # Nunca puede tumbar el endpoint: el gasto por vendedor ya está calculado y
+    # es lo que el admin vino a ver.
+    try:
+        import anthropic_costs
+        datos["facturado"] = anthropic_costs.facturado(datos["desde"],
+                                                       _rango_exclusivo(datos["hasta"]))
+    except Exception as e:
+        print(f"[tokens] no pude traer el facturado: {e!r}", flush=True)
+        datos["facturado"] = {"disponible": False, "motivo": "no se pudo consultar"}
+    return jsonify(datos)
+
+
+def _rango_exclusivo(hasta_inclusivo: str) -> str:
+    """El panel habla en fechas inclusivas y la API de costos en exclusivas."""
+    from datetime import datetime, timedelta as _td
+    return (datetime.strptime(hasta_inclusivo, "%Y-%m-%d") + _td(days=1)).strftime("%Y-%m-%d")
 
 
 @app.route("/api/cantidades_usadas", methods=["GET"])

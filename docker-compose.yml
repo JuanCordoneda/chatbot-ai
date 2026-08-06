@@ -63,6 +63,7 @@ services:
         condition: service_started
     volumes:
       - ./webService/app.py:/app/app.py
+      - ./webService/anthropic_costs.py:/app/anthropic_costs.py
       - ./webService/templates:/app/templates
       - ./webService/static:/app/static
       - ./common:/app/common

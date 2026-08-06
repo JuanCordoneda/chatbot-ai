@@ -2023,6 +2023,29 @@ function renderTokChart(serie) {
   }).join("");
 }
 
+// Lo que Anthropic facturó, al lado de lo que estimamos. La brecha es la señal:
+// si se abre, la tabla de precios del código quedó vieja (o alguien más está
+// usando la misma API key).
+function kpiFacturado(f, estimado) {
+  if (!f || !f.disponible) {
+    return `<div class="ax-tok-kpi"><b>—</b><span>Facturado: falta ANTHROPIC_ADMIN_KEY</span></div>`;
+  }
+  if (f.error) {
+    return `<div class="ax-tok-kpi ax-tok-kpi--warn"><b>—</b><span>${esc(f.error)}</span></div>`;
+  }
+  const real = Number(f.total_usd || 0);
+  // La desviación se mide contra lo facturado (es el número verdadero), y sólo
+  // se muestra si hay algo que comparar: con $0 facturado el porcentaje es
+  // infinito y no dice nada.
+  const desvio = real ? ((estimado - real) / real) * 100 : null;
+  const alerta = desvio !== null && Math.abs(desvio) >= 10;
+  const signo = desvio > 0 ? "+" : "";
+  return `<div class="ax-tok-kpi ${alerta ? "ax-tok-kpi--warn" : ""}">
+    <b>${usd(real)}</b>
+    <span>Facturado por Anthropic${desvio !== null ? ` · estimamos ${signo}${desvio.toFixed(0)}%` : ""}</span>
+  </div>`;
+}
+
 function renderTokens(d) {
   const box = document.getElementById("tokens-list");
   const kpis = document.getElementById("tok-kpis");
@@ -2040,7 +2063,8 @@ function renderTokens(d) {
   const prom = meses.length > 1
     ? meses.reduce((s, m) => s + m.costo_usd, 0) / meses.length : 0;
   kpis.innerHTML = [
-    `<div class="ax-tok-kpi"><b>${usd(total.costo_usd)}</b><span>Gasto total · ${esc(rango)}</span></div>`,
+    `<div class="ax-tok-kpi"><b>${usd(total.costo_usd)}</b><span>Gasto estimado · ${esc(rango)}</span></div>`,
+    kpiFacturado(d.facturado, total.costo_usd),
     prom ? `<div class="ax-tok-kpi"><b>${usd(prom)}</b><span>Promedio por mes (${meses.length} meses con gasto)</span></div>` : "",
     `<div class="ax-tok-kpi"><b>${miles(total.llamadas)}</b><span>Llamadas a la IA</span></div>`,
     `<div class="ax-tok-kpi"><b>${miles(total.input_tokens)} / ${miles(total.output_tokens)}</b><span>Tokens entrada / salida</span></div>`,
