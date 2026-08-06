@@ -499,9 +499,20 @@ _VISION_EN_GENERACION = os.environ.get("CROW_VISION_EN_GENERACION", "1").strip()
 def _extra_body(modo_keyword: bool) -> dict:
     """Los kwargs de thinking/effort que el SDK pineado (anthropic 0.54.0) no
     expone. En modo keyword no hay nada que planear (es la misma palabra N veces):
-    pensar solo suma latencia y tokens."""
+    pensar solo suma latencia y tokens.
+
+    OJO — apagar el thinking es mandar `disabled` EXPLÍCITO, no omitir el campo.
+    En claude-sonnet-5 (y en opus-5) el adaptive es el DEFAULT: si no se manda
+    nada, el modelo piensa igual y se paga igual. Omitirlo solo apagaba el
+    thinking en la generación de opus-4-8 y anteriores. Por eso el modo keyword
+    venía pensando —y pagando— para escribir la misma palabra 15 veces.
+
+    Cuando se apaga no se manda `effort`: en opus-5 la combinación de thinking
+    apagado con effort xhigh/max devuelve 400, y sin el campo queda en el default
+    (high), que es válido en todos los modelos.
+    """
     if modo_keyword or _THINKING in ("off", "0", "no", "disabled", ""):
-        return {}
+        return {"thinking": {"type": "disabled"}}
     return {"thinking": {"type": "adaptive"},
             "output_config": {"effort": _EFFORT}}
 
