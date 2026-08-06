@@ -3,87 +3,138 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GROWI — Guía</title>
+  <title>GROWI — Cómo cargar un cliente</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v=1785889200" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="GROWI — Guía" />
-  <meta property="og:description" content="Las reglas del sistema y las dudas frecuentes." />
+  <meta property="og:title" content="GROWI — Cómo cargar un cliente" />
+  <meta property="og:description" content="Onboarding paso a paso." />
   <meta property="og:image" content="/static/og-thumb.png?v=1" />
   <style>
-    /* Pantalla de sólo lectura. Dos columnas en desktop: el índice fijo a la
-       izquierda y el contenido a la derecha; una sola columna abajo de 900px.
-       No carga app.js, así que tema y buscador viven al final del archivo. */
-    .hp-main { max-width: 1020px; padding-top: 6px; }
+    /* Onboarding. Pantalla de sólo lectura: no carga app.js ni admin.js, así que
+       el tema y el buscador viven al final del archivo.
 
-    .hp-head { margin: 6px 0 22px; }
-    .hp-head h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; }
-    .hp-head p { margin-top: 5px; font-size: .87rem; color: var(--faint); }
+       CAPTURAS: son de la interfaz real, con clientes de demo. Se regeneran
+       con scripts/capturas_onboarding (harness.py + shoot.py) cada vez que
+       cambia el panel. */
+    .ob-main { max-width: 1060px; }
 
-    .hp-cols { display: grid; grid-template-columns: 176px 1fr; gap: 34px; align-items: start; }
+    .ob-head { margin: 4px 0 20px; }
+    .ob-kicker { font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--yellow); }
+    .ob-head h1 { font-size: 1.62rem; font-weight: 800; letter-spacing: -.02em; margin-top: 7px; }
+    .ob-head p { margin-top: 6px; font-size: .88rem; color: var(--faint); max-width: 60ch; }
+
+    .ob-cols { display: grid; grid-template-columns: 188px 1fr; gap: 36px; align-items: start; }
 
     /* Índice ── */
-    .hp-nav { position: sticky; top: 18px; display: grid; gap: 1px; }
-    .hp-nav a { font-size: .82rem; font-weight: 600; color: var(--faint); text-decoration: none;
-      padding: 7px 10px; border-radius: 8px; border-left: 2px solid transparent; }
-    .hp-nav a:hover { color: var(--text); background: var(--surface); }
-    .hp-nav a.on { color: var(--text); border-left-color: var(--yellow); background: var(--surface); }
+    .ob-nav { position: sticky; top: 18px; }
+    .ob-nav-t { font-size: .68rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase;
+      color: var(--faint); margin: 0 0 9px 10px; }
+    .ob-nav a { display: flex; gap: 8px; align-items: baseline; font-size: .81rem; font-weight: 600;
+      color: var(--faint); text-decoration: none; padding: 6px 10px; border-radius: 8px;
+      border-left: 2px solid transparent; }
+    .ob-nav a i { font-style: normal; font-size: .72rem; opacity: .7; min-width: 12px; }
+    .ob-nav a:hover { color: var(--text); background: var(--surface); }
+    .ob-nav a.on { color: var(--text); background: var(--surface); border-left-color: var(--yellow); }
+    .ob-nav-sep { height: 1px; background: var(--border); margin: 10px 10px; }
 
-    /* Buscador ── */
-    .hp-search { position: relative; margin-bottom: 22px; }
-    .hp-search input { width: 100%; background: var(--surface); border: 1px solid var(--border);
-      border-radius: 11px; color: var(--text); font-family: var(--font); font-size: .87rem;
-      padding: 11px 34px 11px 36px; outline: none; }
-    .hp-search input:focus { border-color: var(--yellow); }
-    .hp-search input::placeholder { color: var(--faint); }
-    .hp-search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--faint); }
-    .hp-x { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none;
-      border: 0; color: var(--faint); font-size: .95rem; cursor: pointer; padding: 6px; line-height: 1; }
-    .hp-x[hidden] { display: none; }
+    /* Pasos ── */
+    .ob-step { display: grid; grid-template-columns: 30px 1fr; gap: 16px; padding-bottom: 30px;
+      position: relative; scroll-margin-top: 20px; }
+    /* La línea del timeline une un paso con el siguiente; el último no la lleva. */
+    .ob-step::before { content: ""; position: absolute; left: 14px; top: 34px; bottom: 4px;
+      width: 1px; background: var(--border); }
+    .ob-step:last-of-type::before { display: none; }
+    .ob-num { width: 29px; height: 29px; border-radius: 50%; background: var(--surface2);
+      border: 1px solid var(--border); color: var(--text); font-size: .82rem; font-weight: 800;
+      display: grid; place-items: center; position: relative; z-index: 1; }
+    .ob-step h3 { font-size: 1.01rem; font-weight: 750; letter-spacing: -.01em; }
+    .ob-step > div > p { margin-top: 6px; font-size: .87rem; color: var(--muted); line-height: 1.65; max-width: 68ch; }
+    .ob-step p b { color: var(--text); font-weight: 650; }
+    .ob-where { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: .74rem;
+      color: var(--faint); background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; padding: 4px 9px; }
+    .ob-where b { color: var(--text); font-weight: 650; }
 
-    /* Bloques ── */
-    .hp-sec { margin-bottom: 34px; scroll-margin-top: 24px; }
-    .hp-sec[hidden] { display: none; }
-    .hp-sec > h2 { font-size: .74rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase;
+    /* Aviso puntual dentro de un paso. */
+    .ob-tip { display: flex; gap: 9px; margin-top: 11px; font-size: .82rem; color: var(--muted);
+      line-height: 1.6; background: var(--yellow-lo); border: 1px solid var(--yellow-md);
+      border-radius: 11px; padding: 11px 13px; max-width: 68ch; }
+    .ob-tip b { color: var(--text); }
+    .ob-tip-ico { color: var(--yellow); font-weight: 800; }
+
+    /* Captura del paso. Hay una versión por tema: la del tema activo es la que
+       se muestra (las PNG las genera scripts/capturas_onboarding). */
+    .ob-fig { margin: 13px 0 0; max-width: 660px; }
+    .ob-fig img { display: block; width: 100%; border: 1px solid var(--border);
+      border-radius: 12px; cursor: zoom-in; }
+    .ob-fig img:hover { border-color: var(--yellow-md); }
+    body:not(.light) .ob-light, body.light .ob-dark { display: none; }
+    .ob-cap { margin-top: 7px; font-size: .74rem; color: var(--faint); }
+
+    /* Lightbox: las capturas de pantalla completa no se leen a 660px. */
+    .ob-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.86); z-index: 90;
+      display: none; align-items: center; justify-content: center; padding: 28px; cursor: zoom-out; }
+    .ob-zoom.on { display: flex; }
+    .ob-zoom img { max-width: 100%; max-height: 100%; border-radius: 12px;
+      border: 1px solid var(--border2); }
+
+    /* ── Checklist ── */
+    .ob-check { border: 1px solid var(--border); border-radius: 14px; background: var(--surface);
+      padding: 18px 20px; margin: 4px 0 34px; }
+    .ob-check h3 { font-size: .95rem; font-weight: 750; margin-bottom: 11px; }
+    .ob-check label { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0;
+      font-size: .85rem; color: var(--muted); cursor: pointer; }
+    .ob-check input { accent-color: var(--yellow); margin-top: 2px; }
+    .ob-check input:checked + span { color: var(--faint); text-decoration: line-through; }
+
+    /* ── FAQ ── */
+    .ob-sec { margin-bottom: 30px; scroll-margin-top: 20px; }
+    .ob-sec[hidden] { display: none; }
+    .ob-sec > h2 { font-size: .74rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase;
       color: var(--faint); margin-bottom: 12px; }
-
-    /* Reglas: lo que el sistema hace solo y no se deduce mirando la pantalla. */
-    .hp-rules { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .hp-rule { background: var(--surface); border: 1px solid var(--border); border-radius: 13px; padding: 15px 17px; }
-    .hp-rule[hidden] { display: none; }
-    .hp-rule b { display: block; font-size: .88rem; font-weight: 700; margin-bottom: 5px; }
-    .hp-rule span { font-size: .83rem; color: var(--muted); line-height: 1.6; }
-    .hp-rule em { font-style: normal; color: var(--yellow); font-weight: 600; }
-
-    /* Preguntas: <details> nativo, sin JS para abrir y cerrar. */
-    .hp-q { border-bottom: 1px solid var(--border); }
-    .hp-q[hidden] { display: none; }
-    .hp-q > summary { cursor: pointer; list-style: none; padding: 13px 26px 13px 0; position: relative;
-      font-size: .89rem; font-weight: 600; color: var(--text); }
-    .hp-q > summary::-webkit-details-marker { display: none; }
-    .hp-q > summary::after { content: ""; position: absolute; right: 6px; top: 50%; width: 7px; height: 7px;
+    .ob-q { border-bottom: 1px solid var(--border); }
+    .ob-q[hidden] { display: none; }
+    .ob-q > summary { cursor: pointer; list-style: none; padding: 12px 26px 12px 0; position: relative;
+      font-size: .87rem; font-weight: 600; }
+    .ob-q > summary::-webkit-details-marker { display: none; }
+    .ob-q > summary::after { content: ""; position: absolute; right: 6px; top: 50%; width: 7px; height: 7px;
       border-right: 1.6px solid var(--faint); border-bottom: 1.6px solid var(--faint);
       transform: translateY(-70%) rotate(45deg); transition: transform .15s; }
-    .hp-q[open] > summary::after { transform: translateY(-20%) rotate(-135deg); border-color: var(--yellow); }
-    .hp-q > summary:hover { color: var(--yellow); }
-    .hp-a { padding: 0 30px 15px 0; font-size: .85rem; color: var(--muted); line-height: 1.7; }
-    .hp-a b { color: var(--text); font-weight: 650; }
-    .hp-a code { background: var(--surface2); border-radius: 5px; padding: 1px 5px; font-size: .8rem; }
+    .ob-q[open] > summary::after { transform: translateY(-20%) rotate(-135deg); border-color: var(--yellow); }
+    .ob-q > summary:hover { color: var(--yellow); }
+    .ob-a { padding: 0 30px 14px 0; font-size: .84rem; color: var(--muted); line-height: 1.7; max-width: 72ch; }
+    .ob-a b { color: var(--text); font-weight: 650; }
+    .ob-a code { background: var(--surface2); border-radius: 5px; padding: 1px 5px; font-size: .79rem; }
 
-    .hp-empty { display: none; color: var(--faint); font-size: .87rem; padding: 30px 0; }
-    .hp-empty.on { display: block; }
-    .hp-foot { margin: 34px 0 6px; font-size: .78rem; color: var(--faint); }
-    .hp-foot a { color: var(--yellow); text-decoration: none; font-weight: 600; }
+    /* ── Buscador (sólo filtra el FAQ) ── */
+    .ob-search { position: relative; margin-bottom: 14px; max-width: 420px; }
+    .ob-search input { width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-family: var(--font); font-size: .84rem;
+      padding: 9px 30px 9px 33px; outline: none; }
+    .ob-search input:focus { border-color: var(--yellow); }
+    .ob-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--faint); }
+    .ob-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none;
+      border: 0; color: var(--faint); cursor: pointer; padding: 6px; line-height: 1; }
+    .ob-x[hidden] { display: none; }
+    .ob-empty { display: none; color: var(--faint); font-size: .85rem; padding: 16px 0; }
+    .ob-empty.on { display: block; }
+
+    .ob-foot { margin: 26px 0 6px; font-size: .78rem; color: var(--faint); }
+    .ob-foot a { color: var(--yellow); text-decoration: none; font-weight: 600; }
 
     @media (max-width: 900px) {
-      .hp-cols { grid-template-columns: 1fr; gap: 18px; }
-      .hp-nav { position: static; display: flex; flex-wrap: wrap; gap: 6px; }
-      .hp-nav a { border-left: 0; background: var(--surface); border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px; }
-      .hp-nav a.on { border-color: var(--yellow); }
-      .hp-rules { grid-template-columns: 1fr; }
+      .ob-cols { grid-template-columns: 1fr; gap: 18px; }
+      .ob-nav { position: static; display: flex; flex-wrap: wrap; gap: 6px; }
+      .ob-nav-t, .ob-nav-sep { display: none; }
+      .ob-nav a { border-left: 0; border: 1px solid var(--border); border-radius: 999px; padding: 6px 11px; }
+      .ob-nav a.on { border-color: var(--yellow); }
+      .ob-step { grid-template-columns: 24px 1fr; gap: 12px; }
+      .ob-step::before { left: 11px; }
+      .ob-num { width: 23px; height: 23px; font-size: .74rem; }
     }
   </style>
 </head>
@@ -94,7 +145,7 @@
       <div class="header-left">
         <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
         <span class="header-sep"></span>
-        <span class="header-tag">Guía</span>
+        <span class="header-tag">Onboarding</span>
         {% if username %}
         <span class="header-sep"></span>
         <span class="header-user" title="Sesión iniciada como {{ username }}">
@@ -105,17 +156,17 @@
       </div>
       <div class="header-actions">
         <div class="header-btn-group">
-          <a class="header-action-btn header-action-btn--primary" href="/" title="Generador de comentarios">
+          <a class="header-action-btn header-action-btn--primary" href="{% if is_admin %}/admin{% else %}/mis-clientes{% endif %}" title="Ir a cargar clientes">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <span>{% if is_admin %}Admin{% else %}Mis clientes{% endif %}</span>
+          </a>
+          <a class="header-action-btn" href="/" title="Generador de comentarios">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
             <span>Comentarios</span>
           </a>
           <a class="header-action-btn" href="/followers" title="Enviar followers a un perfil">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 8a2.3 2.3 0 100-4.6A2.3 2.3 0 006 8z" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13c.6-2 2.4-3 4.5-3s3.9 1 4.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12.5 4.5v4M14.5 6.5h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
             <span>Followers</span>
-          </a>
-          <a class="header-action-btn" href="{% if is_admin %}/admin{% else %}/mis-clientes{% endif %}" title="{% if is_admin %}Panel de administración{% else %}Mis clientes y sus prompts{% endif %}">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            <span>{% if is_admin %}Admin{% else %}Mis clientes{% endif %}</span>
           </a>
           <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
           <a class="header-action-btn" href="/logout" title="Cerrar sesión">
@@ -126,167 +177,244 @@
       </div>
     </header>
 
-    <main class="main hp-main">
+    <main class="main ob-main">
 
-      <div class="hp-head">
-        <h1>Guía</h1>
-        <p>Las reglas que el sistema aplica solo, y lo que se pregunta seguido.</p>
+      <div class="ob-head">
+        <div class="ob-kicker">Onboarding</div>
+        <h1>Cargar un cliente, de principio a fin</h1>
+        <p>Ocho pasos. Al final tenés una ficha lista y el primer post generándose.</p>
       </div>
 
-      <div class="hp-cols">
+      <div class="ob-cols">
 
-        <nav class="hp-nav" id="hp-nav">
-          <a href="#reglas" class="on">Reglas del sistema</a>
-          <a href="#comentarios">Comentarios</a>
-          <a href="#trafico">Tráfico</a>
-          <a href="#clientes">Clientes</a>
-          <a href="#errores">Errores</a>
+        <nav class="ob-nav" id="ob-nav">
+          <p class="ob-nav-t">Los pasos</p>
+          <a href="#p1" class="on"><i>1</i>Abrir la lista</a>
+          <a href="#p2"><i>2</i>Nuevo cliente</a>
+          <a href="#p3"><i>3</i>Identidad</a>
+          <a href="#p4"><i>4</i>El prompt</a>
+          <a href="#p5"><i>5</i>Calidad</a>
+          <a href="#p6"><i>6</i>Cuántos comentarios</a>
+          <a href="#p7"><i>7</i>Campaña y rangos</a>
+          <a href="#p8"><i>8</i>Guardar y probar</a>
+          <div class="ob-nav-sep"></div>
+          <a href="#checklist"><i>✓</i>Checklist</a>
+          <a href="#faq"><i>?</i>Preguntas</a>
         </nav>
 
         <div>
-          <!-- Con ~20 respuestas, buscar dos palabras es más rápido que leer. -->
-          <div class="hp-search">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            <input type="text" id="hp-input" placeholder="Buscar: tandas, saldo, palabra clave…" autocomplete="off" spellcheck="false" oninput="filtrarAyuda()" />
-            <button type="button" class="hp-x" id="hp-clear" hidden onclick="limpiarBusqueda()" aria-label="Borrar">✕</button>
-          </div>
 
-          <p class="hp-empty" id="hp-empty">Sin resultados.</p>
-
-          <section class="hp-sec" id="reglas">
-            <h2>Reglas del sistema</h2>
-            <div class="hp-rules">
-              <div class="hp-rule">
-                <b>Los comunes salen en 2 tandas</b>
-                <span>Mitad al publicar y mitad en el próximo turno: <em>10:00</em> si publicaste a la tarde, <em>19:00</em> si fue a la mañana. Tope de <em>80 por día</em>. Los verificados salen todos juntos, al instante.</span>
-              </div>
-              <div class="hp-rule">
-                <b>Los comentarios no gastan saldo</b>
-                <span>El saldo de la campaña se consume sólo con el tráfico: followers, likes, views. Podés comentar aunque la campaña esté en cero.</span>
-              </div>
-              <div class="hp-rule">
-                <b>Las cantidades se eligen al azar</b>
-                <span>Si el cliente tiene rangos cargados, GROWI completa solo un número dentro del rango cada vez. Es a propósito: números idénticos se notan. Podés cambiarlo antes de publicar.</span>
-              </div>
-              <div class="hp-rule">
-                <b>La palabra clave la detecta del pie de página</b>
-                <span>Aparece sola en los clientes marcados así, no se activa a mano. Queda editable: <em>revisala</em> — 40 comentarios con la palabra equivocada no se arreglan después.</span>
-              </div>
-              <div class="hp-rule">
-                <b>Los cambios de ficha son inmediatos</b>
-                <span>Prompt, rangos y calidad se guardan en la base y el motor los usa en el próximo post. No hay que publicar ni reiniciar nada.</span>
-              </div>
-              <div class="hp-rule">
-                <b>Cada vendedor ve sólo sus clientes</b>
-                <span>Las fichas, las órdenes en cola y el consumo están acotados a tu cuenta. El administrador ve todas.</span>
-              </div>
+          <!-- ── 1 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p1">
+            <div class="ob-num">1</div>
+            <div>
+              <h3>Abrí la lista de clientes</h3>
+              <p>Es la pantalla donde vive todo: una ficha por cada cuenta de Instagram que atendés. Si recién arrancás, está vacía.</p>
+              <div class="ob-where">📍 Header → <b>{% if is_admin %}Admin{% else %}Mis clientes{% endif %}</b></div>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-1.png?v=1" alt="Paso 1" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-1-light.png?v=1" alt="Paso 1" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">La lista de clientes. La etiqueta de la derecha te dice qué le falta a cada uno: <b>Sin prompt</b> es una ficha a medio cargar, y el aviso amarillo marca las campañas sin saldo.</p>
             </div>
           </section>
 
-          <section class="hp-sec" id="comentarios">
-            <h2>Comentarios</h2>
-
-            <details class="hp-q">
-              <summary>¿Para qué sirve el bloque de contexto arriba de la lista?</summary>
-              <div class="hp-a">Es lo que la IA leyó del post: pie de página, descripción de la imagen y transcripción del video. Si los comentarios salieron fuera de tema, mirá ahí primero — casi siempre el problema es que el video no decía lo que parecía.</div>
-            </details>
-
-            <details class="hp-q">
-              <summary>¿Cómo marco muchos sin ir de a uno?</summary>
-              <div class="hp-a">Escribí cuántos <b>verificados</b> y cuántos <b>comunes</b> querés y tocá <b>🎲 Elegirlos solo</b>: los marca al azar por vos. Para bloques, <b>Shift+click</b>. Si hay textos repetidos aparece <b>Desmarcar repetidos</b>.</div>
-            </details>
-
-            <details class="hp-q">
-              <summary>Me quedaron pocos comentarios usables</summary>
-              <div class="hp-a"><b>+ Cargar más</b> genera otra tanda sin perder la selección actual. También podés editar cualquiera haciendo click sobre el texto, o sumar uno propio con <b>+ Agregar</b>.</div>
-            </details>
-
-            <details class="hp-q">
-              <summary>¿Qué diferencia hay entre calidad Estándar y Pro?</summary>
-              <div class="hp-a">Se configura por cliente. <b>Pro</b> usa un motor más caro y da comentarios más elaborados; <b>Estándar</b> alcanza para la mayoría. Se paga en consumo de IA, no en saldo de campaña.</div>
-            </details>
+          <!-- ── 2 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p2">
+            <div class="ob-num">2</div>
+            <div>
+              <h3>Tocá “Nuevo cliente”</h3>
+              <p>Se abre la ficha en dos columnas: a la izquierda los datos, a la derecha el prompt. Se cierra con <b>Esc</b>, pero nada se guarda hasta que toques Guardar.</p>
+              <div class="ob-tip"><span class="ob-tip-ico">!</span><span>Antes de cargar nada, pedile al cliente tres cosas: el <b>@usuario</b> exacto, <b>cómo quiere sonar</b> en los comentarios y <b>qué no quiere</b> que se diga nunca. Sin eso el prompt sale genérico.</span></div>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-2.png?v=1" alt="Paso 2" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-2-light.png?v=1" alt="Paso 2" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">La ficha en blanco: identidad, comentarios y tráfico, todo en la misma pantalla.</p>
+            </div>
           </section>
 
-          <section class="hp-sec" id="trafico">
-            <h2>Tráfico</h2>
+          <!-- ── 3 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p3">
+            <div class="ob-num">3</div>
+            <div>
+              <h3>Identidad</h3>
+              <p>El <b>@usuario</b> es lo único que no se puede errar: es con lo que GROWI reconoce los posts de este cliente. Si no coincide, cada vez que pegues un link te va a decir que el post no es de ningún cliente tuyo.</p>
+              <p>El <b>género</b> define desde qué voz escribe la IA. Dejalo en mixto salvo que la audiencia esté marcada.</p>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-3.png?v=1" alt="Paso 3" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-3-light.png?v=1" alt="Paso 3" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">El @usuario va sin la arroba y sin espacios, igual que en Instagram.</p>
+            </div>
+          </section>
 
-            <details class="hp-q">
+          <!-- ── 4 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p4">
+            <div class="ob-num">4</div>
+            <div>
+              <h3>Escribí el prompt</h3>
+              <p>Es lo que decide el resultado. Escribí lo que la IA no puede adivinar mirando el post: <b>quién comenta</b>, <b>en qué tono</b>, <b>largo</b>, si van emojis, y sobre todo <b>qué está prohibido</b>. Las prohibiciones son las que más mejoran la salida.</p>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-4.png?v=1" alt="Paso 4" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-4-light.png?v=1" alt="Paso 4" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">El editor a pantalla completa (⌥E). Abajo, el check de palabra clave: prendelo sólo si los posts de este cliente piden comentar una palabra.</p>
+              <div class="ob-tip"><span class="ob-tip-ico">🔑</span><span>Tildá <b>palabra clave</b> sólo si los posts de este cliente piden comentar una palabra (“comentá CLAUDE y te mando el PDF”). Con eso tildado el prompt se ignora: los comentarios son esa palabra repetida.</span></div>
+            </div>
+          </section>
+
+          <!-- ── 5 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p5">
+            <div class="ob-num">5</div>
+            <div>
+              <h3>Elegí la calidad del motor</h3>
+              <p><b>Estándar</b> alcanza para la mayoría. <b>Pro</b> da comentarios más elaborados y cuesta más en consumo de IA — reservalo para los clientes que leen los comentarios uno por uno.</p>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-5.png?v=1" alt="Paso 5" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-5-light.png?v=1" alt="Paso 5" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">Se cambia cuando querés: no rompe nada de lo ya generado.</p>
+            </div>
+          </section>
+
+          <!-- ── 6 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p6">
+            <div class="ob-num">6</div>
+            <div>
+              <h3>Cuántos comentarios manda por post</h3>
+              <p>Se carga un <b>rango</b>, no un número: GROWI elige uno al azar dentro del rango cada vez que abrís un post, y vos lo podés cambiar antes de publicar. Si lo dejás vacío, cargás el número a mano siempre.</p>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-6.png?v=1" alt="Paso 6" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-6-light.png?v=1" alt="Paso 6" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">Cargado así, cada post sale con entre 6 y 10 verificados y entre 20 y 40 comunes.</p>
+              <div class="ob-tip"><span class="ob-tip-ico">⏰</span><span>Los <b>comunes</b> nunca salen juntos: la mitad al publicar y la mitad en el próximo turno (10:00 si publicaste a la tarde, 19:00 si fue a la mañana). Tope de 80 por día.</span></div>
+            </div>
+          </section>
+
+          <!-- ── 7 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p7">
+            <div class="ob-num">7</div>
+            <div>
+              <h3>De dónde sale la plata y cuánto tráfico manda</h3>
+              <p>Elegí la <b>campaña</b> del cliente: de ahí se descuenta cada envío de tráfico. Sin campaña asignada, cada vez que armes una orden te va a preguntar de cuál descontar.</p>
+              <p>Después prendé los tipos que le mandás — likes, views, saves — y poné un rango a cada uno. Con <b>+ otra calidad</b> el mismo post puede llevar dos calidades del mismo producto.</p>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-7.png?v=1" alt="Paso 7" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-7-light.png?v=1" alt="Paso 7" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">Con dos tipos prendidos, cada post de este cliente precrea dos órdenes de tráfico solas.</p>
+            </div>
+          </section>
+
+          <!-- ── 8 ─────────────────────────────────────────────────────── -->
+          <section class="ob-step" id="p8">
+            <div class="ob-num">8</div>
+            <div>
+              <h3>Guardá y probá con un post real</h3>
+              <p>Los cambios impactan al instante: no hay que publicar ni reiniciar nada. Andá al generador, pegá un post de ese cliente y fijate que arriba de la lista aparezca su nombre — eso confirma que el @usuario quedó bien.</p>
+              <p>Leé los primeros comentarios antes de publicar. Si no suenan al cliente, el prompt necesita otra vuelta: es normal ajustarlo dos o tres veces la primera semana.</p>
+              <div class="ob-where">📍 Header → <b>Comentarios</b> → pegar el link</div>
+              <figure class="ob-fig">
+                <img class="ob-dark" src="/static/onboarding/paso-8.png?v=1" alt="Paso 8" onclick="zoom(this)" />
+                <img class="ob-light" src="/static/onboarding/paso-8-light.png?v=1" alt="Paso 8" onclick="zoom(this)" />
+              </figure>
+              <p class="ob-cap">El generador. Pegás el link y, si el post es de un cliente cargado, su nombre aparece arriba de la lista de comentarios.</p>
+            </div>
+          </section>
+
+          <!-- ── Checklist ─────────────────────────────────────────────── -->
+          <div class="ob-check" id="checklist">
+            <h3>Antes de dar el cliente por cargado</h3>
+            <label><input type="checkbox" /><span>El @usuario es idéntico al de Instagram, sin la @ ni espacios</span></label>
+            <label><input type="checkbox" /><span>El prompt dice qué <b>no</b> hacer, no sólo qué hacer</span></label>
+            <label><input type="checkbox" /><span>Los rangos de verificados y comunes están cargados</span></label>
+            <label><input type="checkbox" /><span>Tiene campaña asignada y saldo suficiente</span></label>
+            <label><input type="checkbox" /><span>Generaste un post de prueba y el nombre del cliente aparece arriba</span></label>
+          </div>
+
+          <!-- ── FAQ ───────────────────────────────────────────────────── -->
+          <section class="ob-sec" id="faq">
+            <h2>Preguntas frecuentes</h2>
+
+            <div class="ob-search">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              <input type="text" id="ob-input" placeholder="Buscar: tandas, saldo, cola…" autocomplete="off" spellcheck="false" oninput="filtrarFaq()" />
+              <button type="button" class="ob-x" id="ob-clear" hidden onclick="limpiarBusqueda()" aria-label="Borrar">✕</button>
+            </div>
+            <p class="ob-empty" id="ob-empty">Sin resultados.</p>
+
+            <details class="ob-q">
+              <summary>Cambié el prompt, ¿cuándo aplica?</summary>
+              <div class="ob-a">En el próximo post que generes. Nada se cachea ni hay que reiniciar.</div>
+            </details>
+
+            <details class="ob-q">
               <summary>“Esta publicación no es de ningún cliente tuyo”</summary>
-              <div class="hp-a">El @usuario del post no coincide con ninguna ficha tuya, así que hay que elegir a mano <b>de qué campaña se descuenta</b>. Si el post sí es de un cliente tuyo, cargalo en <b>Mis clientes</b> y deja de preguntar.</div>
+              <div class="ob-a">El @usuario del post no coincide con ninguna ficha tuya. Corregilo en la ficha, o elegí a mano de qué campaña se descuenta ese envío.</div>
             </details>
 
-            <details class="hp-q">
-              <summary>No alcanza el saldo de la campaña</summary>
-              <div class="hp-a">El selector muestra el disponible de cada una: elegí otra, bajá la cantidad o pedí recarga. Los comentarios se publican igual.</div>
-            </details>
-
-            <details class="hp-q">
-              <summary>¿Qué hace “Dividir en 3” y “Dividir en 5”?</summary>
-              <div class="hp-a">Parte la cantidad en 3 o 5 órdenes espaciadas por el intervalo que elijas, en minutos (mínimo <b>45</b>) o en días. Sirve para que el crecimiento no sea un escalón.</div>
-            </details>
-
-            <details class="hp-q">
-              <summary>Mandé la orden y no aparece en el panel</summary>
-              <div class="hp-a">Si el panel estaba caído queda en la pestaña <b>En cola</b> y se reintenta sola; desde ahí la ves y la cancelás. <b>No la vuelvas a cargar</b>: se duplica. Una vez que salió al panel, se cancela desde el panel.</div>
-            </details>
-
-            <details class="hp-q">
-              <summary>Followers no me deja pegar el link</summary>
-              <div class="hp-a">Es el link del <b>perfil</b>, no de un post: <code>instagram.com/usuario</code> o <code>@usuario</code>.</div>
-            </details>
-          </section>
-
-          <section class="hp-sec" id="clientes">
-            <h2>Clientes</h2>
-
-            <details class="hp-q">
+            <details class="ob-q">
               <summary>El prompt no me da los comentarios que quiero</summary>
-              <div class="hp-a">Escribí lo que la IA no puede adivinar: tono, palabras que el cliente nunca usaría, si van con emojis, largo aproximado. Si aun así no sale, usá <b>Pedir un ajuste</b>: le llega al administrador con tu texto y él lo corrige.</div>
+              <div class="ob-a">Agregá prohibiciones concretas y un ejemplo de comentario bueno. Si aun así no sale, usá <b>Pedir un ajuste</b>: le llega al administrador con tu texto y él lo corrige.</div>
             </details>
 
-            <details class="hp-q">
-              <summary>¿Qué pasa si dejo los rangos vacíos?</summary>
-              <div class="hp-a">Nada se autocompleta y cargás la cantidad a mano en cada post.</div>
+            <details class="ob-q">
+              <summary>¿Los comentarios gastan saldo de la campaña?</summary>
+              <div class="ob-a">No. El saldo se consume sólo con el tráfico (followers, likes, views). Podés comentar con la campaña en cero.</div>
             </details>
 
-            <details class="hp-q">
-              <summary>¿Para qué sirve el género de comentarios?</summary>
-              <div class="hp-a">Fuerza que la IA escriba desde una voz masculina, femenina o mixta. Importa cuando el cliente tiene una audiencia marcada y los comentarios tienen que sonar como ella.</div>
+            <details class="ob-q">
+              <summary>¿Cómo marco muchos comentarios sin ir de a uno?</summary>
+              <div class="ob-a">Escribí cuántos verificados y cuántos comunes querés y tocá <b>🎲 Elegirlos solo</b>. Para bloques, <b>Shift+click</b>. Si hay textos repetidos aparece <b>Desmarcar repetidos</b>.</div>
             </details>
 
-            <details class="hp-q">
-              <summary>¿Dónde veo lo que consumí?</summary>
-              <div class="hp-a">Pestañas <b>Uso</b> y <b>Tokens</b>: órdenes, comentarios y gasto de IA, por mes o por rango de fechas.</div>
+            <details class="ob-q">
+              <summary>Mandé una orden y no aparece en el panel</summary>
+              <div class="ob-a">Si el panel estaba caído queda en la pestaña <b>En cola</b> y se reintenta sola. <b>No la vuelvas a cargar</b>: se duplica.</div>
             </details>
-          </section>
 
-          <section class="hp-sec" id="errores">
-            <h2>Errores</h2>
-
-            <details class="hp-q">
+            <details class="ob-q">
               <summary>“No se pudo leer el post”</summary>
-              <div class="hp-a">Cuenta privada, link que no es de un post (perfil o story), o Instagram limitando el acceso. Revisá el link y reintentá en unos minutos.</div>
+              <div class="ob-a">Cuenta privada, link que no es de un post (perfil o story), o Instagram limitando el acceso. Revisá el link y reintentá en unos minutos.</div>
             </details>
 
-            <details class="hp-q">
-              <summary>Aviso de que la IA falló</summary>
-              <div class="hp-a">El modelo estaba saturado. El post ya quedó leído, así que <b>↻ Reintentar</b> en el mismo cartel vuelve a generar sin rehacer la transcripción.</div>
+            <details class="ob-q">
+              <summary>Salió un aviso de que la IA falló</summary>
+              <div class="ob-a">El modelo estaba saturado. El post ya quedó leído: <b>↻ Reintentar</b> vuelve a generar sin rehacer la transcripción.</div>
             </details>
 
-            <details class="hp-q">
-              <summary>Sigo trabado</summary>
-              <div class="hp-a">Mandale a tu administrador el <b>link del post</b>, la <b>hora</b> y una <b>captura</b>. Con eso ubica el caso en los registros.</div>
+            <details class="ob-q">
+              <summary>¿Puedo ver los clientes de otro vendedor?</summary>
+              <div class="ob-a">No. Fichas, órdenes en cola y consumo están acotados a tu cuenta. El administrador ve todas.</div>
+            </details>
+
+            <details class="ob-q">
+              <summary>¿Dónde veo lo que consumí?</summary>
+              <div class="ob-a">Pestañas <b>Uso</b> y <b>Tokens</b>: órdenes, comentarios y gasto de IA, por mes o por rango de fechas.</div>
             </details>
           </section>
 
-          <p class="hp-foot">¿Falta algo? Pedile a tu administrador que lo sume. <a href="/">Volver al generador</a></p>
+          <p class="ob-foot">¿Falta algo? Pedile a tu administrador que lo sume. <a href="{% if is_admin %}/admin{% else %}/mis-clientes{% endif %}">Ir a cargar un cliente</a></p>
         </div>
       </div>
 
     </main>
   </div>
 
+  <div class="ob-zoom" id="ob-zoom" onclick="cerrarZoom()"><img id="ob-zoom-img" alt="" /></div>
+
   <script>
+    // Click en una captura: se abre en grande. Las de pantalla completa no se
+    // leen al ancho de la columna.
+    function zoom(img) {
+      document.getElementById("ob-zoom-img").src = img.src;
+      document.getElementById("ob-zoom").classList.add("on");
+    }
+    function cerrarZoom() { document.getElementById("ob-zoom").classList.remove("on"); }
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarZoom(); });
+
     // Tema: esta pantalla no carga app.js, así que replica el mismo mecanismo
     // (clase .light + localStorage) para no perder la preferencia al entrar.
     function toggleTheme() {
@@ -302,44 +430,42 @@
       });
     }
 
-    // Buscador: filtra tarjetas y preguntas por su texto completo; una sección
-    // sin nada visible se esconde entera.
-    function filtrarAyuda() {
-      const q = document.getElementById("hp-input").value.trim().toLowerCase();
-      document.getElementById("hp-clear").hidden = !q;
-      let visibles = 0;
-
-      document.querySelectorAll(".hp-sec").forEach((sec) => {
-        let hay = 0;
-        sec.querySelectorAll(".hp-q, .hp-rule").forEach((item) => {
-          const match = !q || item.textContent.toLowerCase().includes(q);
-          item.hidden = !match;
-          if (match) hay++;
-        });
-        sec.hidden = hay === 0;
-        if (hay) visibles++;
+    // Buscador: sólo el FAQ. Los pasos se leen en orden, filtrarlos no ayuda.
+    function filtrarFaq() {
+      const q = document.getElementById("ob-input").value.trim().toLowerCase();
+      document.getElementById("ob-clear").hidden = !q;
+      let hay = 0;
+      document.querySelectorAll(".ob-q").forEach((p) => {
+        const match = !q || p.textContent.toLowerCase().includes(q);
+        p.hidden = !match;
+        if (match) hay++;
       });
-
-      document.getElementById("hp-nav").style.visibility = q ? "hidden" : "";
-      document.getElementById("hp-empty").classList.toggle("on", visibles === 0);
+      document.getElementById("ob-empty").classList.toggle("on", hay === 0);
     }
 
     function limpiarBusqueda() {
-      const i = document.getElementById("hp-input");
+      const i = document.getElementById("ob-input");
       i.value = "";
-      filtrarAyuda();
+      filtrarFaq();
       i.focus();
     }
 
-    // El índice marca la sección que se está leyendo.
-    const enlaces = [...document.querySelectorAll(".hp-nav a")];
+    // El índice marca el paso que se está leyendo.
+    const enlaces = [...document.querySelectorAll(".ob-nav a")];
     const obs = new IntersectionObserver((entradas) => {
       entradas.forEach((e) => {
         if (!e.isIntersecting) return;
         enlaces.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
       });
-    }, { rootMargin: "-10% 0px -70% 0px" });
-    document.querySelectorAll(".hp-sec").forEach((s) => obs.observe(s));
+    }, { rootMargin: "-8% 0px -72% 0px" });
+    document.querySelectorAll(".ob-step, #checklist, #faq").forEach((s) => obs.observe(s));
+
+    // El checklist se recuerda por navegador: cargar clientes lleva varias
+    // sesiones y volver a tildar todo cada vez sería inútil.
+    document.querySelectorAll(".ob-check input").forEach((c, i) => {
+      c.checked = localStorage.getItem("ob-check-" + i) === "1";
+      c.addEventListener("change", () => localStorage.setItem("ob-check-" + i, c.checked ? "1" : "0"));
+    });
   </script>
   <script src="/static/header-menu.js?v=1785889200"></script>
 </body>
