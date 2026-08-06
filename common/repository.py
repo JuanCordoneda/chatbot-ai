@@ -12,7 +12,7 @@ from werkzeug.security import check_password_hash
 
 from common.db import db_available, session_scope
 from common.models import (Account, User, Client, PromptRequest, UsageEvent,
-                           PendingOrder)
+                           PendingOrder, PostCache, TokenUsage)
 from common import crypto
 
 
@@ -1161,3 +1161,184 @@ def cancelar_orden(orden_id: int, account_id=None) -> bool:
         p.estado = "cancelada"
         p.proximo_intento = None
         return True
+
+
+# ── Contabilidad de tokens ────────────────────────────────────────────────────
+
+def registrar_tokens(*, kind: str, model: str, input_tokens: int = 0,
+                     output_tokens: int = 0, cache_read_tokens: int = 0,
+                     cache_creation_tokens: int = 0, costo_usd: float = 0.0,
+                     intento: int = 1, client_ig_username=None, shortcode=None,
+                     account_id=None, user_id=None) -> bool:
+    """Guarda el consumo de UNA llamada a la IA. Devuelve True si se guardó.
+
+    Best-effort a propósito: no levanta nunca. Loguear el gasto no puede ser
+    motivo de que a un vendedor le falle la tanda, así que cualquier problema de
+    DB se traga (el llamador ya imprimió la línea por consola de todas formas).
+    """
+    if not db_available():
+        return False
+    try:
+        with session_scope() as s:
+            s.add(TokenUsage(
+                kind=kind, model=model, intento=intento,
+                input_tokens=input_tokens or 0, output_tokens=output_tokens or 0,
+                cache_read_tokens=cache_read_tokens or 0,
+                cache_creation_tokens=cache_creation_tokens or 0,
+                costo_usd=float(costo_usd or 0.0),
+                client_ig_username=client_ig_username, shortcode=shortcode,
+                account_id=account_id, user_id=user_id,
+            ))
+        return True
+    except Exception as e:
+        print(f"[tokens] no se pudo registrar el uso: {e}", flush=True)
+        return False
+
+
+def resumen_tokens(dias: int = 30, account_id=None) -> dict:
+    """Gasto agregado de los últimos N días: total, por tipo de llamada, por
+    modelo y por cliente. Es lo que necesita el admin para ver dónde se va la
+    plata (y cuánto cuestan los reintentos)."""
+    if not db_available():
+        return {}
+    from datetime import timedelta
+    from sqlalchemy import func
+    desde = _utcnow_naive() - timedelta(days=max(1, dias))
+
+    def _filtrar(q):
+        q = q.filter(TokenUsage.created_at >= desde)
+        if account_id is not None:
+            q = q.filter(TokenUsage.account_id == account_id)
+        return q
+
+    with session_scope() as s:
+        cols = (func.count(TokenUsage.id), func.coalesce(func.sum(TokenUsage.costo_usd), 0.0),
+                func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+                func.coalesce(func.sum(TokenUsage.output_tokens), 0))
+        llamadas, costo, tin, tout = _filtrar(s.query(*cols)).one()
+
+        def _agrupar(col):
+            filas = _filtrar(s.query(col, func.count(TokenUsage.id),
+                                     func.coalesce(func.sum(TokenUsage.costo_usd), 0.0))
+                             ).group_by(col).all()
+            return [{"clave": k, "llamadas": n, "costo_usd": round(float(c), 4)}
+                    for k, n, c in filas]
+
+        # Reintentos: llamadas con intento > 1. Es gasto 100% tirado (la
+        # generación anterior se descartó), así que va en su propia línea.
+        reint_n, reint_costo = _filtrar(
+            s.query(func.count(TokenUsage.id),
+                    func.coalesce(func.sum(TokenUsage.costo_usd), 0.0))
+        ).filter(TokenUsage.intento > 1).one()
+
+        return {
+            "dias": dias,
+            "llamadas": llamadas,
+            "costo_usd": round(float(costo), 4),
+            "input_tokens": int(tin),
+            "output_tokens": int(tout),
+            "reintentos": {"llamadas": reint_n, "costo_usd": round(float(reint_costo), 4)},
+            "por_kind": _agrupar(TokenUsage.kind),
+            "por_modelo": _agrupar(TokenUsage.model),
+            "por_cliente": sorted(_agrupar(TokenUsage.client_ig_username),
+                                  key=lambda x: -x["costo_usd"])[:20],
+        }
+
+
+# ── Caché persistente de posts ────────────────────────────────────────────────
+
+# Un post no cambia: la imagen, la transcripción y la descripción son las mismas
+# mañana. El TTL existe para que el caption y el dueño no queden viejos para
+# siempre, no porque el contenido caduque.
+def _post_cache_to_dict(p: PostCache) -> dict:
+    return {
+        "shortcode": p.shortcode,
+        "url": p.url,
+        "caption": p.caption or "",
+        "owner_username": p.owner_username or "",
+        "owner_full_name": p.owner_full_name or "",
+        "transcription": p.transcription or "",
+        "photo_description": p.photo_description or "",
+        "is_video": bool(p.is_video),
+        "image_b64": p.image_b64 or "",
+        "image_media_type": p.image_media_type or "",
+        "n_imagenes": p.n_imagenes or 1,
+    }
+
+
+def post_cache_get(shortcode: str, ttl_horas: int = 24) -> Optional[dict]:
+    """Post ya procesado, o None si no está o venció. Suma un hit (para métricas)."""
+    if not db_available() or not shortcode:
+        return None
+    from datetime import timedelta
+    try:
+        limite = _utcnow_naive() - timedelta(hours=max(1, ttl_horas))
+        with session_scope() as s:
+            p = (s.query(PostCache)
+                   .filter(PostCache.shortcode == shortcode)
+                   .filter(PostCache.created_at >= limite)
+                   .first())
+            if not p:
+                return None
+            p.hits = (p.hits or 0) + 1
+            p.last_hit_at = _utcnow_naive()
+            return _post_cache_to_dict(p)
+    except Exception as e:
+        print(f"[cache-db] error leyendo el post {shortcode}: {e}", flush=True)
+        return None
+
+
+def post_cache_put(datos: dict) -> bool:
+    """Guarda (o reemplaza) un post en el caché. Best-effort: nunca levanta.
+
+    `datos` usa las mismas claves que PostData. Si el shortcode ya está, se
+    sobreescribe con lo nuevo y se reinicia la antigüedad.
+    """
+    if not db_available():
+        return False
+    shortcode = (datos or {}).get("shortcode")
+    if not shortcode:
+        return False
+    campos = {k: datos.get(k) for k in (
+        "url", "caption", "owner_username", "owner_full_name", "transcription",
+        "photo_description", "image_b64", "image_media_type")}
+    campos["is_video"] = bool(datos.get("is_video"))
+    campos["n_imagenes"] = int(datos.get("n_imagenes") or 1)
+    try:
+        with session_scope() as s:
+            p = s.query(PostCache).filter(PostCache.shortcode == shortcode).first()
+            if p is None:
+                p = PostCache(shortcode=shortcode, **campos)
+                s.add(p)
+            else:
+                for k, v in campos.items():
+                    setattr(p, k, v)
+                p.created_at = _utcnow_naive()   # se renueva el TTL
+            return True
+    except Exception as e:
+        print(f"[cache-db] no se pudo guardar el post {shortcode}: {e}", flush=True)
+        return False
+
+
+def post_cache_purgar(dias: int = 30) -> int:
+    """Borra los posts cacheados más viejos que N días. Devuelve cuántos borró.
+
+    El image_b64 son unos 5 KB por fila, así que la tabla no explota — pero
+    tampoco tiene sentido guardar para siempre un post que nadie va a volver a
+    pegar. Se llama de vez en cuando, no en el camino de una generación.
+    """
+    if not db_available():
+        return 0
+    from datetime import timedelta
+    try:
+        limite = _utcnow_naive() - timedelta(days=max(1, dias))
+        with session_scope() as s:
+            n = (s.query(PostCache)
+                   .filter(PostCache.created_at < limite)
+                   .delete(synchronize_session=False))
+            if n:
+                print(f"[cache-db] purgados {n} posts de más de {dias} días", flush=True)
+            return int(n or 0)
+    except Exception as e:
+        print(f"[cache-db] error purgando: {e}", flush=True)
+        return 0

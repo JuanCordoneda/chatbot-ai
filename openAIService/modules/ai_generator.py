@@ -22,6 +22,85 @@ _MODEL_STANDARD = os.environ.get("CROW_MODEL_STANDARD", "claude-sonnet-5")
 _MODEL_VISION = os.environ.get("CROW_MODEL_VISION", _MODEL_STANDARD)
 
 
+# ── Contabilidad de tokens ────────────────────────────────────────────────────
+#
+# Precio por MILLÓN de tokens (USD): (entrada, salida). El costo se calcula y se
+# guarda en el momento de la llamada, así un cambio de tarifa no reescribe la
+# historia de lo que ya se gastó.
+#
+# OJO con sonnet-5: tiene precio introductorio de 2/10 hasta el 31/08/2026, y
+# después pasa a 3/15. Por eso las tarifas son overridables por env var: cuando
+# cambie, se toca la variable y listo, sin redeploy.
+_PRECIOS = {
+    "claude-sonnet-5": (3.00, 15.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+}
+
+
+def _tarifa(model: str) -> tuple[float, float]:
+    """(precio_entrada, precio_salida) por millón de tokens para este modelo.
+    Un modelo desconocido devuelve (0, 0): preferimos un costo en 0 —evidente al
+    mirar el reporte— antes que inventar una tarifa que no es."""
+    env = os.environ.get(f"CROW_PRECIO_{model.replace('-', '_').upper()}", "").strip()
+    if env:
+        try:
+            entrada, salida = (float(x) for x in env.split("/", 1))
+            return entrada, salida
+        except ValueError:
+            print(f"[tokens] CROW_PRECIO_* inválido para {model}: {env!r}", flush=True)
+    base = _PRECIOS.get(model)
+    if base is None:
+        # Los IDs pueden venir con sufijo de fecha (claude-haiku-4-5-20251001).
+        for k, v in _PRECIOS.items():
+            if model.startswith(k):
+                return v
+        print(f"[tokens] sin tarifa para el modelo {model!r}: costo queda en 0", flush=True)
+        return (0.0, 0.0)
+    return base
+
+
+def _registrar_uso(kind: str, model: str, usage, *, intento: int = 1,
+                   client_id=None, shortcode: str = "") -> None:
+    """Loguea el consumo de una llamada: por consola siempre, en la DB si se puede.
+
+    La línea de consola es la que sirve el primer día (sin migrar nada) y la que
+    queda si la DB no está; la fila en token_usage es la que permite después
+    agrupar por cliente y por día.
+    """
+    if usage is None:
+        return
+    try:
+        entrada = int(getattr(usage, "input_tokens", 0) or 0)
+        salida = int(getattr(usage, "output_tokens", 0) or 0)
+        cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        cache_write = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        p_in, p_out = _tarifa(model)
+        # Los cacheados se facturan aparte: lectura ~0.1x, escritura ~1.25x.
+        costo = ((entrada + cache_read * 0.1 + cache_write * 1.25) / 1e6 * p_in
+                 + salida / 1e6 * p_out)
+        print(f"[tokens] {kind} modelo={model} intento={intento} "
+              f"in={entrada} out={salida} cache_r={cache_read} cache_w={cache_write} "
+              f"costo=${costo:.4f}", flush=True)
+    except Exception as e:
+        print(f"[tokens] no se pudo leer el usage: {e}", flush=True)
+        return
+
+    if _repo is None:
+        return
+    try:
+        _repo.registrar_tokens(
+            kind=kind, model=model, intento=intento,
+            input_tokens=entrada, output_tokens=salida,
+            cache_read_tokens=cache_read, cache_creation_tokens=cache_write,
+            costo_usd=costo,
+            client_ig_username=(client_id or None), shortcode=(shortcode or None),
+        )
+    except Exception as e:
+        print(f"[tokens] no se pudo registrar en DB: {e}", flush=True)
+
+
 def _modelo(quality) -> str:
     """Modelo de la tanda según la calidad asignada al cliente. Cualquier cosa
     que no sea 'pro' (vacío, cliente sin calidad cargada, valor viejo) cae en el
@@ -339,9 +418,9 @@ _MIN_COMENTARIOS = 20
 _MAX_INTENTOS = 3
 
 
-def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "") -> list[str]:
+def generar_comentarios(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "") -> list[str]:
     comentarios: list[str] = []
-    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword):
+    for tipo, data in generar_comentarios_stream(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, image_b64=image_b64, image_media_type=image_media_type, client_gender=client_gender, client_quality=client_quality, n_imagenes=n_imagenes, keyword=keyword, shortcode=shortcode):
         if tipo == "reset":
             comentarios = []          # la corrida anterior salió cortada: descartamos
         elif tipo == "comentario":
@@ -349,7 +428,7 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
     return comentarios
 
 
-def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = ""):
+def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = ""):
     """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
     o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
     (el consumidor debe descartar lo emitido hasta ese punto).
@@ -426,6 +505,20 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                         if line:
                             count += 1
                             yield ("comentario", line)
+                # Los tokens se leen del mensaje final, ya adentro del `with`.
+                # Acá es donde se ve cuánto pesa el thinking: entra en output_tokens.
+                #
+                # try propio a propósito: este bloque está dentro del try que
+                # dispara los reintentos, y un error al MEDIR no puede provocar
+                # que se regenere la tanda entera (sería el colmo: gastar el doble
+                # por culpa del contador de gastos).
+                try:
+                    _registrar_uso("keyword" if modo_keyword else "generacion",
+                                   modelo, stream.get_final_message().usage,
+                                   intento=intento, client_id=client_id,
+                                   shortcode=shortcode)
+                except Exception as e:
+                    print(f"[tokens] no se pudo medir la generación: {e}", flush=True)
         except Exception as e:
             # overloaded_error y otros transitorios de la API: reintentar desde cero
             if intento == _MAX_INTENTOS:
@@ -444,7 +537,8 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
 
 def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "",
-                     n_imagenes: int = 1, es_video: bool = False) -> str:
+                     n_imagenes: int = 1, es_video: bool = False,
+                     shortcode: str = "") -> str:
     """Describe textualmente la imagen de un post (para mostrarla al usuario como
     si fuera el pie de página). Llamada de visión corta, en español. Devuelve ""
     ante cualquier problema (el llamador simplemente no muestra descripción)."""
@@ -519,6 +613,8 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
                 max_tokens=500 + 150 * max(0, n_imagenes - 1),
                 messages=[{"role": "user", "content": content}],
             )
+            _registrar_uso("descripcion", _MODEL_VISION, resp.usage,
+                           intento=intento, shortcode=shortcode)
             return "".join(b.text for b in resp.content if b.type == "text").strip()
         except Exception as e:
             ultimo_error = e

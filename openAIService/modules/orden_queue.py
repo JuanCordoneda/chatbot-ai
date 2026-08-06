@@ -19,6 +19,12 @@ import time
 # Cada cuánto mira la cola. Corto: lo caro es el envío, no el SELECT.
 INTERVALO = float(os.environ.get("GROWI_QUEUE_INTERVAL", "60"))
 
+# Mantenimiento del caché de posts (tabla post_cache), de arrimo en este worker.
+# Cada 6 horas se borran los posts de más de 30 días: nadie vuelve a pegar un
+# link de hace un mes, y cada fila carga la imagen en base64 (~5 KB).
+_PURGA_CADA = float(os.environ.get("POST_CACHE_PURGA_CADA", str(6 * 3600)))
+_PURGA_DIAS = int(os.environ.get("POST_CACHE_PURGA_DIAS", "30"))
+
 _arrancado = False
 _lock = threading.Lock()
 
@@ -79,6 +85,7 @@ def procesar_una() -> bool:
 
 
 def _loop() -> None:
+    ultima_purga = 0.0
     while True:
         try:
             # Vacía todo lo que esté vencido, con tope por vuelta para no
@@ -88,6 +95,17 @@ def _loop() -> None:
                     break
         except Exception as e:
             print(f"[cola] error en el loop: {e!r}", flush=True)
+
+        # Mantenimiento del caché de posts. Va acá porque este worker ya corre
+        # solo y ya tiene DB: no hace falta otro hilo para un DELETE por día.
+        # Nunca en el camino de una generación, para no sumarle latencia.
+        if time.time() - ultima_purga > _PURGA_CADA:
+            ultima_purga = time.time()
+            try:
+                _repo().post_cache_purgar(dias=_PURGA_DIAS)
+            except Exception as e:
+                print(f"[cola] error purgando el caché de posts: {e!r}", flush=True)
+
         time.sleep(INTERVALO)
 
 

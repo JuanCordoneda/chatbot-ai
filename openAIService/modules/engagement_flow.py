@@ -133,6 +133,7 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
             client_gender=client_gender,
             client_quality=client_quality,
             n_imagenes=post_data.n_imagenes,
+            shortcode=post_data.shortcode,
         )
     except Exception as e:
         return f"Error generando los comentarios con IA: {e}"

@@ -546,23 +546,56 @@ def _fetch_instagram_api(shortcode: str) -> dict:
 # Caché de posts ya scrapeados. "Cargar más" (y volver a pegar el mismo link)
 # re-scrapeaba TODO de cero: bajaba el video otra vez, lo re-transcribía y volvía
 # a describir la imagen. Eso multiplicaba la carga y los pedidos a Instagram sin
-# aportar nada, porque el post es el mismo. Ahora se reusa por unos minutos.
+# aportar nada, porque el post es el mismo.
+#
+# Son DOS NIVELES:
+#   L1 memoria — instantáneo, pero por proceso y se pierde al reiniciar.
+#   L2 Postgres — compartido entre workers y sobrevive los deploys. Es el que
+#      evita pagar de nuevo la visión y whisper cuando el vendedor vuelve al
+#      mismo post mañana, o cuando el retry cae en otro worker.
+#
+# Un post no cambia: la imagen y la transcripción son las mismas la semana que
+# viene. El TTL del L2 es largo a propósito y existe solo para que el caption y
+# el dueño no queden viejos para siempre.
 _scrape_cache = {}                     # shortcode -> (timestamp, PostData)
 _scrape_cache_lock = threading.Lock()
-_SCRAPE_TTL = int(os.environ.get("SCRAPE_CACHE_TTL", "600"))    # 10 min
+_SCRAPE_TTL = int(os.environ.get("SCRAPE_CACHE_TTL", "600"))    # 10 min (L1)
 _SCRAPE_CACHE_MAX = 12                 # el image_b64 pesa: acotamos la memoria
+_SCRAPE_TTL_DB_H = int(os.environ.get("POST_CACHE_TTL_HORAS", "72"))   # 3 días (L2)
+
+# Capa de datos opcional: sin DB, el caché queda solo en memoria como antes.
+try:
+    from common import repository as _repo
+except Exception:
+    _repo = None
 
 
 def _cache_get(shortcode: str):
     with _scrape_cache_lock:
         hit = _scrape_cache.get(shortcode)
-        if not hit:
-            return None
-        ts, data = hit
-        if time.time() - ts > _SCRAPE_TTL:
+        if hit:
+            ts, data = hit
+            if time.time() - ts <= _SCRAPE_TTL:
+                return data
             _scrape_cache.pop(shortcode, None)
-            return None
-        return data
+
+    # L2: la DB. Un hit acá vale una llamada de visión + whisper + el scrape.
+    if _repo is None:
+        return None
+    try:
+        fila = _repo.post_cache_get(shortcode, ttl_horas=_SCRAPE_TTL_DB_H)
+    except Exception as e:
+        print(f"[cache] error consultando la DB: {e}", flush=True)
+        return None
+    if not fila:
+        return None
+    data = PostData(comments=[], descripcion_error="",
+                    **{k: v for k, v in fila.items() if k != "hits"})
+    with _scrape_cache_lock:           # se sube a L1 para los próximos hits
+        _scrape_cache[shortcode] = (time.time(), data)
+    print(f"[cache] post {shortcode} recuperado de la DB "
+          f"(sin scrape, sin whisper, sin visión)", flush=True)
+    return data
 
 
 def _cache_put(shortcode: str, data: "PostData"):
@@ -574,6 +607,31 @@ def _cache_put(shortcode: str, data: "PostData"):
             _scrape_cache.pop(k, None)
         while len(_scrape_cache) > _SCRAPE_CACHE_MAX:
             _scrape_cache.pop(min(_scrape_cache, key=lambda k: _scrape_cache[k][0]), None)
+
+    if _repo is None:
+        return
+    # A la DB NO va un post cuya descripción falló: si guardáramos eso, un 529
+    # puntual de la IA quedaría pegado tres días y todos los vendedores verían el
+    # post sin descripción. Sin la fila, el próximo intento vuelve a describirla.
+    if data.descripcion_error:
+        print(f"[cache] {shortcode} no se persiste: la descripción falló", flush=True)
+        return
+    try:
+        _repo.post_cache_put({
+            "shortcode": shortcode,
+            "url": data.url,
+            "caption": data.caption,
+            "owner_username": data.owner_username,
+            "owner_full_name": data.owner_full_name,
+            "transcription": data.transcription,
+            "photo_description": data.photo_description,
+            "is_video": data.is_video,
+            "image_b64": data.image_b64,
+            "image_media_type": data.image_media_type,
+            "n_imagenes": data.n_imagenes,
+        })
+    except Exception as e:
+        print(f"[cache] no se pudo persistir el post {shortcode}: {e}", flush=True)
 
 
 def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostData:
@@ -712,7 +770,7 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False) -> PostDa
             from modules.ai_generator import describir_imagen
             desc_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             desc_future = desc_executor.submit(describir_imagen, b64, media_type,
-                                               caption, n, es_video)
+                                               caption, n, es_video, shortcode)
         except Exception as e:
             print(f"[describe] no disponible ({e})", flush=True)
 

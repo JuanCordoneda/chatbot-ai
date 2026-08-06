@@ -13,7 +13,8 @@ migraciones incrementales en sus respectivas tareas.
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint,
+    Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -89,6 +90,77 @@ class UsageEvent(Base):
     qty = Column(Integer, nullable=True)
     product_type = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+
+
+class TokenUsage(Base):
+    """Un registro por llamada a la API de IA: qué modelo, cuántos tokens y qué
+    costó. Antes no se medía nada, así que el costo por post era una estimación y
+    no se podía saber qué parte se iba en el 'thinking' ni cuánto cuestan los
+    reintentos. Con esta tabla el admin ve plata real por cliente y por día.
+
+    Se escribe best-effort: si falla el insert, la generación sigue igual (nunca
+    se le arruina una tanda al vendedor por no poder loguear).
+    """
+    __tablename__ = "token_usage"
+
+    id = Column(Integer, primary_key=True)
+    # "descripcion" (visión) | "generacion" (la tanda de comentarios)
+    kind = Column(String(20), nullable=False, index=True)
+    model = Column(String(60), nullable=False)
+    # Nº de intento dentro de generar_comentarios_stream: >1 es plata tirada.
+    intento = Column(Integer, nullable=False, default=1, server_default="1")
+    input_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    # Los tokens cacheados se facturan distinto (lectura ~0.1x, escritura ~1.25x),
+    # así que se guardan aparte para que el costo salga bien.
+    cache_read_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    cache_creation_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    # Costo en USD calculado al momento de la llamada, con la tarifa vigente.
+    # Se guarda calculado (y no solo los tokens) para que un cambio de precios
+    # no reescriba la historia de lo que ya se gastó.
+    costo_usd = Column(Float, nullable=False, default=0.0, server_default="0")
+    # Contexto, todo opcional: sirve para agrupar el gasto pero nunca para decidir
+    # si se loguea. Las funciones de IA no siempre conocen la cuenta/vendedor.
+    client_ig_username = Column(String(100), nullable=True, index=True)
+    shortcode = Column(String(40), nullable=True)
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"),
+                        nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+
+
+class PostCache(Base):
+    """Post de Instagram ya procesado, guardado para no volver a pagarlo.
+
+    Extraer un post es lo caro del sistema: scrape a Instagram, descarga del
+    video, whisper y una llamada de visión. El caché en memoria del proceso
+    (post_processor._scrape_cache) resolvía el "Cargar más" pero se perdía en cada
+    reinicio y no se comparte entre workers, así que volver a pegar el mismo link
+    diez minutos después pagaba todo de nuevo. Esta tabla lo hace persistente.
+
+    NO guarda comentarios generados: cada tanda tiene que salir distinta.
+    """
+    __tablename__ = "post_cache"
+
+    id = Column(Integer, primary_key=True)
+    shortcode = Column(String(40), nullable=False, unique=True, index=True)
+    url = Column(Text, nullable=False)
+    caption = Column(Text, nullable=False, default="", server_default="")
+    owner_username = Column(String(100), nullable=True)
+    owner_full_name = Column(String(200), nullable=True)
+    transcription = Column(Text, nullable=False, default="", server_default="")
+    photo_description = Column(Text, nullable=False, default="", server_default="")
+    is_video = Column(Boolean, nullable=False, default=False, server_default="false")
+    # La imagen ya reducida (lado máximo 1024, JPEG q80): ~5 KB en base64. Se
+    # guarda para no re-scrapear NI re-describir; es lo que hace que un hit del
+    # caché no cueste nada de IA.
+    image_b64 = Column(Text, nullable=True)
+    image_media_type = Column(String(40), nullable=True)
+    n_imagenes = Column(Integer, nullable=False, default=1, server_default="1")
+    # Para métricas: cuántas veces se reusó y cuándo fue la última.
+    hits = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    last_hit_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class PromptRequest(Base):
