@@ -1,0 +1,83 @@
+/* Ayuda: las dos guías (/ayuda y /ayuda-ordenes) comparten esta hoja.
+   Son pantallas de sólo lectura, no cargan app.js ni admin.js — el tema y el
+   zoom de las capturas están en ayuda.js. Los colores salen de los tokens de
+   style.css, así acompañan el tema claro/oscuro. */
+
+.ay-main { max-width: 720px; }
+
+/* ── Las dos micro-guías ─────────────────────────────────────────────────── */
+.ay-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 26px; }
+.ay-tab { display: grid; grid-template-columns: 26px 1fr; grid-template-rows: auto auto;
+  column-gap: 11px; align-items: center; text-decoration: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 13px 15px; }
+.ay-tab:hover { border-color: var(--yellow-md); }
+.ay-tab--on { border-color: var(--yellow); background: var(--yellow-lo); }
+.ay-tab-n { grid-row: 1 / 3; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--surface2); color: var(--faint); font-size: .8rem; font-weight: 800;
+  display: grid; place-items: center; }
+.ay-tab--on .ay-tab-n { background: var(--yellow); color: #1a1a1a; }
+.ay-tab-t { font-size: .92rem; font-weight: 700; color: var(--text); }
+.ay-tab-s { font-size: .74rem; color: var(--faint); }
+
+/* ── Encabezado ──────────────────────────────────────────────────────────── */
+.ay-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
+.ay-head h1 { font-size: 1.45rem; font-weight: 800; letter-spacing: -.02em; }
+/* Se trabaja con las dos pestañas al lado: la guía acá, el panel allá. */
+.ay-abrir { display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+  font-size: .78rem; font-weight: 600; color: var(--text); background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 9px; padding: 7px 12px; }
+.ay-abrir:hover { border-color: var(--yellow); }
+.ay-abrir b { color: var(--yellow); font-weight: 750; }
+.ay-abrir svg { opacity: .6; }
+
+/* ── Pasos ───────────────────────────────────────────────────────────────── */
+.ay-pasos { list-style: none; counter-reset: paso; }
+.ay-paso { counter-increment: paso; padding: 0 0 30px 42px; position: relative; }
+.ay-paso::before { content: counter(paso); position: absolute; left: 0; top: 0;
+  width: 27px; height: 27px; border-radius: 50%; background: var(--surface2);
+  border: 1px solid var(--border); color: var(--text); font-size: .8rem; font-weight: 800;
+  display: grid; place-items: center; }
+/* Hilo entre un paso y el siguiente. */
+.ay-paso::after { content: ""; position: absolute; left: 13px; top: 33px; bottom: 6px;
+  width: 1px; background: var(--border); }
+.ay-paso:last-child::after { display: none; }
+.ay-paso h2 { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; padding-top: 3px; }
+.ay-paso h2 b { color: var(--yellow); font-weight: 700; }
+.ay-paso p { margin-top: 5px; font-size: .87rem; color: var(--muted); line-height: 1.6; }
+
+/* Aviso corto: sólo donde el sistema hace algo que no se ve en la pantalla. */
+.ay-ojo { margin-top: 11px !important; font-size: .82rem !important; color: var(--text) !important;
+  background: var(--yellow-lo); border: 1px solid var(--yellow-md); border-radius: 10px;
+  padding: 10px 13px; }
+
+/* Captura: hay una por tema, se muestra la del tema activo. */
+.ay-fig { margin-top: 12px; }
+.ay-fig img { display: block; width: 100%; border: 1px solid var(--border);
+  border-radius: 11px; cursor: zoom-in; }
+.ay-fig img:hover { border-color: var(--yellow-md); }
+body:not(.light) .ay-light, body.light .ay-dark { display: none; }
+
+/* ── Ir a la otra guía ───────────────────────────────────────────────────── */
+.ay-next { display: flex; align-items: center; gap: 13px; text-decoration: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 15px 17px; margin-top: 6px; }
+.ay-next:hover { border-color: var(--yellow); }
+.ay-next-n { width: 27px; height: 27px; border-radius: 50%; background: var(--yellow);
+  color: #1a1a1a; font-size: .8rem; font-weight: 800; display: grid; place-items: center; flex: 0 0 auto; }
+.ay-next-t b { display: block; font-size: .92rem; font-weight: 700; color: var(--text); }
+.ay-next-t span { font-size: .78rem; color: var(--faint); }
+.ay-next-go { margin-left: auto; color: var(--yellow); font-size: 1.1rem; }
+
+/* ── Captura en grande ───────────────────────────────────────────────────── */
+.ay-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 90;
+  display: none; align-items: center; justify-content: center; padding: 26px; cursor: zoom-out; }
+.ay-zoom.on { display: flex; }
+.ay-zoom img { max-width: 100%; max-height: 100%; border-radius: 12px; border: 1px solid var(--border2); }
+
+@media (max-width: 640px) {
+  .ay-tabs { grid-template-columns: 1fr; }
+  .ay-paso { padding-left: 34px; }
+  .ay-paso::after { left: 11px; }
+  .ay-paso::before { width: 23px; height: 23px; font-size: .74rem; }
+}

@@ -3,144 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GROWI — Cómo se arman las órdenes</title>
+  <title>GROWI — Crear una orden</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v=1785889200" />
+  <link rel="stylesheet" href="/static/ayuda.css?v=2" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="GROWI — Cómo se arman las órdenes" />
-  <meta property="og:description" content="Del link del post a las órdenes en el panel." />
+  <meta property="og:title" content="GROWI — Crear una orden" />
+  <meta property="og:description" content="Del link del post a las órdenes pedidas." />
   <meta property="og:image" content="/static/og-thumb.png?v=1" />
-  <style>
-    /* Onboarding. Pantalla de sólo lectura: no carga app.js ni admin.js, así que
-       el tema y el buscador viven al final del archivo.
-
-       CAPTURAS: son de la interfaz real, con clientes de demo. Se regeneran
-       con scripts/capturas_onboarding (harness.py + shoot.py) cada vez que
-       cambia el panel. */
-    .ob-main { max-width: 1060px; }
-
-    .ob-head { margin: 4px 0 20px; }
-    .ob-kicker { font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--yellow); }
-    .ob-head h1 { font-size: 1.62rem; font-weight: 800; letter-spacing: -.02em; margin-top: 7px; }
-    .ob-head p { margin-top: 6px; font-size: .88rem; color: var(--faint); max-width: 60ch; }
-
-    .ob-cols { display: grid; grid-template-columns: 188px 1fr; gap: 36px; align-items: start; }
-
-    /* Índice ── */
-    .ob-nav { position: sticky; top: 18px; }
-    .ob-nav-t { font-size: .68rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase;
-      color: var(--faint); margin: 0 0 9px 10px; }
-    .ob-nav a { display: flex; gap: 8px; align-items: baseline; font-size: .81rem; font-weight: 600;
-      color: var(--faint); text-decoration: none; padding: 6px 10px; border-radius: 8px;
-      border-left: 2px solid transparent; }
-    .ob-nav a i { font-style: normal; font-size: .72rem; opacity: .7; min-width: 12px; }
-    .ob-nav a:hover { color: var(--text); background: var(--surface); }
-    .ob-nav a.on { color: var(--text); background: var(--surface); border-left-color: var(--yellow); }
-    .ob-nav-sep { height: 1px; background: var(--border); margin: 10px 10px; }
-
-    /* Pasos ── */
-    .ob-step { display: grid; grid-template-columns: 30px 1fr; gap: 16px; padding-bottom: 30px;
-      position: relative; scroll-margin-top: 20px; }
-    /* La línea del timeline une un paso con el siguiente; el último no la lleva. */
-    .ob-step::before { content: ""; position: absolute; left: 14px; top: 34px; bottom: 4px;
-      width: 1px; background: var(--border); }
-    .ob-step:last-of-type::before { display: none; }
-    .ob-num { width: 29px; height: 29px; border-radius: 50%; background: var(--surface2);
-      border: 1px solid var(--border); color: var(--text); font-size: .82rem; font-weight: 800;
-      display: grid; place-items: center; position: relative; z-index: 1; }
-    .ob-step h3 { font-size: 1.01rem; font-weight: 750; letter-spacing: -.01em; }
-    .ob-step > div > p { margin-top: 6px; font-size: .87rem; color: var(--muted); line-height: 1.65; max-width: 68ch; }
-    .ob-step p b { color: var(--text); font-weight: 650; }
-    /* Abre el panel en otra pestaña: la guía se sigue leyendo al lado mientras
-       se carga el cliente. */
-    .ob-where { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; font-size: .78rem;
-      color: var(--text); background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 9px; padding: 7px 12px; text-decoration: none; font-weight: 600; }
-    .ob-where:hover { border-color: var(--yellow); background: var(--surface3); }
-    .ob-where b { color: var(--yellow); font-weight: 750; }
-    .ob-where svg { opacity: .65; }
-
-    /* Aviso puntual dentro de un paso. */
-    .ob-tip { display: flex; gap: 9px; margin-top: 11px; font-size: .82rem; color: var(--muted);
-      line-height: 1.6; background: var(--yellow-lo); border: 1px solid var(--yellow-md);
-      border-radius: 11px; padding: 11px 13px; max-width: 68ch; }
-    .ob-tip b { color: var(--text); }
-    .ob-tip-ico { color: var(--yellow); font-weight: 800; }
-
-    /* Captura del paso. Hay una versión por tema: la del tema activo es la que
-       se muestra (las PNG las genera scripts/capturas_onboarding). */
-    .ob-fig { margin: 13px 0 0; max-width: 660px; }
-    .ob-fig img { display: block; width: 100%; border: 1px solid var(--border);
-      border-radius: 12px; cursor: zoom-in; }
-    .ob-fig img:hover { border-color: var(--yellow-md); }
-    body:not(.light) .ob-light, body.light .ob-dark { display: none; }
-    .ob-cap { margin-top: 7px; font-size: .74rem; color: var(--faint); }
-
-    /* Lightbox: las capturas de pantalla completa no se leen a 660px. */
-    .ob-zoom { position: fixed; inset: 0; background: rgba(0,0,0,.86); z-index: 90;
-      display: none; align-items: center; justify-content: center; padding: 28px; cursor: zoom-out; }
-    .ob-zoom.on { display: flex; }
-    .ob-zoom img { max-width: 100%; max-height: 100%; border-radius: 12px;
-      border: 1px solid var(--border2); }
-
-    /* ── Checklist ── */
-    .ob-check { border: 1px solid var(--border); border-radius: 14px; background: var(--surface);
-      padding: 18px 20px; margin: 4px 0 34px; }
-    .ob-check h3 { font-size: .95rem; font-weight: 750; margin-bottom: 11px; }
-    .ob-check label { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0;
-      font-size: .85rem; color: var(--muted); cursor: pointer; }
-    .ob-check input { accent-color: var(--yellow); margin-top: 2px; }
-    .ob-check input:checked + span { color: var(--faint); text-decoration: line-through; }
-
-    /* ── FAQ ── */
-    .ob-sec { margin-bottom: 30px; scroll-margin-top: 20px; }
-    .ob-sec[hidden] { display: none; }
-    .ob-sec > h2 { font-size: .74rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase;
-      color: var(--faint); margin-bottom: 12px; }
-    .ob-q { border-bottom: 1px solid var(--border); }
-    .ob-q[hidden] { display: none; }
-    .ob-q > summary { cursor: pointer; list-style: none; padding: 12px 26px 12px 0; position: relative;
-      font-size: .87rem; font-weight: 600; }
-    .ob-q > summary::-webkit-details-marker { display: none; }
-    .ob-q > summary::after { content: ""; position: absolute; right: 6px; top: 50%; width: 7px; height: 7px;
-      border-right: 1.6px solid var(--faint); border-bottom: 1.6px solid var(--faint);
-      transform: translateY(-70%) rotate(45deg); transition: transform .15s; }
-    .ob-q[open] > summary::after { transform: translateY(-20%) rotate(-135deg); border-color: var(--yellow); }
-    .ob-q > summary:hover { color: var(--yellow); }
-    .ob-a { padding: 0 30px 14px 0; font-size: .84rem; color: var(--muted); line-height: 1.7; max-width: 72ch; }
-    .ob-a b { color: var(--text); font-weight: 650; }
-    .ob-a code { background: var(--surface2); border-radius: 5px; padding: 1px 5px; font-size: .79rem; }
-
-    /* ── Buscador (sólo filtra el FAQ) ── */
-    .ob-search { position: relative; margin-bottom: 14px; max-width: 420px; }
-    .ob-search input { width: 100%; background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; color: var(--text); font-family: var(--font); font-size: .84rem;
-      padding: 9px 30px 9px 33px; outline: none; }
-    .ob-search input:focus { border-color: var(--yellow); }
-    .ob-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--faint); }
-    .ob-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none;
-      border: 0; color: var(--faint); cursor: pointer; padding: 6px; line-height: 1; }
-    .ob-x[hidden] { display: none; }
-    .ob-empty { display: none; color: var(--faint); font-size: .85rem; padding: 16px 0; }
-    .ob-empty.on { display: block; }
-
-    .ob-foot { margin: 26px 0 6px; font-size: .78rem; color: var(--faint); }
-    .ob-foot a { color: var(--yellow); text-decoration: none; font-weight: 600; }
-
-    @media (max-width: 900px) {
-      .ob-cols { grid-template-columns: 1fr; gap: 18px; }
-      .ob-nav { position: static; display: flex; flex-wrap: wrap; gap: 6px; }
-      .ob-nav-t, .ob-nav-sep { display: none; }
-      .ob-nav a { border-left: 0; border: 1px solid var(--border); border-radius: 999px; padding: 6px 11px; }
-      .ob-nav a.on { border-color: var(--yellow); }
-      .ob-step { grid-template-columns: 24px 1fr; gap: 12px; }
-      .ob-step::before { left: 11px; }
-      .ob-num { width: 23px; height: 23px; font-size: .74rem; }
-    }
-  </style>
 </head>
 <body>
   <div class="app">
@@ -149,7 +22,7 @@
       <div class="header-left">
         <a href="/" class="logo-link" title="Ir al inicio"><img src="/static/growi.png" alt="GROWI" class="logo" /></a>
         <span class="header-sep"></span>
-        <span class="header-tag">Onboarding · órdenes</span>
+        <span class="header-tag">Ayuda</span>
         {% if username %}
         <span class="header-sep"></span>
         <span class="header-user" title="Sesión iniciada como {{ username }}">
@@ -160,13 +33,9 @@
       </div>
       <div class="header-actions">
         <div class="header-btn-group">
-          <a class="header-action-btn header-action-btn--primary" href="/" target="_blank" rel="noopener" title="Abrir el generador en otra pestaña">
+          <a class="header-action-btn header-action-btn--primary" href="/" target="_blank" rel="noopener" title="Abrir en otra pestaña">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
             <span>Generador</span>
-          </a>
-          <a class="header-action-btn" href="/ayuda" title="Guía: cargar un cliente">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            <span>Cargar un cliente</span>
           </a>
           <a class="header-action-btn" href="/followers" title="Enviar followers a un perfil">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 8a2.3 2.3 0 100-4.6A2.3 2.3 0 006 8z" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13c.6-2 2.4-3 4.5-3s3.9 1 4.5 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12.5 4.5v4M14.5 6.5h-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -181,257 +50,100 @@
       </div>
     </header>
 
-    <main class="main ob-main">
+    <main class="main ay-main">
 
-      <div class="ob-head">
-        <div class="ob-kicker">Onboarding</div>
-        <h1>Del post a las órdenes en el panel</h1>
-        <p>Seis pasos. Empezás pegando el link y terminás con las órdenes pedidas.</p>
-        <a class="ob-where" href="/" target="_blank" rel="noopener">
-          Abrí el <b>generador</b> en otra pestaña y seguí la guía de este lado
+      <!-- Las dos guías, siempre a la vista: se entra por cualquiera y se salta
+           de una a la otra sin volver atrás. -->
+      <nav class="ay-tabs">
+        <a class="ay-tab" href="/ayuda">
+          <span class="ay-tab-n">1</span>
+          <span class="ay-tab-t">Cargar un cliente</span>
+          <span class="ay-tab-s">8 pasos · una vez por cliente</span>
+        </a>
+        <a class="ay-tab ay-tab--on" href="/ayuda-ordenes">
+          <span class="ay-tab-n">2</span>
+          <span class="ay-tab-t">Crear una orden</span>
+          <span class="ay-tab-s">6 pasos · en cada post</span>
+        </a>
+      </nav>
+
+      <div class="ay-head">
+        <h1>Crear una orden</h1>
+        <a class="ay-abrir" href="/" target="_blank" rel="noopener">
+          Abrir <b>el generador</b> al lado
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
       </div>
 
-      <div class="ob-cols">
+      <ol class="ay-pasos">
+        <li class="ay-paso">
+          <h2>Pegá el link del post</h2>
+          <p>Post o reel. Tarda un par de minutos: no cierres la pestaña.</p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-1.png?v=2" alt="Link del post" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-1-light.png?v=2" alt="Link del post" onclick="zoom(this)" />
+          </figure>
+        </li>
 
-        <nav class="ob-nav" id="ob-nav">
-          <p class="ob-nav-t">Los pasos</p>
-          <a href="#p1" class="on"><i>1</i>Pegar el post</a>
-          <a href="#p2"><i>2</i>Revisar y elegir</a>
-          <a href="#p3"><i>3</i>Cuántos mandás</a>
-          <a href="#p4"><i>4</i>Las órdenes</a>
-          <a href="#p5"><i>5</i>Cuándo enviar</a>
-          <a href="#p6"><i>6</i>Solicitar</a>
-          <div class="ob-nav-sep"></div>
-          <a href="#despues"><i>→</i>Qué pasa después</a>
-          <a href="#faq"><i>?</i>Preguntas</a>
-        </nav>
+        <li class="ay-paso">
+          <h2>Revisá y elegí los comentarios</h2>
+          <p>Arriba queda lo que leyó la IA. Cada comentario se edita con un click.</p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-2.png?v=2" alt="Comentarios generados" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-2-light.png?v=2" alt="Comentarios generados" onclick="zoom(this)" />
+          </figure>
+        </li>
 
-        <div>
+        <li class="ay-paso">
+          <h2>Decí cuántos de cada tipo</h2>
+          <p>Escribí los números y <b>Elegirlos solo</b> los marca al azar por vos.</p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-3.png?v=2" alt="Reparto de comentarios" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-3-light.png?v=2" alt="Reparto de comentarios" onclick="zoom(this)" />
+          </figure>
+          <p class="ay-ojo">Los <b>comunes</b> se parten en 2 tandas solos: no hay que dividir nada a mano.</p>
+        </li>
 
-          <!-- ── 1 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p1">
-            <div class="ob-num">1</div>
-            <div>
-              <h3>Pegá el link del post</h3>
-              <p>Sirve el link de un post o de un reel: <code>instagram.com/p/…</code> o <code>/reel/…</code>. El botón <b>Pegar</b> lo toma del portapapeles y <b>Enter</b> arranca directo. Abajo del campo quedan los últimos posts que hiciste desde ese navegador.</p>
-              <p>Mientras genera, GROWI baja el pie de página, describe la imagen y —si es video— lo transcribe. Tarda entre 30 segundos y un par de minutos. <b>No cierres la pestaña</b>: si la cerrás, el proceso se corta.</p>
-              <a class="ob-where" href="/" target="_blank" rel="noopener">
-                Abrir el <b>generador</b> en otra pestaña
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </a>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/orden-1.png?v=1" alt="Paso 1" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/orden-1-light.png?v=1" alt="Paso 1" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">El link va acá. Si el post es de un cliente tuyo, GROWI lo reconoce solo por el @usuario.</p>
-            </div>
-          </section>
+        <li class="ay-paso">
+          <h2><b>Publicar</b> todavía no manda nada</h2>
+          <p>Te lleva a las órdenes, con las del cliente ya armadas. Ahí sumás las que falten.</p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-4.png?v=2" alt="Formulario de orden" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-4-light.png?v=2" alt="Formulario de orden" onclick="zoom(this)" />
+          </figure>
+        </li>
 
-          <!-- ── 2 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p2">
-            <div class="ob-num">2</div>
-            <div>
-              <h3>Revisá lo que leyó la IA y elegí los comentarios</h3>
-              <p>Arriba de la lista queda el contexto que usó para escribir: <b>pie de página</b>, <b>transcripción</b> y <b>descripción</b>. Si los comentarios salieron fuera de tema, mirá ahí primero — casi siempre el video no decía lo que parecía.</p>
-              <p>Cada comentario se puede editar haciendo click sobre el texto, y con <b>+ Agregar</b> sumás uno tuyo. Para elegir de a bloques, <b>Shift+click</b>. Si algo se repite, aparece <b>Desmarcar repetidos</b>.</p>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/orden-2.png?v=1" alt="Paso 2" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/orden-2-light.png?v=1" alt="Paso 2" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">El nombre del cliente arriba a la izquierda confirma que el post se reconoció. Los switches de cada fila marcan si el comentario va como verificado o común.</p>
-            </div>
-          </section>
+        <li class="ay-paso">
+          <h2>Elegí cuándo sale</h2>
+          <p>Ahora, programada, o dividida en 3 o 5 tandas espaciadas.</p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-5.png?v=2" alt="Cuándo enviar" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-5-light.png?v=2" alt="Cuándo enviar" onclick="zoom(this)" />
+          </figure>
+        </li>
 
-          <!-- ── 3 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p3">
-            <div class="ob-num">3</div>
-            <div>
-              <h3>Decidí cuántos mandás de cada tipo</h3>
-              <p>En vez de contar a mano, escribí cuántos <b>verificados</b> y cuántos <b>comunes</b> querés y tocá <b>🎲 Elegirlos solo</b>: los marca al azar por vos. Si el cliente tiene rangos cargados en su ficha, los números vienen puestos y los podés cambiar.</p>
-              <div class="ob-tip"><span class="ob-tip-ico">⏰</span><span>Los <b>comunes</b> nunca salen todos juntos: la mitad al publicar y la mitad programada para el próximo turno (10:00 si publicás a la tarde, 19:00 si publicás a la mañana). Tope de 80 por día. Los <b>verificados</b> salen todos juntos, en el momento.</span></div>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/orden-3.png?v=1" alt="Paso 3" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/orden-3-light.png?v=1" alt="Paso 3" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">Con 8 y 29 cargados, GROWI arma las tandas solo: no hay que dividir nada a mano.</p>
-            </div>
-          </section>
+        <li class="ay-paso">
+          <h2>Revisá y tocá <b>Solicitar</b></h2>
+          <p>Es el único botón que las manda al panel.</p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-6.png?v=2" alt="Órdenes armadas" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-6-light.png?v=2" alt="Órdenes armadas" onclick="zoom(this)" />
+          </figure>
+        </li>
 
-          <!-- ── 4 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p4">
-            <div class="ob-num">4</div>
-            <div>
-              <h3>“Publicar” te lleva a armar las órdenes</h3>
-              <p>Ese botón todavía <b>no manda nada</b>: pasa a la pantalla de órdenes con los comentarios ya repartidos en tandas. Si el cliente tiene rangos de tráfico cargados, sus órdenes de likes y views <b>ya vienen armadas</b> con una cantidad al azar dentro del rango.</p>
-              <p>Para sumar una orden a mano: elegí <b>red social</b> y <b>producto</b>, poné la <b>cantidad</b> y tocá <b>+ Agregar Orden</b>. El <b>costo total</b> se calcula solo y el link ya viene puesto. La <b>cantidad inicial</b> es lo que el post ya tiene, para dejar registro.</p>
-              <div class="ob-tip"><span class="ob-tip-ico">!</span><span>Si arriba dice <b>“esta publicación no es de ningún cliente tuyo”</b>, el @usuario del post no coincide con ninguna ficha: elegí a mano de qué campaña se descuenta. Los comentarios no consumen saldo; el tráfico sí.</span></div>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/orden-4.png?v=1" alt="Paso 4" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/orden-4-light.png?v=1" alt="Paso 4" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">Arriba, el cliente y cuántas órdenes van. Abajo, las que GROWI ya armó con los rangos de la ficha.</p>
-            </div>
-          </section>
+      </ol>
 
-          <!-- ── 5 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p5">
-            <div class="ob-num">5</div>
-            <div>
-              <h3>Elegí cuándo se envía</h3>
-              <p><b>Ahora</b> sale al toque. <b>Programar</b> pide fecha y hora. <b>Dividir en 3</b> o <b>en 5</b> parte la cantidad en varias órdenes espaciadas por el intervalo que elijas: en minutos (mínimo 45) o en días, para que el crecimiento no sea un escalón.</p>
-              <p>Dividir sólo aparece con productos de tráfico — en comentarios no tiene sentido, porque las tandas ya las arma el sistema.</p>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/orden-5.png?v=1" alt="Paso 5" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/orden-5-light.png?v=1" alt="Paso 5" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">El intervalo se pregunta al elegir Dividir: 45 minutos es el mínimo.</p>
-            </div>
-          </section>
-
-          <!-- ── 6 ─────────────────────────────────────────────────────── -->
-          <section class="ob-step" id="p6">
-            <div class="ob-num">6</div>
-            <div>
-              <h3>Revisá la lista y tocá Solicitar</h3>
-              <p>Acumulá todas las órdenes que necesite el post — comentarios, likes, views, guardados — y mandalas de una sola vez. Cada fila se puede editar con el lápiz o borrar con la ×, y arriba está el <b>total estimado</b>.</p>
-              <p><b>Solicitar</b> es el único botón que manda: recién ahí salen al panel.</p>
-              <figure class="ob-fig">
-                <img class="ob-dark" src="/static/onboarding/orden-6.png?v=1" alt="Paso 6" onclick="zoom(this)" />
-                <img class="ob-light" src="/static/onboarding/orden-6-light.png?v=1" alt="Paso 6" onclick="zoom(this)" />
-              </figure>
-              <p class="ob-cap">Comentarios verificados ahora, los comunes en dos turnos, y el tráfico con su costo. Todo sale con un solo Solicitar.</p>
-            </div>
-          </section>
-
-          <!-- ── Después ───────────────────────────────────────────────── -->
-          <div class="ob-check" id="despues">
-            <h3>Qué pasa después de Solicitar</h3>
-            <p style="font-size:.85rem;color:var(--muted);line-height:1.7">
-              Las órdenes salen al panel y ahí siguen su curso normal. Si el panel estaba caído,
-              quedan en la pestaña <b>En cola</b> y el sistema las reintenta solo — <b>no las vuelvas
-              a cargar</b>, se duplican. Desde esa pestaña también las podés cancelar mientras no
-              hayan salido; una vez en el panel, se cancelan desde el panel.
-            </p>
-          </div>
-
-          <!-- ── FAQ ───────────────────────────────────────────────────── -->
-          <section class="ob-sec" id="faq">
-            <h2>Preguntas frecuentes</h2>
-
-            <div class="ob-search">
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-              <input type="text" id="ob-input" placeholder="Buscar: tandas, saldo, cola…" autocomplete="off" spellcheck="false" oninput="filtrarFaq()" />
-              <button type="button" class="ob-x" id="ob-clear" hidden onclick="limpiarBusqueda()" aria-label="Borrar">✕</button>
-            </div>
-            <p class="ob-empty" id="ob-empty">Sin resultados.</p>
-
-            <details class="ob-q">
-              <summary>¿Los comentarios gastan saldo de la campaña?</summary>
-              <div class="ob-a">No. El saldo se consume sólo con el tráfico (likes, views, followers). Podés publicar comentarios con la campaña en cero.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>Toqué Publicar, ¿ya se mandó?</summary>
-              <div class="ob-a">No. <b>Publicar</b> arma las órdenes y te lleva a la pantalla de revisión. Lo único que manda es <b>Solicitar</b>.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>¿Por qué aparecen órdenes que yo no cargué?</summary>
-              <div class="ob-a">Son las de los <b>rangos del cliente</b>: si su ficha tiene likes o views configurados, GROWI las precrea con una cantidad al azar dentro del rango. Podés editarlas o borrarlas antes de solicitar.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>No me alcanza el saldo de la campaña</summary>
-              <div class="ob-a">El selector muestra el disponible de cada una: elegí otra campaña, bajá la cantidad o pedí recarga. Los comentarios se publican igual.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>Generé pocos comentarios usables</summary>
-              <div class="ob-a"><b>+ Cargar más</b> genera otra tanda sin perder lo que ya marcaste. Si el problema se repite con ese cliente, el que necesita una vuelta es el prompt.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>“No se pudo leer el post”</summary>
-              <div class="ob-a">Cuenta privada, link que no es de un post (perfil o story), o Instagram limitando el acceso. Revisá el link y reintentá en unos minutos.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>Salió un aviso de que la IA falló</summary>
-              <div class="ob-a">El modelo estaba saturado. El post ya quedó leído: <b>↻ Reintentar</b> vuelve a generar sin rehacer la transcripción.</div>
-            </details>
-
-            <details class="ob-q">
-              <summary>Quiero mandar followers, no comentarios</summary>
-              <div class="ob-a">Eso va por <b>Followers</b>: es a un <b>perfil</b>, no a un post. Pegás el @usuario, elegís calidad y cantidad, y sale al panel igual que cualquier orden.</div>
-            </details>
-          </section>
-
-          <p class="ob-foot">¿Es tu primer cliente? Empezá por <a href="/ayuda">cómo cargar un cliente</a>. <a href="/" target="_blank" rel="noopener">Ir al generador ↗</a></p>
-        </div>
-      </div>
+      <a class="ay-next" href="/ayuda">
+        <span class="ay-next-n">1</span>
+        <span class="ay-next-t"><b>Cargar un cliente</b><span>Cómo se crea la ficha que usa el generador</span></span>
+        <span class="ay-next-go">→</span>
+      </a>
 
     </main>
   </div>
 
-  <div class="ob-zoom" id="ob-zoom" onclick="cerrarZoom()"><img id="ob-zoom-img" alt="" /></div>
-
-  <script>
-    // Click en una captura: se abre en grande. Las de pantalla completa no se
-    // leen al ancho de la columna.
-    function zoom(img) {
-      document.getElementById("ob-zoom-img").src = img.src;
-      document.getElementById("ob-zoom").classList.add("on");
-    }
-    function cerrarZoom() { document.getElementById("ob-zoom").classList.remove("on"); }
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarZoom(); });
-
-    // Tema: esta pantalla no carga app.js, así que replica el mismo mecanismo
-    // (clase .light + localStorage) para no perder la preferencia al entrar.
-    function toggleTheme() {
-      const isLight = document.body.classList.toggle("light");
-      localStorage.setItem("theme", isLight ? "light" : "dark");
-      document.getElementById("btn-theme").textContent = isLight ? "☾ Dark" : "☀ Light";
-    }
-    if (localStorage.getItem("theme") === "light") {
-      document.body.classList.add("light");
-      document.addEventListener("DOMContentLoaded", () => {
-        const b = document.getElementById("btn-theme");
-        if (b) b.textContent = "☾ Dark";
-      });
-    }
-
-    // Buscador: sólo el FAQ. Los pasos se leen en orden, filtrarlos no ayuda.
-    function filtrarFaq() {
-      const q = document.getElementById("ob-input").value.trim().toLowerCase();
-      document.getElementById("ob-clear").hidden = !q;
-      let hay = 0;
-      document.querySelectorAll(".ob-q").forEach((p) => {
-        const match = !q || p.textContent.toLowerCase().includes(q);
-        p.hidden = !match;
-        if (match) hay++;
-      });
-      document.getElementById("ob-empty").classList.toggle("on", hay === 0);
-    }
-
-    function limpiarBusqueda() {
-      const i = document.getElementById("ob-input");
-      i.value = "";
-      filtrarFaq();
-      i.focus();
-    }
-
-    // El índice marca el paso que se está leyendo.
-    const enlaces = [...document.querySelectorAll(".ob-nav a")];
-    const obs = new IntersectionObserver((entradas) => {
-      entradas.forEach((e) => {
-        if (!e.isIntersecting) return;
-        enlaces.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
-      });
-    }, { rootMargin: "-8% 0px -72% 0px" });
-    document.querySelectorAll(".ob-step, #despues, #faq").forEach((s) => obs.observe(s));
-  </script>
+  <div class="ay-zoom" id="ay-zoom" onclick="cerrarZoom()"><img id="ay-zoom-img" alt="" /></div>
+  <script src="/static/ayuda.js?v=2"></script>
   <script src="/static/header-menu.js?v=1785889200"></script>
 </body>
 </html>
