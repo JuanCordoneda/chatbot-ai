@@ -1686,6 +1686,56 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
 .repartir-grupo:hover { background: rgba(37,211,102,0.14); }
 
+/* El camino de un click va ARRIBA de la lista: es la acción principal, y la
+   lista de a uno pasa a ser el respaldo para cuando algo falla. */
+.repartir-bulk {
+  background: var(--surface2);
+  border: 1px solid rgba(37,211,102,0.3);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.repartir-bulk-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #25d366;
+  color: #04310f;
+  font-family: var(--font);
+  font-size: 0.92rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 11px;
+  padding: 13px 18px;
+  cursor: pointer;
+}
+
+.repartir-bulk-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.repartir-bulk-btn:disabled { opacity: 0.6; cursor: progress; }
+
+.repartir-bulk-hint {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 10px 2px 0;
+}
+
+.repartir-bulk-msg {
+  font-size: 0.79rem;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+}
+
+.repartir-bulk-msg--ok   { background: rgba(37,211,102,0.14); color: #25d366; }
+.repartir-bulk-msg--warn { background: var(--yellow-lo); color: var(--yellow); }
+.repartir-bulk-msg--bad  { background: rgba(255,90,90,0.14); color: #ff7a7a; }
+
 /* Con 20 mensajes la lista no entra en pantalla: scrollea sola y así el modal
    mantiene los botones de cerrar a la vista. */
 .repartir-lista {
