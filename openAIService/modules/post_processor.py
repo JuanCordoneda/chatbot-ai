@@ -239,16 +239,33 @@ def _extraer_frames(video_path: str, n: int = _FRAMES_VIDEO) -> list[bytes]:
     return frames
 
 
+_cuenta_avisada = ""
+
+
+def _avisar_cuenta(cookies: dict, origen: str) -> dict:
+    """Deja en el log de qué cuenta es la sesión que se está usando (una sola vez).
+    Cuando se cambia de cuenta, el síntoma de que quedó la vieja en algún lado es
+    'media null' en todos los posts, que no dice nada. Con esto se ve al arrancar
+    cuál está activa, sin exponer el sessionid."""
+    global _cuenta_avisada
+    marca = f"{origen}:{cookies.get('ds_user_id', '?')}"
+    if marca != _cuenta_avisada:
+        _cuenta_avisada = marca
+        print(f"[ig_cookies] sesión desde {origen} (ds_user_id={cookies.get('ds_user_id') or 'sin ds_user_id'})",
+              flush=True)
+    return cookies
+
+
 def _load_ig_cookies() -> dict:
     """
-    Carga las cookies de Instagram desde env vars o archivo de sesión.
+    Carga las cookies de Instagram desde env vars.
     Prioridad: INSTAGRAM_COOKIES_JSON > INSTAGRAM_SESSION_B64 (formato instaloader pickle)
     """
     # Formato nuevo: JSON con las cookies directamente
     cookies_json = os.environ.get("INSTAGRAM_COOKIES_JSON")
     if cookies_json:
         try:
-            return json.loads(cookies_json)
+            return _avisar_cuenta(json.loads(cookies_json), "INSTAGRAM_COOKIES_JSON")
         except Exception as e:
             print(f"[ig_cookies] error parseando INSTAGRAM_COOKIES_JSON: {e}", flush=True)
 
@@ -258,34 +275,23 @@ def _load_ig_cookies() -> dict:
     if session_b64:
         try:
             data = pickle.loads(base64.b64decode(session_b64))
-            return {
+            return _avisar_cuenta({
                 "sessionid": data.get("sessionid", ""),
                 "csrftoken": data.get("csrftoken", ""),
                 "ds_user_id": data.get("ds_user_id", ""),
                 "mid": data.get("mid", ""),
                 "ig_did": data.get("ig_did", ""),
                 "datr": data.get("datr", ""),
-            }
+            }, "INSTAGRAM_SESSION_B64")
         except Exception as e:
             print(f"[ig_cookies] error cargando INSTAGRAM_SESSION_B64: {e}", flush=True)
 
-    # Archivo de sesión local (docker-compose / dev)
-    session_file = os.path.join(os.path.dirname(__file__), "..", "session-crowagency.ofc")
-    if os.path.exists(session_file):
-        try:
-            with open(session_file, "rb") as f:
-                data = pickle.load(f)
-            return {
-                "sessionid": data.get("sessionid", ""),
-                "csrftoken": data.get("csrftoken", ""),
-                "ds_user_id": data.get("ds_user_id", ""),
-                "mid": data.get("mid", ""),
-                "ig_did": data.get("ig_did", ""),
-                "datr": data.get("datr", ""),
-            }
-        except Exception as e:
-            print(f"[ig_cookies] error cargando session file: {e}", flush=True)
-
+    # Antes había un tercer fallback: un pickle de instaloader commiteado al lado
+    # de este archivo (session-crowagency.ofc). Se sacó al cambiar de cuenta: si
+    # faltaba la env var, el scraper volvía en silencio a la sesión vieja y todo
+    # fallaba con "media null", sin ninguna pista de por qué. Mejor quedarse sin
+    # sesión y decirlo, que scrapear con la cuenta equivocada.
+    print("[ig_cookies] sin sesión: falta INSTAGRAM_COOKIES_JSON en el entorno", flush=True)
     return {}
 
 

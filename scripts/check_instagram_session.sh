@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chequea que la sesión de instaloader siga viva contra el endpoint de salud
+# Chequea que la sesión de Instagram (INSTAGRAM_COOKIES_JSON) siga viva contra el endpoint de salud
 # del openai-service. Pensado para correr por cron en la misma máquina/servidor
 # donde vive el contenedor (pega a localhost, no a internet).
 #
@@ -30,7 +30,7 @@ if [ -n "$OK" ]; then
   exit 0
 fi
 
-MSG="🚨 Sesión de Instagram (crowagency.ofc) caída. Respuesta: ${RESPONSE}. Renovar con: instaloader --login crowagency.ofc"
+MSG="🚨 Sesión de Instagram caída. Respuesta: ${RESPONSE}. Renovar con: python scripts/ig_cookies_from_browser.py (y subir INSTAGRAM_COOKIES_JSON a Railway)"
 echo "$(date -Iseconds) [check_instagram_session] FALLO: $MSG"
 
 if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
