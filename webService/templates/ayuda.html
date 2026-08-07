@@ -121,7 +121,12 @@
 
         <li class="ay-paso">
           <h2>Escribí el <b>prompt</b></h2>
-          <p>Cómo habla y, sobre todo, qué no dice nunca. Las prohibiciones son lo que más cambia el resultado.</p>
+          <p>No lo escribas de cero: andá a la conversación de ese cliente y pedíselo.</p>
+          <div class="ay-pedido">
+            <p id="ay-pedido-txt">Haceme un prompt específico y marcame las correcciones bien claras al principio haciendo énfasis</p>
+            <button type="button" onclick="copiarPedido(this)">Copiar</button>
+          </div>
+          <p>Lo que te devuelve va tal cual en la ficha. <b>Si el cliente no tiene conversación, dejalo en blanco.</b></p>
           <figure class="ay-fig">
             <img class="ay-dark" src="/static/onboarding/paso-4.png?v=2" alt="Prompt" onclick="zoom(this)" />
             <img class="ay-light" src="/static/onboarding/paso-4-light.png?v=2" alt="Prompt" onclick="zoom(this)" />

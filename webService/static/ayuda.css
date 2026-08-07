@@ -51,6 +51,16 @@
   background: var(--yellow-lo); border: 1px solid var(--yellow-md); border-radius: 10px;
   padding: 10px 13px; }
 
+/* El pedido que se le manda a la conversación del cliente: se copia y se pega
+   tal cual, así que se muestra como texto, no como párrafo de la guía. */
+.ay-pedido { display: flex; align-items: center; gap: 12px; margin-top: 11px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; }
+.ay-pedido p { margin: 0 !important; font-size: .85rem !important; color: var(--text) !important; }
+.ay-pedido button { flex: 0 0 auto; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 8px; padding: 7px 13px; font-family: var(--font);
+  font-size: .78rem; font-weight: 650; cursor: pointer; }
+.ay-pedido button:hover { border-color: var(--yellow); color: var(--yellow); }
+
 /* Captura: hay una por tema, se muestra la del tema activo. */
 .ay-fig { margin-top: 12px; }
 .ay-fig img { display: block; width: 100%; border: 1px solid var(--border);

@@ -25,3 +25,13 @@ function cerrarZoom() {
   document.getElementById("ay-zoom").classList.remove("on");
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarZoom(); });
+
+// Copiar el pedido para la conversación del cliente. Se escribe siempre igual:
+// tipearlo a mano es la parte que se hace mal.
+function copiarPedido(btn) {
+  const txt = document.getElementById("ay-pedido-txt").textContent.trim();
+  navigator.clipboard.writeText(txt).then(() => {
+    btn.textContent = "✓ Copiado";
+    setTimeout(() => { btn.textContent = "Copiar"; }, 1800);
+  });
+}

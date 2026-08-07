@@ -338,7 +338,13 @@ class H(BaseHTTPRequestHandler):
         tpl = ("index.html" if path == "/" else
                "ayuda.html" if path == "/ayuda" else
                "ayuda-ordenes.html" if path == "/ayuda-ordenes" else "admin.html")
-        html = env.get_template(tpl).render(username="juan", is_admin=False, account_id=7)
+        # url_for lo pone Flask; acá alcanza con una versión mínima para que
+        # las plantillas que arman URLs absolutas (og:image) rendericen.
+        def url_for(endpoint, filename="", _external=False, **kw):
+            base = "http://127.0.0.1:8899" if _external else ""
+            return f"{base}/static/{filename}" if endpoint == "static" else base + "/"
+        html = env.get_template(tpl).render(username="juan", is_admin=False, account_id=7,
+                                            url_for=url_for)
         # El stub va antes que el JS de la app: ninguna llamada real sale.
         shot = ""
         for parte in self.path.split("?")[-1].split("&"):
