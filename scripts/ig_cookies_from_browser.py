@@ -4,6 +4,12 @@ Saca las cookies de Instagram del navegador de esta máquina y arma
 INSTAGRAM_COOKIES_JSON. Alternativa a set_ig_cookies.py para no tener que abrir
 DevTools ni copiar valores a mano.
 
+Copia TODAS las cookies de instagram.com, no un subconjunto, para que el pedido
+se parezca lo más posible al del navegador.
+
+Si un post da "media null" (típico en los +18) aunque desde el navegador lo veas
+bien: la sesión del server envejeció. Volvé a correr esto y subí el valor nuevo.
+
 NO usa usuario ni contraseña: lee la sesión que ya tenés abierta en el navegador.
 El scraper tampoco se loguea nunca — solo manda cookies (ver _load_ig_cookies en
 post_processor.py).
@@ -104,10 +110,20 @@ def main() -> None:
                  "probá --browser firefox.)")
 
     navegador, ck = encontrado
+    # Nos llevamos TODAS las cookies de instagram.com, no solo las de CLAVES:
+    # cuanto más se parezca el pedido al del navegador, menos veces Instagram lo
+    # trata como automatizado. CLAVES queda como el mínimo que tiene que estar.
+    # (No confundir con el bug de los posts +18: eso era una sesión vieja, no
+    # cookies faltantes — con las 6 básicas recién exportadas también anda.)
     cookies = {k: ck[k] for k in CLAVES if ck.get(k)}
+    extra = {k: v for k, v in ck.items() if k not in cookies}
+    cookies.update(extra)
     faltan = [k for k in CLAVES if k not in cookies]
 
-    print(f"\nDe {navegador}: {len(cookies)} cookies ({', '.join(cookies)})", file=sys.stderr)
+    print(f"\nDe {navegador}: {len(cookies)} cookies", file=sys.stderr)
+    if extra:
+        print(f"  básicas: {', '.join(k for k in CLAVES if k in cookies)}", file=sys.stderr)
+        print(f"  extra:   {', '.join(extra)}", file=sys.stderr)
     if faltan:
         print(f"aviso: sin {', '.join(faltan)}. Funciona, pero Instagram bloquea "
               "más seguido a los pedidos con menos cookies.", file=sys.stderr)

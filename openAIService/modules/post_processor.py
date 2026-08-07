@@ -53,6 +53,30 @@ def _motivo_desc_error(err: str) -> str:
     return "No se pudo describir la imagen (error de la IA). Reintentá en un momento."
 
 
+def _motivo_post_inaccesible(slow: dict, fast: dict) -> str:
+    """Por qué no salió el post, distinguiendo el caso 'el post no existe' del
+    caso 'la sesión no sirve'.
+
+    Los dos llegaban al vendedor con el mismo texto ("privado, borrado, o la
+    sesión venció"), que lo mandaba a sospechar de la sesión cuando casi siempre
+    es el post. Se pueden separar porque el scrapeo va por dos caminos con
+    identidades distintas: la API con sesión y el HTML público, anónimo. Si el
+    anónimo TAMBIÉN vino vacío, no es la sesión: Instagram no entrega ese post
+    para nadie."""
+    error = slow.get("_error") or "Instagram no devolvió el link del video"
+    if slow.get("_error_kind") != "media_null":
+        # 429/403/timeout: el error ya dice lo que pasa y suele ser transitorio.
+        return f"{error}. Probá de nuevo en un minuto"
+    if not fast.get("caption") and not fast.get("owner_username"):
+        return ("Instagram no entrega este post (borrado, restringido por edad o "
+                "país, o el link no corresponde a un post existente). Para "
+                "confirmarlo, abrilo en una ventana de incógnito: si ahí tampoco "
+                "carga, no es un problema del sistema")
+    # El público lo ve pero el logueado no: ahí sí la sesión es sospechosa.
+    return ("la sesión de Instagram del server necesita renovarse (el post es "
+            "público pero la cuenta no lo puede leer). Avisá al administrador")
+
+
 def extract_shortcode(url: str) -> Optional[str]:
     # El @usuario puede venir antes del /p/ o /reel/ (instagram.com/user/reel/CODE/).
     match = re.search(
@@ -515,8 +539,12 @@ def _fetch_instagram_api(shortcode: str) -> dict:
 
         media = r.json().get("data", {}).get("xdt_shortcode_media")
         if not media:
+            # 200 con media en null. Sin más contexto no se sabe si el post no
+            # existe o si la sesión dejó de servir: quien llama lo resuelve
+            # mirando si el camino público (_fetch_fast, anónimo) también falló.
             print(f"[ig_api] media null para {shortcode}", flush=True)
-            return {"_error": "Instagram no devolvió los datos del post (puede ser privado, borrado, o la sesión venció)"}
+            return {"_error": "Instagram no devolvió los datos del post (puede ser privado, borrado, o la sesión venció)",
+                    "_error_kind": "media_null"}
 
         # display_url = imagen del post (foto, o thumbnail del video). En carruseles
         # tomamos la del primer item.
@@ -847,8 +875,8 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
     elif is_video:
         # Reel sin video_url ni después de los reintentos: le decimos al usuario
         # POR QUÉ, en vez del genérico "sin transcripción disponible".
-        motivo = slow.get("_error") or "Instagram no devolvió el link del video"
-        transcription = f"(transcripción no disponible: {motivo}. Probá de nuevo en un minuto.)"
+        motivo = _motivo_post_inaccesible(slow, fast)
+        transcription = f"(transcripción no disponible: {motivo}.)"
         print(f"[ig_api] sin transcripción — {motivo}", flush=True)
 
     descripcion_error = ""
@@ -872,7 +900,7 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
     sin_contenido = (not owner_username and not caption) if ligero else (
         not caption and not transcription and not image_b64)
     if sin_contenido:
-        motivo = slow.get("_error") or "el post puede ser privado o el link estar mal"
+        motivo = _motivo_post_inaccesible(slow, fast)
         raise ValueError(f"No se pudo obtener el contenido del post: {motivo}.")
 
     resultado = PostData(
