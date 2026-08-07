@@ -15,11 +15,11 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="GROWI — Onboarding" />
   <meta property="og:description" content="Cargar un cliente · guía en 8 pasos, con capturas de cada pantalla." />
-  <meta property="og:image" content="/static/og-onboarding.png?v=1" />
+  <meta property="og:image" content="{{ url_for('static', filename='og-onboarding.png', _external=True) }}?v=1" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="/static/og-onboarding.png?v=1" />
+  <meta name="twitter:image" content="{{ url_for('static', filename='og-onboarding.png', _external=True) }}?v=1" />
 </head>
 <body>
   <div class="app">
@@ -39,6 +39,7 @@
       </div>
       <div class="header-actions">
         <div class="header-btn-group">
+          {% if username %}
           <a class="header-action-btn header-action-btn--primary" href="/mis-clientes" target="_blank" rel="noopener" title="Abrir en otra pestaña">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 9a2.2 2.2 0 100-4.4A2.2 2.2 0 008 9z" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13.5c.7-2.1 2.9-3.1 5.5-3.1s4.8 1 5.5 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
             <span>Mis clientes</span>
@@ -52,6 +53,13 @@
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 11L14 8l-3.5-3M14 8H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>Salir</span>
           </a>
+          {% else %}
+          <a class="header-action-btn header-action-btn--primary" href="/login?next=/ayuda">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 2h3a1 1 0 011 1v10a1 1 0 01-1 1h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 11L9 8 5.5 5M9 8H2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Entrar</span>
+          </a>
+          <button class="header-action-btn" id="btn-theme" onclick="toggleTheme()" title="Cambiar tema">☀ Light</button>
+          {% endif %}
         </div>
       </div>
     </header>
@@ -75,10 +83,12 @@
 
       <div class="ay-head">
         <h1>Cargar un cliente</h1>
+        {% if username %}
         <a class="ay-abrir" href="/mis-clientes" target="_blank" rel="noopener">
           Abrir <b>Mis clientes</b> al lado
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2.5h7.5V10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 2.5L7 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M11 13.5H2.5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
+        {% endif %}
       </div>
 
       <ol class="ay-pasos">

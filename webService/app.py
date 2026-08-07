@@ -87,6 +87,12 @@ def _security_headers(resp):
     return resp
 
 OPENAI_SERVICE_URL = os.environ.get("OPENAI_SERVICE_URL", "http://openai-service:8000")
+WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://whatsapp-service:8501")
+# A qué WhatsApp se manda la tanda de comentarios. Por ahora uno solo (el mismo
+# que recibe las alertas del CRM si no se configura otro): cuando lo use más de
+# un vendedor hay que guardar el teléfono en su ficha.
+REPARTO_WHATSAPP_TO = (os.environ.get("REPARTO_WHATSAPP_TO")
+                       or os.environ.get("GROWI_ALERTA_WHATSAPP", "")).strip()
 
 # Capa de datos multi-tenant. Opcional: si no está, se usa el login legacy.
 try:
@@ -643,6 +649,9 @@ def login():
                 session["account_id"] = user["account_id"]
                 session["username"] = user["username"]
                 session["is_admin"] = user["is_admin"]
+                destino = (request.form.get("next") or "").strip()
+                if destino.startswith("/") and not destino.startswith("//"):
+                    return redirect(destino)
                 return redirect(url_for("index"))
             # Solo cuenta como intento de fuerza bruta la credencial equivocada.
             # Pendiente / restringido / CRM caído son credenciales válidas o un
@@ -654,8 +663,9 @@ def login():
             error = auth_error or MSG_CREDENCIALES
             # "Pendiente" no es un error del usuario: se muestra como aviso.
             error_kind = "info" if error == MSG_PENDIENTE else "error"
-    resp = make_response(render_template("login.html", error=error,
-                                         error_kind=error_kind, username=username), status)
+    resp = make_response(render_template("login.html", error=error, error_kind=error_kind,
+                                         username=username,
+                                         next=(request.values.get("next") or "")), status)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -698,10 +708,9 @@ def followers_page():
 
 @app.route("/ayuda")
 def ayuda_page():
-    """Guía de uso y preguntas frecuentes. Es la pantalla que se le pasa a todo
-    cliente nuevo: estática, sin llamadas a la API, sólo lectura."""
-    if not session.get("logged_in"):
-        return redirect(url_for("login"))
+    """Guía 1: cargar un cliente. PÚBLICA (sin login): es lo que se le manda a
+    alguien que todavía no tiene usuario, y no muestra ningún dato real — las
+    capturas son de clientes de demo."""
     return render_template(
         "ayuda.html",
         is_admin=session.get("is_admin", False),
@@ -711,11 +720,8 @@ def ayuda_page():
 
 @app.route("/ayuda-ordenes")
 def ayuda_ordenes_page():
-    """Segunda guía: del link del post a las órdenes pedidas. Va aparte de
-    /ayuda porque son dos trabajos distintos (cargar el cliente una vez vs.
-    laburar cada post)."""
-    if not session.get("logged_in"):
-        return redirect(url_for("login"))
+    """Guía 2: crear una orden. También pública. Va aparte de /ayuda porque son
+    dos trabajos distintos: cargar el cliente una vez vs. laburar cada post."""
     return render_template(
         "ayuda-ordenes.html",
         is_admin=session.get("is_admin", False),
@@ -863,6 +869,73 @@ def nombre_red():
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/wa-grupo", methods=["GET"])
+@require_login
+def wa_grupo():
+    """Link del grupo de WhatsApp del cliente dueño del post, si tiene uno.
+
+    El repartir-comentarios abre este grupo directamente en vez de dejar al
+    vendedor eligiendo el chat cada vez. Sin cliente, sin DB o sin grupo cargado
+    devuelve vacío y el front cae al selector de chats: no es un error, es el
+    comportamiento normal para un post que no es de nadie.
+    """
+    ig = (request.args.get("ig") or "").strip().lstrip("@").lower()
+    if not ig:
+        return jsonify({"url": ""})
+    try:
+        c = _repo.get_client_by_ig_username(ig, session.get("account_id"))
+    except Exception as e:
+        print(f"[wa-grupo] no pude leer el cliente @{ig}: {e!r}", flush=True)
+        return jsonify({"url": ""})
+    return jsonify({"url": (c or {}).get("wa_group_url") or ""})
+
+
+@app.route("/api/repartir-wa", methods=["POST"])
+@require_login
+def repartir_wa():
+    """Manda el link del post + un mensaje por comentario al WhatsApp del vendedor.
+
+    Llegan sueltos a propósito: desde ahí se reenvían al grupo del cliente con
+    el reenvío múltiple de WhatsApp, que es lo que reemplaza al copiar-pegar de
+    a uno. No van directo al grupo porque la API de Meta no escribe en grupos.
+
+    Versión simple: un solo número, el del .env. Cuando esto lo use más de una
+    persona hay que guardar el teléfono por vendedor.
+    """
+    if not REPARTO_WHATSAPP_TO:
+        return jsonify({"error": "No hay número de WhatsApp configurado. "
+                                 "Cargá REPARTO_WHATSAPP_TO en el .env."}), 503
+
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    comentarios = [c for c in (data.get("comentarios") or []) if (c or "").strip()]
+    if not comentarios:
+        return jsonify({"error": "No hay comentarios para repartir."}), 400
+
+    # El link va primero: sin él, los comentarios sueltos en el grupo no se sabe
+    # a qué post pertenecen.
+    mensajes = ([url] if url else []) + comentarios
+
+    try:
+        resp = requests.post(f"{WHATSAPP_SERVICE_URL}/send-bulk",
+                             json={"to": REPARTO_WHATSAPP_TO, "mensajes": mensajes},
+                             # 20 mensajes con 1s de pausa y 20s de timeout cada
+                             # uno: el techo real está bastante abajo de esto.
+                             timeout=180)
+    except Exception as e:
+        print(f"[repartir-wa] no pude hablar con whatsapp-service: {e!r}", flush=True)
+        return jsonify({"error": "No se pudo contactar al servicio de WhatsApp."}), 502
+
+    try:
+        body = resp.json()
+    except Exception:
+        return jsonify({"error": "Respuesta inesperada del servicio de WhatsApp."}), 502
+
+    _log_uso("repartir_wa", post_url=url, client_ig_username=data.get("client"),
+             qty=body.get("enviados"))
+    return jsonify(body), resp.status_code
 
 
 @app.route("/api/costo_trafico", methods=["POST"])
@@ -1478,6 +1551,7 @@ def admin_clients_create():
         crm_idventa=d.get("crm_idventa"),
         crm_idvendedor=d.get("crm_idvendedor"),
         keyword_mode=d.get("keyword_mode"),
+        wa_group_url=d.get("wa_group_url"),
     )
     return jsonify({"client": c}), 201
 
@@ -1519,6 +1593,8 @@ def admin_clients_update(client_id):
         crm_idvendedor=d.get("crm_idvendedor"),
         keyword_mode=d.get("keyword_mode"),
         keyword_mode_set=("keyword_mode" in d),
+        wa_group_url=d.get("wa_group_url"),
+        wa_group_url_set=("wa_group_url" in d),
     )
     return jsonify({"client": c})
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin · GROWI</title>
-  <link rel="stylesheet" href="/static/style.css?v=1785889200" />
+  <link rel="stylesheet" href="/static/style.css?v=1786000000" />
   <style>
     /* ===== Panel de admin — clases con prefijo ax- para no colisionar con style.css ===== */
     body { overflow-y: scroll; }
@@ -1491,6 +1491,15 @@
           <label for="client-venta">¿De dónde sale la plata? <span class="ax-hint" id="client-venta-hint"></span></label>
           <select id="client-venta" onchange="actualizarVentaHint()"><option value="">— sin asignar —</option></select>
           <div id="client-venta-detalle" class="ax-venta-detalle"></div>
+        </div>
+        <div class="ax-field">
+          <label for="client-wa-grupo">Grupo de WhatsApp <span class="ax-hint">opcional</span></label>
+          <input type="text" id="client-wa-grupo" placeholder="https://chat.whatsapp.com/..." oninput="validarWaGrupo()" />
+          <div class="ax-fe" id="client-wa-grupo-fe"></div>
+          <div class="ax-help">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Con esto cargado, el botón <b>Repartir por WhatsApp</b> abre <b>este grupo</b> al mandar cada comentario, en vez de hacerte buscar el chat cada vez. Se saca del grupo → <b>Invitar por link</b>. Vacío = elegís el chat a mano.</span>
+          </div>
         </div>
         <div class="ax-field">
           <label>Cantidades por rango <span class="ax-hint" id="ranges-resumen"></span></label>

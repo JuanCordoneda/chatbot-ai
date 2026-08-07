@@ -1600,6 +1600,193 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   box-shadow: none;
 }
 
+/* ── Repartir por WhatsApp ──
+   Publicar (manda al CRM) y repartir (manda al grupo del cliente) son dos
+   acciones distintas sobre la misma selección, así que van juntas pero con
+   jerarquía: publicar sigue siendo la principal, repartir es secundaria. */
+.publish-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.publish-row .btn-publish { flex: 1 1 auto; }
+
+.btn-repartir {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 700;
+  border: 1px solid rgba(37,211,102,0.35);
+  border-radius: 14px;
+  padding: 17px 20px;
+  cursor: pointer;
+  letter-spacing: -0.02em;
+  transition: filter 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.btn-repartir:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(37,211,102,0.6);
+  box-shadow: 0 6px 22px rgba(37,211,102,0.18);
+}
+
+.btn-repartir:active:not(:disabled) { transform: scale(0.98); }
+
+.btn-repartir:disabled {
+  background: var(--surface3);
+  color: var(--muted);
+  border-color: transparent;
+  cursor: not-allowed;
+}
+
+.repartir-card {
+  text-align: left;
+  padding: 28px;
+  width: min(560px, 92vw);
+}
+
+.repartir-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.repartir-progreso {
+  flex: 0 0 auto;
+  background: var(--surface3);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.repartir-grupo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(37,211,102,0.08);
+  border: 1px solid rgba(37,211,102,0.3);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.repartir-grupo:hover { background: rgba(37,211,102,0.14); }
+
+/* Con 20 mensajes la lista no entra en pantalla: scrollea sola y así el modal
+   mantiene los botones de cerrar a la vista. */
+.repartir-lista {
+  max-height: 46vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.repartir-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+/* Lo ya enviado se apaga en vez de desaparecer: el vendedor tiene que poder
+   reenviar el que se le trabó a mitad de camino. */
+.repartir-item--ok {
+  opacity: 0.55;
+  border-color: rgba(37,211,102,0.4);
+}
+
+.repartir-num {
+  flex: 0 0 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: var(--surface3);
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.repartir-item--ok .repartir-num {
+  background: rgba(37,211,102,0.2);
+  color: #25d366;
+}
+
+.repartir-cuerpo {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.repartir-tag {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.repartir-texto {
+  font-size: 0.88rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repartir-enviar {
+  flex: 0 0 auto;
+  background: #25d366;
+  color: #04310f;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.repartir-enviar:hover { filter: brightness(1.06); }
+
+.repartir-item--ok .repartir-enviar {
+  background: var(--surface3);
+  color: var(--muted);
+}
+
+.repartir-nota {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 560px) {
+  .publish-row { flex-direction: column; }
+  .btn-repartir { justify-content: center; }
+}
+
 /* ── Nuevo post bar ── */
 .nuevo-post-bar {
   display: flex;

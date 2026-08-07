@@ -668,6 +668,7 @@ function mostrarScrape(data) {
   // campaña y se la pedimos a mano en el paso de órdenes.
   window._clienteAsignado = !!data.cliente_asignado;
   window._ventaElegida = "";
+  cargarGrupoWa(data.cliente_asignado ? window._clientIg : "");
 
   hide("loading-overlay");
 
@@ -1270,6 +1271,166 @@ function copiarComentario(e, index) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Repartir por WhatsApp
+//
+// El vendedor tiene un grupo por cliente y hoy reenvía el link y los comentarios
+// uno por uno a mano. Esto NO lo automatiza del todo, porque no se puede: la
+// Cloud API de Meta solo manda mensajes 1 a 1 y no escribe en grupos, y WhatsApp
+// tampoco deja abrir un grupo con el texto ya cargado. Lo que sí se puede es
+// sacar el copiar-pegar del medio: cada mensaje se abre ya escrito con
+// wa.me/?text= y el vendedor solo elige el chat y manda.
+// ---------------------------------------------------------------------------
+
+// Link de invitación del grupo del cliente del post, si tiene uno cargado.
+let grupoWa = "";
+// Los mensajes de la tanda actual y cuáles ya se mandaron. El "enviado" es lo
+// único que hace utilizable la pantalla con 20 mensajes: sin la marca, después
+// de tres se pierde la cuenta de por dónde iba.
+let repartoItems = [];
+let repartoEnviados = new Set();
+
+async function cargarGrupoWa(ig) {
+  grupoWa = "";
+  if (!ig) return;
+  try {
+    const r = await fetch(`/api/wa-grupo?ig=${encodeURIComponent(ig)}`);
+    if (!r.ok) return;
+    grupoWa = (await r.json()).url || "";
+  } catch (e) {
+    // Sin grupo el reparto funciona igual (se elige el chat a mano): no vale
+    // la pena molestar al vendedor con un error por esto.
+    console.warn("no pude leer el grupo de WhatsApp del cliente", e);
+  }
+}
+
+function abrirRepartir() {
+  const idx = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
+    .map(c => parseInt(c.closest(".comentario-item").dataset.index, 10))
+    .filter(i => !Number.isNaN(i));
+  if (idx.length === 0) return;
+
+  // El link va primero porque es el mensaje que da contexto: sin él, los
+  // comentarios sueltos en el grupo no se sabe a qué post pertenecen.
+  repartoItems = [{ tipo: "link", texto: currentUrl }];
+  idx.forEach(i => repartoItems.push({ tipo: "comentario", texto: comentariosGenerados[i] }));
+  repartoEnviados = new Set();
+
+  const cliente = window._clientIg || "";
+  const grupoEl = document.getElementById("repartir-grupo");
+  if (grupoWa) {
+    grupoEl.href = grupoWa;
+    document.getElementById("repartir-grupo-nombre").textContent = cliente ? `@${cliente}` : "este cliente";
+    grupoEl.classList.remove("hidden");
+  } else {
+    grupoEl.classList.add("hidden");
+  }
+  document.getElementById("repartir-sub").textContent =
+    `El link del post y ${repartoItems.length - 1} comentario${repartoItems.length === 2 ? "" : "s"}, un mensaje cada uno.`;
+
+  document.getElementById("repartir-bulk-n").textContent = repartoItems.length;
+  const msg = document.getElementById("repartir-bulk-msg");
+  msg.className = "repartir-bulk-msg hidden";
+  msg.textContent = "";
+
+  renderRepartir();
+  document.getElementById("repartir-overlay").classList.remove("hidden");
+}
+
+// Un click: el bot manda los mensajes sueltos al WhatsApp del vendedor. De ahí
+// al grupo van con el reenvío múltiple de WhatsApp — no hay forma de que el bot
+// escriba en el grupo, así que este es el camino más corto que existe.
+async function mandarTandaWa() {
+  const btn = document.getElementById("repartir-bulk-btn");
+  const msg = document.getElementById("repartir-bulk-msg");
+  if (btn.disabled) return;
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = "Mandando…";
+  msg.className = "repartir-bulk-msg hidden";
+
+  try {
+    const r = await fetch("/api/repartir-wa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: currentUrl,
+        comentarios: repartoItems.filter(it => it.tipo === "comentario").map(it => it.texto),
+        client: window._clientIg || "",
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+
+    if (r.ok) {
+      // Se marcan como enviados: ya salieron de verdad, no "los abrí".
+      marcarTodoRepartido();
+      msg.textContent = `✓ Listo, te mandé ${data.enviados} mensajes. Reenvialos al grupo desde WhatsApp.`;
+      msg.className = "repartir-bulk-msg repartir-bulk-msg--ok";
+    } else if (r.status === 207) {
+      // Salió parte. Lo importante es cuántos faltan, no el detalle técnico:
+      // reintentar toda la tanda duplicaría los que sí llegaron.
+      const detalle = (data.fallidos || [])[0]?.detalle || "";
+      msg.textContent = `Se mandaron ${data.enviados} de ${data.total}. ` +
+        `Los que faltan mandalos de a uno con los botones de abajo.` + (detalle ? ` (${detalle})` : "");
+      msg.className = "repartir-bulk-msg repartir-bulk-msg--warn";
+    } else {
+      const detalle = data.error || (data.fallidos || [])[0]?.detalle || "";
+      msg.textContent = detalle || "No se pudieron mandar los mensajes.";
+      msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
+    }
+  } catch (e) {
+    msg.textContent = "No se pudo contactar al servidor. Probá de nuevo.";
+    msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = textoOriginal;
+  }
+}
+
+function cerrarRepartir() {
+  document.getElementById("repartir-overlay").classList.add("hidden");
+}
+
+function renderRepartir() {
+  const lista = document.getElementById("repartir-lista");
+  lista.innerHTML = repartoItems.map((it, i) => {
+    const enviado = repartoEnviados.has(i);
+    // La etiqueta NO lleva número: el orden ya lo da el círculo de la izquierda,
+    // y numerar los comentarios aparte dejaba dos numeraciones distintas en la
+    // misma fila (el círculo 2 sobre "Comentario 1", porque el link va primero).
+    const etiqueta = it.tipo === "link" ? "Link del post" : "Comentario";
+    return `<div class="repartir-item${enviado ? " repartir-item--ok" : ""}">
+      <span class="repartir-num">${enviado ? "✓" : i + 1}</span>
+      <div class="repartir-cuerpo">
+        <span class="repartir-tag">${etiqueta}</span>
+        <span class="repartir-texto">${escapeHtml(it.texto)}</span>
+      </div>
+      <button type="button" class="repartir-enviar" onclick="enviarWa(${i})">
+        ${enviado ? "Reenviar" : "Enviar"}
+      </button>
+    </div>`;
+  }).join("");
+  document.getElementById("repartir-progreso").textContent =
+    `${repartoEnviados.size} / ${repartoItems.length}`;
+}
+
+function enviarWa(i) {
+  const it = repartoItems[i];
+  if (!it) return;
+  // Se abre en otra pestaña: si navegáramos en la misma, volver al generador
+  // recargaría la página y se perderían los comentarios generados.
+  window.open(`https://wa.me/?text=${encodeURIComponent(it.texto)}`, "_blank", "noopener");
+  // Se marca al abrir, no al confirmar: no hay forma de saber si el mensaje se
+  // mandó de verdad. Por eso el botón queda como "Reenviar" y no desaparece.
+  repartoEnviados.add(i);
+  renderRepartir();
+}
+
+function marcarTodoRepartido() {
+  repartoItems.forEach((_, i) => repartoEnviados.add(i));
+  renderRepartir();
+}
+
 function finalizarStream(meta) {
   generando = false;
   mostrarScrape(meta);
@@ -1494,6 +1655,8 @@ function actualizarConteo() {
   }
   const btnPublicar = document.getElementById("btn-publicar");
   if (btnPublicar) btnPublicar.disabled = sel === 0;
+  const btnRepartir = document.getElementById("btn-repartir");
+  if (btnRepartir) btnRepartir.disabled = sel === 0;
   actualizarPanel();
 }
 

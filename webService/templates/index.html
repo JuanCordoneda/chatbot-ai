@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1785889200" />
+  <link rel="stylesheet" href="/static/style.css?v=1786000000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -332,9 +332,17 @@
               <span>⏰ Los <b>comunes</b> salen siempre en <b>2 tandas iguales</b>: la mitad ahora y la mitad programada para el próximo turno. Máximo 80 por día (40 + 40).</span>
             </div>
             <div id="turnos-msg" class="error hidden"></div>
-            <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
-              Publicar seleccionados
-            </button>
+            <div class="publish-row">
+              <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
+                Publicar seleccionados
+              </button>
+              <!-- Repartir a mano por WhatsApp. No lo manda el bot: la API de
+                   Meta no escribe en grupos, así que esto abre WhatsApp con
+                   cada mensaje ya escrito y el vendedor elige el chat. -->
+              <button id="btn-repartir" class="btn-repartir" onclick="abrirRepartir()" disabled>
+                <span aria-hidden="true">📲</span> Repartir por WhatsApp
+              </button>
+            </div>
           </div>
         </div>
 
@@ -598,9 +606,57 @@
     </div>
   </div>
 
+  <!-- Modal: repartir por WhatsApp -->
+  <div id="repartir-overlay" class="overlay hidden">
+    <div class="overlay-card repartir-card">
+      <div class="repartir-head">
+        <div>
+          <p class="overlay-title">Repartir por WhatsApp</p>
+          <p class="intervalo-subtitle" id="repartir-sub">El link primero, después un comentario por mensaje.</p>
+        </div>
+        <span class="repartir-progreso" id="repartir-progreso">0 / 0</span>
+      </div>
+
+      <!-- Atajo al grupo del cliente. Va SEPARADO de los mensajes a propósito:
+           WhatsApp no deja abrir un grupo con el texto ya escrito, así que el
+           grupo se abre una vez y después se elige en el selector de cada
+           mensaje (donde queda arriba de todo por ser el chat más reciente). -->
+      <a id="repartir-grupo" class="repartir-grupo hidden" target="_blank" rel="noopener">
+        <span aria-hidden="true">👥</span>
+        <span>Abrir el grupo de <b id="repartir-grupo-nombre">este cliente</b></span>
+      </a>
+
+      <!-- El camino de un solo click. El bot no puede escribir en el grupo, pero
+           sí mandarte los mensajes sueltos a vos: de ahí van al grupo con el
+           reenvío múltiple de WhatsApp, en una sola acción. -->
+      <div class="repartir-bulk">
+        <button type="button" class="repartir-bulk-btn" id="repartir-bulk-btn" onclick="mandarTandaWa()">
+          <span aria-hidden="true">⚡</span> Mandarme los <b id="repartir-bulk-n">0</b> a mi WhatsApp
+        </button>
+        <p class="repartir-bulk-hint">
+          Llegan sueltos a tu WhatsApp. Después mantené apretado uno, tildá todos
+          y reenvialos al grupo del cliente de una sola vez.
+        </p>
+        <div id="repartir-bulk-msg" class="repartir-bulk-msg hidden"></div>
+      </div>
+
+      <div id="repartir-lista" class="repartir-lista"></div>
+
+      <div class="repartir-nota">
+        O mandalos de a uno: cada <b>Enviar</b> abre WhatsApp con el mensaje ya escrito
+        y elegís el chat. No se manda solo — WhatsApp no permite que un bot escriba en grupos.
+      </div>
+
+      <div class="intervalo-actions">
+        <button type="button" class="header-action-btn" onclick="cerrarRepartir()">Cerrar</button>
+        <button type="button" class="orden-btn-agregar intervalo-btn-confirmar" onclick="marcarTodoRepartido()">Marcar todo como enviado</button>
+      </div>
+    </div>
+  </div>
+
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/header-menu.js?v=1785889200"></script>
-  <script src="/static/app.js?v=1785889200"></script>
+  <script src="/static/header-menu.js?v=1786000000"></script>
+  <script src="/static/app.js?v=1786000000"></script>
 </body>
 </html>

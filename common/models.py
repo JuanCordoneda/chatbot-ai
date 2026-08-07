@@ -220,6 +220,12 @@ class Client(Base):
     #  "views": [...], "shares": [...], "reposts": [...], "saves": [...], "reach": [...]}
     # Las fichas viejas guardaron un dict suelto por tipo: se sigue leyendo.
     ranges = Column(JSON, nullable=True)
+    # Link de invitación del grupo de WhatsApp de este cliente
+    # (https://chat.whatsapp.com/XXXX). El bot NO puede escribir en grupos: la
+    # API de Meta solo manda mensajes 1 a 1. Esto se usa desde el navegador,
+    # para abrir el grupo correcto al repartir los comentarios a mano y no
+    # mandárselos al cliente equivocado.
+    wa_group_url = Column(String(255), nullable=True)
     # Venta del CRM de la que salen los FONDOS de este cliente. Sin esto, todo el
     # tráfico se descontaba del idventa del .env (una sola venta para todos).
     # El idvendedor va aparte porque el CRM imputa la orden a ese par.

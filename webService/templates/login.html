@@ -9,15 +9,20 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v=5" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
-  <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
+  <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.).
+       Quien comparte un link manda /ayuda, /followers o el que sea, pero el
+       que lo abre NO tiene sesión: el scraper termina siempre acá. Por eso la
+       preview la decide la página pedida (og_* llega desde la vista) y no es
+       fija. La imagen va con URL absoluta: WhatsApp no resuelve rutas
+       relativas. -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="GROWI — Generador de comentarios" />
-  <meta property="og:description" content="Engagement automático para Instagram." />
-  <meta property="og:image" content="/static/og-thumb.png?v=1" />
+  <meta property="og:title" content="{{ og_title|default('GROWI — Generador de comentarios') }}" />
+  <meta property="og:description" content="{{ og_desc|default('Engagement automático para Instagram.') }}" />
+  <meta property="og:image" content="{{ og_image|default('/static/og-thumb.png?v=1') }}" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="/static/og-thumb.png?v=1" />
+  <meta name="twitter:image" content="{{ og_image|default('/static/og-thumb.png?v=1') }}" />
 </head>
 <body class="login-body">
 
@@ -55,6 +60,7 @@
 
       <!-- Form -->
       <form method="POST" action="/login" class="login-form" id="loginForm">
+        <input type="hidden" name="next" value="{{ next|default('') }}" />
 
         <div class="login-field" style="--delay:0.08s">
           <label for="username">Email de Growi</label>

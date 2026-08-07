@@ -6,6 +6,7 @@ fallback de archivos sin romperse.
 Devuelven dicts desacoplados de la sesión (no objetos ORM vivos) para evitar
 problemas de lazy-loading fuera del `session_scope`.
 """
+import re
 from typing import Optional
 
 from werkzeug.security import check_password_hash
@@ -190,6 +191,7 @@ def _client_to_dict(c: Client) -> dict:
         "ranges": c.ranges or {},
         "crm_idventa": c.crm_idventa or "",
         "crm_idvendedor": c.crm_idvendedor or "",
+        "wa_group_url": c.wa_group_url or "",
     }
 
 
@@ -291,9 +293,28 @@ def _norm_ig(ig_username: str) -> str:
     return (ig_username or "").strip().lstrip("@").lower()
 
 
+def _norm_wa_group(url) -> Optional[str]:
+    """Link de invitación de un grupo de WhatsApp, o None.
+
+    Se acepta solo el formato de invitación real (chat.whatsapp.com/<código>).
+    Un link de otra cosa pegado por error abriría una conversación equivocada al
+    repartir los comentarios, que es exactamente el problema que esto viene a
+    resolver; mejor rechazarlo al guardar que descubrirlo con el post afuera.
+    """
+    u = (url or "").strip()
+    if not u:
+        return None
+    if not re.match(r"^https://chat\.whatsapp\.com/[A-Za-z0-9]{6,}$", u):
+        raise RepoError("El link del grupo tiene que ser una invitación de "
+                        "WhatsApp (https://chat.whatsapp.com/...). Se saca desde "
+                        "el grupo → Invitar por link.")
+    return u
+
+
 def create_client(account_id: int, ig_username: str, display_name: str, prompt: str,
                   status: str = "active", gender=None, quality=None, ranges=None,
-                  crm_idventa=None, crm_idvendedor=None, keyword_mode=False) -> dict:
+                  crm_idventa=None, crm_idvendedor=None, keyword_mode=False,
+                  wa_group_url=None) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     key = _norm_ig(ig_username)
@@ -319,6 +340,7 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
             crm_idventa=(crm_idventa or "").strip() or None,
             crm_idvendedor=(crm_idvendedor or "").strip() or None,
             keyword_mode=bool(keyword_mode),
+            wa_group_url=_norm_wa_group(wa_group_url),
         )
         s.add(c)
         s.flush()
@@ -330,7 +352,8 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
                   gender_set=False, quality=None, quality_set=False,
                   ranges=None, ranges_set=False,
                   crm_idventa=None, crm_idvendedor=None,
-                  keyword_mode=None, keyword_mode_set=False) -> dict:
+                  keyword_mode=None, keyword_mode_set=False,
+                  wa_group_url=None, wa_group_url_set=False) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     with session_scope() as s:
@@ -372,6 +395,10 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
             c.ranges = _norm_ranges(ranges)
         if keyword_mode_set:
             c.keyword_mode = bool(keyword_mode)
+        # Vaciar el campo = el cliente se queda sin grupo y el botón de repartir
+        # vuelve a caer en el selector de chats de WhatsApp.
+        if wa_group_url_set:
+            c.wa_group_url = _norm_wa_group(wa_group_url)
         # Vaciar el campo = desasignar la venta (vuelve al fallback de la cuenta).
         if crm_idventa is not None:
             c.crm_idventa = crm_idventa.strip() or None
