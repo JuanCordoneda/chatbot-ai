@@ -1285,24 +1285,43 @@ let repartoItems = [];
 let repartoEnviados = new Set();
 
 function abrirRepartir() {
-  const idx = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
-    .map(c => parseInt(c.closest(".comentario-item").dataset.index, 10))
-    .filter(i => !Number.isNaN(i));
-  if (idx.length === 0) return;
+  // Se listan TODOS los comentarios generados, no solo los que van al CRM: lo
+  // que se publica y lo que se manda al grupo no tienen por qué ser lo mismo.
+  // Vienen tildados los que eligió para publicar, como punto de partida.
+  const elegidos = new Set(
+    [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
+      .map(c => parseInt(c.closest(".comentario-item").dataset.index, 10))
+      .filter(i => !Number.isNaN(i)));
+
+  const textos = [];
+  comentariosGenerados.forEach((t, i) => {
+    if (!t || generoDeHeader(t)) return;   // los encabezados no son comentarios
+    textos.push({ texto: t, incluido: elegidos.has(i) });
+  });
+  if (!textos.length) return;
+  abrirRepartirCon(textos);
+}
+
+function abrirRepartirCon(textos) {
 
   // Mismo formato que manda el bot (ver /api/repartir-wa): "Comentarios" + el
   // link, y después cada comentario pelado. Los dos caminos tienen que mandar
   // exactamente lo mismo, si no el grupo recibe dos formatos distintos según
   // por dónde se haya repartido.
-  repartoItems = [{ tipo: "link", texto: `Comentarios\n${currentUrl}` }];
-  idx.forEach(i => repartoItems.push({ tipo: "comentario", texto: comentariosGenerados[i] }));
+  // El link siempre va: es lo que le da contexto al resto.
+  repartoItems = [{ tipo: "link", texto: `Comentarios\n${currentUrl}`, incluido: true }];
+  textos.forEach(t => repartoItems.push(typeof t === "string"
+    ? { tipo: "comentario", texto: t, incluido: true }
+    : { tipo: "comentario", texto: t.texto, incluido: t.incluido }));
   repartoEnviados = new Set();
 
-  document.getElementById("repartir-sub").textContent =
-    `El link del post y ${repartoItems.length - 1} comentario${repartoItems.length === 2 ? "" : "s"}, un mensaje cada uno.`;
 
-  document.getElementById("repartir-bulk-n").textContent = repartoItems.length;
-  pintarVentanaWa();
+  // El bloque del bot arranca plegado y NO se consulta nada suyo hasta que se
+  // abre: la vía manual no depende del bot, y pedirle el teléfono a alguien que
+  // solo quiere mandar de a uno es fricción sin motivo.
+  document.getElementById("repartir-bulk").classList.add("hidden");
+  document.getElementById("repartir-toggle").classList.remove("repartir-toggle--abierto");
+  _botCargado = false;
   const msg = document.getElementById("repartir-bulk-msg");
   msg.className = "repartir-bulk-msg hidden";
   msg.textContent = "";
@@ -1329,7 +1348,8 @@ async function mandarTandaWa() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: currentUrl,
-        comentarios: repartoItems.filter(it => it.tipo === "comentario").map(it => it.texto),
+        comentarios: repartoItems.filter(it => it.tipo === "comentario" && it.incluido)
+                                 .map(it => it.texto),
         client: window._clientIg || "",
       }),
     });
@@ -1367,29 +1387,70 @@ async function mandarTandaWa() {
 
 function cerrarRepartir() {
   document.getElementById("repartir-overlay").classList.add("hidden");
+  if (_repartoSigueAOrdenes) {
+    _repartoSigueAOrdenes = false;
+    irAOrdenes();
+  }
 }
 
 function renderRepartir() {
   const lista = document.getElementById("repartir-lista");
+  // El primero sin enviar. Se resalta para no perder el hilo a mitad de una
+  // tanda de 20, que es donde el reparto de a uno se vuelve confuso.
+  const proximo = repartoItems.findIndex((it, i) => it.incluido && !repartoEnviados.has(i));
+  let n = 0;
   lista.innerHTML = repartoItems.map((it, i) => {
     const enviado = repartoEnviados.has(i);
     // La etiqueta NO lleva número: el orden ya lo da el círculo de la izquierda,
     // y numerar los comentarios aparte dejaba dos numeraciones distintas en la
     // misma fila (el círculo 2 sobre "Comentario 1", porque el link va primero).
     const etiqueta = it.tipo === "link" ? "Link del post" : "Comentario";
-    return `<div class="repartir-item${enviado ? " repartir-item--ok" : ""}">
-      <span class="repartir-num">${enviado ? "✓" : i + 1}</span>
+    const siguiente = !enviado && i === proximo;
+    if (it.incluido) n++;
+    const clases = ["repartir-item",
+      enviado ? "repartir-item--ok" : "",
+      siguiente ? "repartir-item--next" : "",
+      it.incluido ? "" : "repartir-item--fuera"].filter(Boolean).join(" ");
+    // El link no se puede destildar: sin él, los comentarios sueltos que llegan
+    // al grupo no se sabe a qué post pertenecen.
+    const izq = it.tipo === "link"
+      ? `<span class="repartir-num">${enviado ? "✓" : n}</span>`
+      : `<label class="repartir-check" title="Mandar este"><input type="checkbox"
+           ${it.incluido ? "checked" : ""} onchange="toggleIncluido(${i})" /><span
+           class="repartir-num">${enviado ? "✓" : (it.incluido ? n : "–")}</span></label>`;
+    return `<div class="${clases}">
+      ${izq}
       <div class="repartir-cuerpo">
         <span class="repartir-tag">${etiqueta}</span>
         <span class="repartir-texto">${escapeHtml(it.texto)}</span>
       </div>
-      <button type="button" class="repartir-enviar" onclick="enviarWa(${i})">
+      <button type="button" class="repartir-enviar" onclick="enviarWa(${i})"${it.incluido ? "" : " disabled"}>
         ${enviado ? "Reenviar" : "Enviar"}
       </button>
     </div>`;
   }).join("");
-  document.getElementById("repartir-progreso").textContent =
-    `${repartoEnviados.size} / ${repartoItems.length}`;
+
+  // El progreso y el botón del bot cuentan SOLO lo tildado: si no, con 40
+  // generados y 7 elegidos el contador decía "0 / 41" y no significaba nada.
+  const incluidos = repartoItems.filter(it => it.incluido).length;
+  const hechos = repartoItems.filter((it, i) => it.incluido && repartoEnviados.has(i)).length;
+  document.getElementById("repartir-progreso").textContent = `${hechos} / ${incluidos}`;
+  const nBot = document.getElementById("repartir-bulk-n");
+  if (nBot) nBot.textContent = incluidos;
+  const sub = document.getElementById("repartir-sub");
+  if (sub) sub.textContent = `El link del post y ${incluidos - 1} ` +
+    `comentario${incluidos === 2 ? "" : "s"} elegido${incluidos === 2 ? "" : "s"}.`;
+}
+
+function toggleIncluido(i) {
+  if (!repartoItems[i]) return;
+  repartoItems[i].incluido = !repartoItems[i].incluido;
+  renderRepartir();
+}
+
+function marcarTodosReparto(incluir) {
+  repartoItems.forEach(it => { if (it.tipo !== "link") it.incluido = incluir; });
+  renderRepartir();
 }
 
 function enviarWa(i) {
@@ -1402,6 +1463,101 @@ function enviarWa(i) {
   // mandó de verdad. Por eso el botón queda como "Reenviar" y no desaparece.
   repartoEnviados.add(i);
   renderRepartir();
+  const sig = document.querySelector("#repartir-lista .repartir-item--next");
+  if (sig) sig.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+let _botCargado = false;
+
+function toggleBot() {
+  const caja = document.getElementById("repartir-bulk");
+  const tog = document.getElementById("repartir-toggle");
+  const abierto = !caja.classList.toggle("hidden");
+  tog.classList.toggle("repartir-toggle--abierto", abierto);
+  if (abierto && !_botCargado) {
+    _botCargado = true;
+    cargarMiWhatsapp();   // recién acá se pide el teléfono y el estado
+  }
+}
+
+// Cada vendedor recibe la tanda en SU WhatsApp. El número lo carga él mismo la
+// primera vez que reparte: pedirlo acá y no en un alta previa evita que alguien
+// quede sin poder usarlo esperando que un admin le cargue el dato.
+function _formatearTel(n) {
+  const d = String(n || "").replace(/\D/g, "");
+  return d ? "+" + d : "";
+}
+
+async function cargarMiWhatsapp() {
+  const caja = document.getElementById("repartir-tel");
+  const ok = document.getElementById("repartir-tel-ok");
+  const btn = document.getElementById("repartir-bulk-btn");
+  caja.classList.add("hidden");
+  ok.classList.add("hidden");
+
+  let d = {};
+  try {
+    d = await (await fetch("/api/mi-whatsapp")).json();
+  } catch (_) { /* sin dato mostramos el formulario igual */ }
+
+  const numero = d.telefono || d.fallback || "";
+  if (!numero && d.editable === false) {
+    // Sin cuenta asociada (admin de fallback) y sin número en el .env: no hay
+    // dónde guardar nada, así que no se ofrece cargar un número que se perdería.
+    ok.textContent = "Tu usuario no tiene una cuenta asociada: no puedo mandarte los mensajes.";
+    ok.className = "repartir-tel-ok repartir-tel-ok--bad";
+    if (btn) btn.disabled = true;
+    return;
+  }
+  if (btn) btn.disabled = false;
+
+  if (!d.telefono) {
+    // Primera vez: se pide el número y el botón de mandar espera.
+    document.getElementById("repartir-tel-input").value = _formatearTel(d.fallback);
+    caja.classList.remove("hidden");
+    if (btn) btn.disabled = true;
+    document.getElementById("repartir-ventana").classList.add("hidden");
+    return;
+  }
+
+  ok.innerHTML = `Te los mando a <b>${escapeHtml(_formatearTel(d.telefono))}</b> ` +
+    `<button type="button" class="repartir-activar" onclick="editarMiWhatsapp()">cambiar</button>`;
+  ok.className = "repartir-tel-ok";
+  pintarVentanaWa();
+}
+
+function editarMiWhatsapp() {
+  const caja = document.getElementById("repartir-tel");
+  const ok = document.getElementById("repartir-tel-ok");
+  const actual = (ok.querySelector("b") || {}).textContent || "";
+  document.getElementById("repartir-tel-input").value = actual;
+  caja.classList.remove("hidden");
+  ok.classList.add("hidden");
+  document.getElementById("repartir-tel-input").focus();
+}
+
+async function guardarMiWhatsapp() {
+  const input = document.getElementById("repartir-tel-input");
+  const err = document.getElementById("repartir-tel-error");
+  err.classList.add("hidden");
+  try {
+    const r = await fetch("/api/mi-whatsapp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telefono: input.value }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      err.textContent = d.error || "No se pudo guardar el número.";
+      err.classList.remove("hidden");
+      return;
+    }
+    document.getElementById("repartir-tel").classList.add("hidden");
+    await cargarMiWhatsapp();
+  } catch (e) {
+    err.textContent = "No se pudo contactar al servidor.";
+    err.classList.remove("hidden");
+  }
 }
 
 // Muestra si la ventana de 24h está abierta, antes de que el vendedor apriete
@@ -1465,7 +1621,7 @@ async function activarWa() {
 }
 
 function marcarTodoRepartido() {
-  repartoItems.forEach((_, i) => repartoEnviados.add(i));
+  repartoItems.forEach((it, i) => { if (it.incluido) repartoEnviados.add(i); });
   renderRepartir();
 }
 
@@ -1693,8 +1849,7 @@ function actualizarConteo() {
   }
   const btnPublicar = document.getElementById("btn-publicar");
   if (btnPublicar) btnPublicar.disabled = sel === 0;
-  const btnRepartir = document.getElementById("btn-repartir");
-  if (btnRepartir) btnRepartir.disabled = sel === 0;
+  // El reparto por WhatsApp ya no vive acá: es la etapa 2, después de publicar.
   actualizarPanel();
 }
 
@@ -1842,8 +1997,30 @@ function deseleccionarTodos() {
 function publicar() {
   // Ya eligió los comentarios: la IA no tiene que seguir generando.
   cancelarGeneracion();
+  // ETAPA 2 antes de las órdenes. Se pregunta acá porque los comentarios están
+  // recién elegidos y a la vista; una vez en las órdenes el vendedor ya está en
+  // otra tarea (cantidades, campañas) y volver atrás es fricción.
+  const n = contarSeleccionados();
+  const sub = document.getElementById("wa-paso-sub");
+  if (sub) sub.textContent = `Los ${n} que acabás de elegir, uno por mensaje, listos para repartir.`;
+  document.getElementById("wa-paso-overlay").classList.remove("hidden");
+}
+
+// El reparto es opcional: se puede saltar y seguir con las órdenes de siempre.
+function seguirSinWhatsapp() {
+  document.getElementById("wa-paso-overlay").classList.add("hidden");
   irAOrdenes();
 }
+
+// Abre la lista de reparto y, al cerrarla, sigue solo a las órdenes: el vendedor
+// no tiene que acordarse de retomar el flujo donde lo dejó.
+function repartirYSeguir() {
+  document.getElementById("wa-paso-overlay").classList.add("hidden");
+  _repartoSigueAOrdenes = true;
+  abrirRepartir();
+}
+
+let _repartoSigueAOrdenes = false;
 
 // ── Cache de productos y nombre de red social ────────────────────────────────
 const _productosCache = {};

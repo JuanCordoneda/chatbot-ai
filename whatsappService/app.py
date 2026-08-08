@@ -285,6 +285,13 @@ def _error_meta(resp):
                 "Escribile cualquier cosa por WhatsApp y volvé a mandar.")
     if codigo == 131026:
         return "Ese número no tiene WhatsApp o no puede recibir mensajes."
+    if codigo == 131030:
+        # Pasa siempre que se suma un vendedor: el número de PRUEBA de Meta solo
+        # entrega a 5 destinatarios cargados a mano. Se arregla de verdad con un
+        # número real de WhatsApp Business, que no tiene lista blanca.
+        return ("Tu número no está habilitado para recibir mensajes del bot. "
+                "Hay que agregarlo a la lista de destinatarios en Meta "
+                "(el número de prueba admite hasta 5).")
     if codigo in (190, 4):
         return "El token de WhatsApp venció o se pasó del límite de envíos."
     return err.get("message") or f"WhatsApp respondió {resp.status_code}."

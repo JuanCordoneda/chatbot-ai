@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786000700" />
+  <link rel="stylesheet" href="/static/style.css?v=1786001300" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -332,17 +332,12 @@
               <span>⏰ Los <b>comunes</b> salen siempre en <b>2 tandas iguales</b>: la mitad ahora y la mitad programada para el próximo turno. Máximo 80 por día (40 + 40).</span>
             </div>
             <div id="turnos-msg" class="error hidden"></div>
-            <div class="publish-row">
-              <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
-                Publicar seleccionados
-              </button>
-              <!-- Repartir a mano por WhatsApp. No lo manda el bot: la API de
-                   Meta no escribe en grupos, así que esto abre WhatsApp con
-                   cada mensaje ya escrito y el vendedor elige el chat. -->
-              <button id="btn-repartir" class="btn-repartir" onclick="abrirRepartir()" disabled>
-                <span aria-hidden="true">📲</span> Repartir por WhatsApp
-              </button>
-            </div>
+            <!-- Solo publicar. El reparto por WhatsApp es la ETAPA 2 y aparece
+                 después, en la pantalla de resultado: tenerlo acá al lado hacía
+                 que las dos acciones compitieran en el mismo momento. -->
+            <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
+              Publicar seleccionados
+            </button>
           </div>
         </div>
 
@@ -606,6 +601,26 @@
     </div>
   </div>
 
+  <!-- ETAPA 2, entre elegir los comentarios y armar las órdenes. Se ofrece acá
+       y no al final porque es el momento en que el vendedor todavía tiene los
+       comentarios en la cabeza; después de las órdenes ya cambió de tarea. -->
+  <div id="wa-paso-overlay" class="overlay hidden">
+    <div class="overlay-card wa-paso-card">
+      <p class="overlay-title">¿Querés enviar los comentarios por WhatsApp?</p>
+      <p class="intervalo-subtitle" id="wa-paso-sub">
+        Los que acabás de elegir, uno por mensaje, listos para repartir.
+      </p>
+      <div class="wa-paso-actions">
+        <button type="button" class="header-action-btn" onclick="seguirSinWhatsapp()">
+          No, seguir a las órdenes
+        </button>
+        <button type="button" class="wa-cartel-btn" onclick="repartirYSeguir()">
+          <span aria-hidden="true">📲</span> Repartir por WhatsApp
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: repartir por WhatsApp -->
   <div id="repartir-overlay" class="overlay hidden">
     <div class="overlay-card repartir-card">
@@ -617,35 +632,60 @@
         <span class="repartir-progreso" id="repartir-progreso">0 / 0</span>
       </div>
 
-      <!-- El camino de un solo click: el bot te manda los mensajes sueltos y
-           vos los reenviás adonde quieras con la selección múltiple de
-           WhatsApp. El destino lo elegís en WhatsApp, no acá. -->
-      <div class="repartir-bulk">
-        <!-- Estado de la ventana de 24h. Se llena desde /api/wa-estado y solo
-             aparece cuando hay algo que decir: abierta con su cuenta regresiva,
-             cerrada con el link para abrirla, o desconocida. -->
+      <!-- La vía MANUAL es la principal: un toque por mensaje y va DIRECTO al
+           chat que elijas, incluido el grupo del cliente. No necesita bot, ni
+           número dado de alta, ni la ventana de 24h de Meta. -->
+      <p class="repartir-guia">
+        Destildá los que no quieras mandar, y tocá <b>Enviar</b> en cada uno: se abre
+        WhatsApp con el mensaje ya escrito y elegís el chat.
+      </p>
+
+      <!-- Vienen tildados los que eligió para publicar, pero puede mandar otros:
+           al grupo no tiene por qué ir exactamente lo mismo que al CRM. -->
+      <div class="repartir-sel">
+        <button type="button" class="btn-ghost btn-sm" onclick="marcarTodosReparto(true)">Todos</button>
+        <button type="button" class="btn-ghost btn-sm" onclick="marcarTodosReparto(false)">Ninguno</button>
+        <span class="repartir-sel-tip">Vienen marcados los que elegiste para publicar</span>
+      </div>
+
+      <div id="repartir-lista" class="repartir-lista"></div>
+
+      <!-- El bot manda los mensajes de una, pero necesita configuración y el
+           ritual diario de la ventana de 24h. Va plegado: es la alternativa,
+           no el camino por defecto. -->
+      <button type="button" class="repartir-toggle" id="repartir-toggle" onclick="toggleBot()">
+        ⚡ ¿Preferís que te los mande el bot de una? <span class="repartir-toggle-chev">▾</span>
+      </button>
+
+      <div class="repartir-bulk hidden" id="repartir-bulk">
         <div id="repartir-ventana" class="repartir-ventana hidden"></div>
+
+        <!-- El vendedor carga SU número acá, la primera vez. Queda guardado en
+             su cuenta; después solo se muestra, con "cambiar". -->
+        <div id="repartir-tel" class="repartir-tel hidden">
+          <label for="repartir-tel-input">¿A qué WhatsApp te los mando?</label>
+          <div class="repartir-tel-row">
+            <input type="tel" id="repartir-tel-input" class="repartir-tel-input"
+                   placeholder="+54 9 223 340 7778" autocomplete="tel"
+                   onkeydown="if(event.key==='Enter')guardarMiWhatsapp()" />
+            <button type="button" class="repartir-tel-btn" onclick="guardarMiWhatsapp()">Guardar</button>
+          </div>
+          <div id="repartir-tel-error" class="repartir-tel-error hidden"></div>
+        </div>
+        <div id="repartir-tel-ok" class="repartir-tel-ok hidden"></div>
         <button type="button" class="repartir-bulk-btn" id="repartir-bulk-btn" onclick="mandarTandaWa()">
           <span aria-hidden="true">⚡</span> <span>Mandarme los <b id="repartir-bulk-n">0</b> a mi WhatsApp</span></button>
         <p class="repartir-bulk-hint">
-          Llegan sueltos a tu WhatsApp. Después mantené apretado uno, tildá todos
-          y reenvialos adonde quieras de una sola vez.
+          Llegan sueltos a tu WhatsApp y de ahí los reenviás con selección múltiple.
           <!-- WhatsApp solo entrega texto libre si le escribiste al bot en las
                últimas 24h. Con la ventana cerrada Meta acepta el envío igual y
-               descarta los mensajes en silencio: por eso esto tiene que estar
-               a la vista, no escondido en un error que nunca se dispara. -->
+               descarta los mensajes en silencio: por eso esto va a la vista y no
+               escondido en un error que nunca se dispara. -->
           <br/>Si no te llegan, apretá
           <button type="button" class="repartir-activar" onclick="activarWa()">mandame un mensaje al bot</button>
           y respondelo.
         </p>
         <div id="repartir-bulk-msg" class="repartir-bulk-msg hidden"></div>
-      </div>
-
-      <div id="repartir-lista" class="repartir-lista"></div>
-
-      <div class="repartir-nota">
-        O mandalos de a uno: cada <b>Enviar</b> abre WhatsApp con el mensaje ya escrito
-        y elegís el chat. Sirve de respaldo si el envío de arriba falla.
       </div>
 
       <div class="intervalo-actions">
@@ -657,7 +697,7 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/header-menu.js?v=1786000700"></script>
-  <script src="/static/app.js?v=1786000700"></script>
+  <script src="/static/header-menu.js?v=1786001300"></script>
+  <script src="/static/app.js?v=1786001300"></script>
 </body>
 </html>

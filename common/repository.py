@@ -732,6 +732,7 @@ def get_account_crm_config(account_id: int) -> Optional[dict]:
             "crm_idventa": a.crm_idventa,
             "crm_proxy": a.crm_proxy,
             "crm_disponible": a.crm_disponible,
+        "wa_phone": a.wa_phone or "",
         }
 
 
@@ -812,6 +813,47 @@ def get_vendedor(account_id: int) -> Optional[dict]:
     with session_scope() as s:
         a = s.query(Account).filter(Account.id == account_id).first()
         return _account_to_dict(a) if a else None
+
+
+def _norm_wa_phone(telefono) -> str:
+    """Normaliza el WhatsApp del vendedor a solo dígitos, con código de país.
+
+    Se guarda sin '+', espacios ni guiones porque es el formato que espera la API
+    de Meta. Lo que la persona escriba ("+54 9 223 340-7778", "54 9 2233407778")
+    llega al mismo lugar.
+    """
+    n = "".join(c for c in (telefono or "") if c.isdigit())
+    if not n:
+        raise RepoError("Escribí tu número de WhatsApp")
+    if len(n) < 10:
+        raise RepoError("Falta el código de país. Ej: +54 9 223 340 7778")
+    if len(n) > 20:
+        raise RepoError("Ese número tiene demasiados dígitos")
+    if n.startswith("0"):
+        raise RepoError("No pongas el 0 inicial: va con código de país. "
+                        "Ej: +54 9 223 340 7778")
+    return n
+
+
+def set_wa_phone(account_id: int, telefono: str) -> str:
+    """Guarda el WhatsApp del vendedor. Devuelve el número normalizado."""
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    n = _norm_wa_phone(telefono)
+    with session_scope() as s:
+        a = s.query(Account).filter(Account.id == account_id).first()
+        if not a:
+            raise RepoError("Cuenta no encontrada")
+        a.wa_phone = n
+    return n
+
+
+def get_wa_phone(account_id: int) -> str:
+    if not db_available() or not account_id:
+        return ""
+    with session_scope() as s:
+        a = s.query(Account).filter(Account.id == account_id).first()
+        return (a.wa_phone or "") if a else ""
 
 
 def _unique_slug(s, base: str) -> str:

@@ -880,6 +880,54 @@ def nombre_red():
         return jsonify({"error": str(e)}), 500
 
 
+def _mi_whatsapp() -> str:
+    """A qué WhatsApp se le manda la tanda al que está logueado.
+
+    El de SU cuenta. El del .env queda solo como respaldo para el admin de
+    fallback (que no tiene cuenta) y para instalaciones viejas sin número
+    cargado; si el vendedor tiene el suyo, ese manda siempre.
+    """
+    acc = session.get("account_id")
+    if acc and _repo is not None:
+        try:
+            propio = _repo.get_wa_phone(acc)
+            if propio:
+                return propio
+        except Exception as e:
+            print(f"[wa] no pude leer el teléfono de la cuenta {acc}: {e!r}", flush=True)
+    return REPARTO_WHATSAPP_TO
+
+
+@app.route("/api/mi-whatsapp", methods=["GET", "POST"])
+@require_login
+def mi_whatsapp():
+    """El vendedor carga y edita su propio número. No pasa por el admin: es un
+    dato suyo y lo necesita la primera vez que reparte, no en un alta previa."""
+    acc = session.get("account_id")
+    if request.method == "GET":
+        propio = ""
+        if acc and _repo is not None:
+            try:
+                propio = _repo.get_wa_phone(acc)
+            except Exception:
+                propio = ""
+        # `editable` distingue "todavía no cargó el suyo" de "no puede cargar
+        # ninguno" (el admin de fallback no tiene cuenta a la que guardárselo).
+        return jsonify({"telefono": propio, "editable": bool(acc),
+                        "fallback": "" if propio else REPARTO_WHATSAPP_TO})
+
+    if not acc:
+        return jsonify({"error": "Tu usuario no tiene una cuenta asociada, "
+                                 "así que no puedo guardar el número."}), 400
+    d = request.get_json(silent=True) or {}
+    try:
+        n = _repo.set_wa_phone(acc, d.get("telefono", ""))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    print(f"[wa] cuenta {acc} guardó su WhatsApp", flush=True)
+    return jsonify({"telefono": n})
+
+
 @app.route("/api/wa-estado", methods=["GET"])
 @require_login
 def wa_estado():
@@ -889,10 +937,14 @@ def wa_estado():
     de "cerrada" a propósito: afirmar un estado que no conocemos es lo que hizo
     que esto fuera tan difícil de diagnosticar.
     """
-    out = {"abierta": None, "numero_bot": WHATSAPP_NUMERO_BOT, "destino": REPARTO_WHATSAPP_TO}
+    destino = _mi_whatsapp()
+    out = {"abierta": None, "numero_bot": WHATSAPP_NUMERO_BOT, "destino": destino}
+    if not destino:
+        out["motivo"] = "sin número cargado"
+        return jsonify(out)
     try:
         r = requests.get(f"{WHATSAPP_SERVICE_URL}/estado-ventana",
-                         params={"to": REPARTO_WHATSAPP_TO}, timeout=10)
+                         params={"to": destino}, timeout=10)
         if r.ok:
             out.update(r.json())
     except Exception as e:
@@ -914,11 +966,12 @@ def activar_wa():
     Los templates sí atraviesan la ventana. Entonces: se manda uno, la persona
     lo responde, y con esa respuesta la ventana queda abierta por 24 horas.
     """
-    if not REPARTO_WHATSAPP_TO:
-        return jsonify({"error": "No hay número de WhatsApp configurado."}), 503
+    destino = _mi_whatsapp()
+    if not destino:
+        return jsonify({"error": "Cargá tu número de WhatsApp primero."}), 400
     try:
         resp = requests.post(f"{WHATSAPP_SERVICE_URL}/send-template",
-                             json={"to": REPARTO_WHATSAPP_TO,
+                             json={"to": destino,
                                    "template": WHATSAPP_TEMPLATE_ACTIVACION,
                                    "language": WHATSAPP_TEMPLATE_IDIOMA},
                              timeout=30)
@@ -944,9 +997,10 @@ def repartir_wa():
     el botón. A dónde va cada tanda después lo decide quien recibe, en WhatsApp:
     el sistema no conoce ni guarda los destinos.
     """
-    if not REPARTO_WHATSAPP_TO:
-        return jsonify({"error": "No hay número de WhatsApp configurado. "
-                                 "Cargá REPARTO_WHATSAPP_TO en el .env."}), 503
+    destino = _mi_whatsapp()
+    if not destino:
+        return jsonify({"error": "Cargá tu número de WhatsApp para poder "
+                                 "recibir los comentarios."}), 400
 
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
@@ -962,7 +1016,7 @@ def repartir_wa():
 
     try:
         resp = requests.post(f"{WHATSAPP_SERVICE_URL}/send-bulk",
-                             json={"to": REPARTO_WHATSAPP_TO, "mensajes": mensajes},
+                             json={"to": destino, "mensajes": mensajes},
                              # 20 mensajes con 1s de pausa y 20s de timeout cada
                              # uno: el techo real está bastante abajo de esto.
                              timeout=180)

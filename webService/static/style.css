@@ -1707,6 +1707,210 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   margin: 10px 2px 0;
 }
 
+/* Paso intermedio de la etapa 2: entre elegir los comentarios y armar las
+   órdenes. Va en overlay para que sea una decisión y no un cartel que se pasa
+   de largo. */
+.wa-paso-card {
+  text-align: left;
+  padding: 30px 32px;
+  width: min(480px, 92vw);
+}
+
+.wa-paso-actions {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 22px;
+}
+
+/* Repartir es la acción sugerida y se lleva el espacio; saltear queda al lado,
+   visible pero secundaria. Sin esto los dos botones se apilaban. */
+.wa-paso-actions .wa-cartel-btn {
+  flex: 1 1 auto;
+  justify-content: center;
+  padding: 13px 18px;
+}
+
+.wa-paso-actions .header-action-btn { flex: 0 0 auto; }
+
+@media (max-width: 460px) {
+  .wa-paso-actions { flex-direction: column-reverse; }
+  .wa-paso-actions .header-action-btn { justify-content: center; }
+}
+
+.wa-cartel-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #25d366;
+  color: #04310f;
+  font-family: var(--font);
+  font-size: 0.92rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 12px;
+  padding: 14px 22px;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.15s;
+}
+
+.wa-cartel-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.wa-cartel-btn:active { transform: scale(0.98); }
+
+.repartir-guia {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+
+.repartir-guia b { color: var(--text); }
+
+/* El bot es la alternativa, no el default: entra como una línea plegada para
+   que no compita con la lista de a uno, que es la que anda sin configurar nada. */
+.repartir-toggle {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 11px;
+  padding: 11px 13px;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.repartir-toggle:hover { color: var(--text); border-color: #25d366; }
+
+.repartir-toggle-chev { float: right; transition: transform 0.15s; }
+.repartir-toggle--abierto .repartir-toggle-chev { transform: rotate(180deg); }
+
+.repartir-sel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.repartir-sel-tip {
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+/* El checkbox reemplaza al número: mismo lugar, misma medida, para que la fila
+   no se mueva al tildar. */
+.repartir-check {
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.repartir-check input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+.repartir-check input:checked + .repartir-num {
+  background: rgba(37,211,102,0.2);
+  color: #25d366;
+}
+
+/* Lo destildado se apaga pero sigue a la vista: sacarlo de la lista haría
+   saltar todo lo de abajo con cada click. */
+.repartir-item--fuera { opacity: 0.4; }
+
+.repartir-item--fuera .repartir-enviar {
+  background: var(--surface3);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* El próximo sin mandar. Con 20 mensajes, sin esto se pierde el hilo. */
+.repartir-item--next {
+  border-color: #25d366;
+  box-shadow: 0 0 0 1px rgba(37,211,102,0.35);
+}
+
+/* El número propio del vendedor. Ocupa el lugar del botón de mandar hasta que
+   está cargado: sin destino no hay nada que mandar. */
+.repartir-tel { margin-bottom: 12px; }
+
+.repartir-tel label {
+  display: block;
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 7px;
+}
+
+.repartir-tel-row { display: flex; gap: 8px; }
+
+.repartir-tel-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9rem;
+}
+
+.repartir-tel-input:focus {
+  outline: none;
+  border-color: #25d366;
+}
+
+.repartir-tel-btn {
+  flex: 0 0 auto;
+  background: #25d366;
+  color: #04310f;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 18px;
+  cursor: pointer;
+}
+
+.repartir-tel-btn:hover { filter: brightness(1.06); }
+
+.repartir-tel-error {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #ff7a7a;
+  margin-top: 7px;
+}
+
+.repartir-tel-ok {
+  font-size: 0.79rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.repartir-tel-ok b { color: var(--text); }
+
+.repartir-tel-ok--bad {
+  background: rgba(255,90,90,0.14);
+  color: #ff7a7a;
+  font-weight: 700;
+  padding: 9px 11px;
+  border-radius: 9px;
+}
+
 /* El estado de la ventana va ARRIBA del botón: tiene que verse antes de
    apretar, no después de que "salió bien" y no llegó nada. */
 .repartir-ventana {
