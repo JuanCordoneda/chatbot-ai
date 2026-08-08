@@ -1396,23 +1396,6 @@ function revisarComentarios() {
   return !msg;
 }
 
-// El link del grupo se valida acá y en el backend. Acá porque el error real no
-// es un 400: es descubrir, con los comentarios ya generados, que el botón abre
-// una conversación que no es la del cliente.
-function validarWaGrupo() {
-  const el = document.getElementById("client-wa-grupo");
-  const fe = document.getElementById("client-wa-grupo-fe");
-  if (!el || !fe) return true;
-  const v = el.value.trim();
-  const malo = v && !/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,}$/.test(v)
-    ? "Tiene que ser el link de invitación del grupo (https://chat.whatsapp.com/...). Se saca desde el grupo → Invitar por link."
-    : "";
-  el.classList.toggle("ax-bad", !!malo);
-  fe.textContent = malo;
-  fe.classList.toggle("ax-on", !!malo);
-  return !malo;
-}
-
 function agregarCalidad(tipo) {
   rangosState = leerRangosDOM();
   (rangosState[tipo] = rangosState[tipo] || []).push({});
@@ -1452,7 +1435,7 @@ function _clientFormState() {
   return JSON.stringify([
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
     v("client-quality"), document.getElementById("client-keyword-mode").checked,
-    v("client-venta"), v("client-wa-grupo"), v("client-prompt"),
+    v("client-venta"), v("client-prompt"),
     leerRangosDOM(), leerComentariosDOM(),
   ]);
 }
@@ -1600,8 +1583,6 @@ function openClientModal(id) {
   document.getElementById("client-keyword-field").classList.toggle("ax-hidden", gen);
   renderVentaSelect(c ? c.ig_username : document.getElementById("client-ig").value);
   document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
-  document.getElementById("client-wa-grupo").value = c && c.wa_group_url ? c.wa_group_url : "";
-  validarWaGrupo();
   actualizarVentaHint();
   const rg = (c && c.ranges) || {};
   renderComentarios(rg.comentarios);   // antes de renderCalidades: entra en el snapshot
@@ -1659,14 +1640,11 @@ async function saveClient() {
   setFieldErr("client-ig", errIg);
   const rangosOk = revisarRangos();
   const comOk = revisarComentarios();
-  const waOk = validarWaGrupo();
-  if (errIg || !rangosOk || !comOk || !waOk) {
+  if (errIg || !rangosOk || !comOk) {
     const primero = document.querySelector("#client-mo .ax-bad");
     if (primero) { primero.focus(); primero.scrollIntoView({ block: "center", behavior: "smooth" }); }
     showErr("client-err", errIg
       ? "Revisá el @usuario para poder guardar."
-      : !waOk
-      ? "Revisá el link del grupo de WhatsApp para poder guardar."
       : "Revisá los números marcados en rojo para poder guardar.");
     return;
   }
@@ -1721,7 +1699,6 @@ async function saveClient() {
     // mezclar la venta de uno con el vendedor de otro la rechaza o la imputa mal.
     crm_idventa: document.getElementById("client-venta").value,
     crm_idvendedor: (ventaById(document.getElementById("client-venta").value) || {}).idvendedor || "",
-    wa_group_url: document.getElementById("client-wa-grupo").value.trim(),
   };
   const btn = document.getElementById("client-save");
   const btnTxt = btn.textContent;

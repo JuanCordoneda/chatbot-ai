@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786000200" />
+  <link rel="stylesheet" href="/static/style.css?v=1786000700" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -617,24 +617,26 @@
         <span class="repartir-progreso" id="repartir-progreso">0 / 0</span>
       </div>
 
-      <!-- Atajo al grupo del cliente. Va SEPARADO de los mensajes a propósito:
-           WhatsApp no deja abrir un grupo con el texto ya escrito, así que el
-           grupo se abre una vez y después se elige en el selector de cada
-           mensaje (donde queda arriba de todo por ser el chat más reciente). -->
-      <a id="repartir-grupo" class="repartir-grupo hidden" target="_blank" rel="noopener">
-        <span aria-hidden="true">👥</span>
-        <span>Abrir el grupo de <b id="repartir-grupo-nombre">este cliente</b></span>
-      </a>
-
-      <!-- El camino de un solo click. El bot no puede escribir en el grupo, pero
-           sí mandarte los mensajes sueltos a vos: de ahí van al grupo con el
-           reenvío múltiple de WhatsApp, en una sola acción. -->
+      <!-- El camino de un solo click: el bot te manda los mensajes sueltos y
+           vos los reenviás adonde quieras con la selección múltiple de
+           WhatsApp. El destino lo elegís en WhatsApp, no acá. -->
       <div class="repartir-bulk">
+        <!-- Estado de la ventana de 24h. Se llena desde /api/wa-estado y solo
+             aparece cuando hay algo que decir: abierta con su cuenta regresiva,
+             cerrada con el link para abrirla, o desconocida. -->
+        <div id="repartir-ventana" class="repartir-ventana hidden"></div>
         <button type="button" class="repartir-bulk-btn" id="repartir-bulk-btn" onclick="mandarTandaWa()">
           <span aria-hidden="true">⚡</span> <span>Mandarme los <b id="repartir-bulk-n">0</b> a mi WhatsApp</span></button>
         <p class="repartir-bulk-hint">
           Llegan sueltos a tu WhatsApp. Después mantené apretado uno, tildá todos
-          y reenvialos al grupo del cliente de una sola vez.
+          y reenvialos adonde quieras de una sola vez.
+          <!-- WhatsApp solo entrega texto libre si le escribiste al bot en las
+               últimas 24h. Con la ventana cerrada Meta acepta el envío igual y
+               descarta los mensajes en silencio: por eso esto tiene que estar
+               a la vista, no escondido en un error que nunca se dispara. -->
+          <br/>Si no te llegan, apretá
+          <button type="button" class="repartir-activar" onclick="activarWa()">mandame un mensaje al bot</button>
+          y respondelo.
         </p>
         <div id="repartir-bulk-msg" class="repartir-bulk-msg hidden"></div>
       </div>
@@ -643,7 +645,7 @@
 
       <div class="repartir-nota">
         O mandalos de a uno: cada <b>Enviar</b> abre WhatsApp con el mensaje ya escrito
-        y elegís el chat. No se manda solo — WhatsApp no permite que un bot escriba en grupos.
+        y elegís el chat. Sirve de respaldo si el envío de arriba falla.
       </div>
 
       <div class="intervalo-actions">
@@ -655,7 +657,7 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/header-menu.js?v=1786000200"></script>
-  <script src="/static/app.js?v=1786000200"></script>
+  <script src="/static/header-menu.js?v=1786000700"></script>
+  <script src="/static/app.js?v=1786000700"></script>
 </body>
 </html>

@@ -1670,22 +1670,6 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   font-variant-numeric: tabular-nums;
 }
 
-.repartir-grupo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(37,211,102,0.08);
-  border: 1px solid rgba(37,211,102,0.3);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  color: var(--text);
-  font-size: 0.85rem;
-  text-decoration: none;
-}
-
-.repartir-grupo:hover { background: rgba(37,211,102,0.14); }
-
 /* El camino de un click va ARRIBA de la lista: es la acción principal, y la
    lista de a uno pasa a ser el respaldo para cuando algo falla. */
 .repartir-bulk {
@@ -1722,6 +1706,36 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   line-height: 1.5;
   margin: 10px 2px 0;
 }
+
+/* El estado de la ventana va ARRIBA del botón: tiene que verse antes de
+   apretar, no después de que "salió bien" y no llegó nada. */
+.repartir-ventana {
+  font-size: 0.79rem;
+  font-weight: 700;
+  line-height: 1.5;
+  padding: 9px 11px;
+  border-radius: 9px;
+  margin-bottom: 10px;
+}
+
+.repartir-ventana--ok   { background: rgba(37,211,102,0.14); color: #25d366; }
+.repartir-ventana--warn { background: var(--yellow-lo); color: var(--yellow); }
+.repartir-ventana--bad  { background: rgba(255,90,90,0.14); color: #ff7a7a; }
+
+/* Va inline dentro del texto de ayuda, no como botón aparte: es una acción
+   ocasional (una vez al día) y sacarla a botón propio competía con la principal. */
+.repartir-activar {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 800;
+  color: #25d366;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.repartir-activar:hover { filter: brightness(1.15); }
 
 .repartir-bulk-msg {
   font-size: 0.79rem;
@@ -1797,12 +1811,14 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   color: var(--muted);
 }
 
+/* pre-line: el mensaje del link lleva un salto de línea real ("Comentarios" y
+   abajo la URL) y se muestra igual que va a llegar al grupo. */
 .repartir-texto {
   font-size: 0.88rem;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-line;
 }
 
 .repartir-enviar {

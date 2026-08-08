@@ -88,11 +88,20 @@ def _security_headers(resp):
 
 OPENAI_SERVICE_URL = os.environ.get("OPENAI_SERVICE_URL", "http://openai-service:8000")
 WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://whatsapp-service:8501")
-# A qué WhatsApp se manda la tanda de comentarios. Por ahora uno solo (el mismo
-# que recibe las alertas del CRM si no se configura otro): cuando lo use más de
-# un vendedor hay que guardar el teléfono en su ficha.
+# A qué WhatsApp se manda la tanda de comentarios. Es UN número para todos, por
+# diseño: desde ahí se reenvía adonde haga falta. Si no se configura uno propio
+# se usa el mismo que recibe las alertas del CRM.
 REPARTO_WHATSAPP_TO = (os.environ.get("REPARTO_WHATSAPP_TO")
                        or os.environ.get("GROWI_ALERTA_WHATSAPP", "")).strip()
+# Template que se usa SOLO para abrir la ventana de 24h de Meta (ver
+# /api/activar-wa). Cualquiera aprobado sirve: lo único que importa es que
+# llegue y se pueda responder. hello_world viene aprobado de fábrica.
+WHATSAPP_TEMPLATE_ACTIVACION = os.environ.get("WHATSAPP_TEMPLATE_ACTIVACION", "hello_world")
+WHATSAPP_TEMPLATE_IDIOMA = os.environ.get("WHATSAPP_TEMPLATE_IDIOMA", "en_US")
+# Número DEL BOT (el emisor), en formato internacional sin "+". Se usa para el
+# link wa.me que abre el chat con un "hola" ya escrito: es la forma más corta de
+# abrir la ventana de 24h, un toque en vez de esperar un template y responderlo.
+WHATSAPP_NUMERO_BOT = os.environ.get("WHATSAPP_NUMERO_BOT", "").strip().lstrip("+")
 
 # Capa de datos multi-tenant. Opcional: si no está, se usa el login legacy.
 try:
@@ -871,25 +880,56 @@ def nombre_red():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/wa-grupo", methods=["GET"])
+@app.route("/api/wa-estado", methods=["GET"])
 @require_login
-def wa_grupo():
-    """Link del grupo de WhatsApp del cliente dueño del post, si tiene uno.
+def wa_estado():
+    """¿Está abierta la ventana de 24h? Y con qué número hay que hablarle al bot.
 
-    El repartir-comentarios abre este grupo directamente en vez de dejar al
-    vendedor eligiendo el chat cada vez. Sin cliente, sin DB o sin grupo cargado
-    devuelve vacío y el front cae al selector de chats: no es un error, es el
-    comportamiento normal para un post que no es de nadie.
+    `abierta: null` = no sabemos (el webhook no llega acá). Se muestra distinto
+    de "cerrada" a propósito: afirmar un estado que no conocemos es lo que hizo
+    que esto fuera tan difícil de diagnosticar.
     """
-    ig = (request.args.get("ig") or "").strip().lstrip("@").lower()
-    if not ig:
-        return jsonify({"url": ""})
+    out = {"abierta": None, "numero_bot": WHATSAPP_NUMERO_BOT, "destino": REPARTO_WHATSAPP_TO}
     try:
-        c = _repo.get_client_by_ig_username(ig, session.get("account_id"))
+        r = requests.get(f"{WHATSAPP_SERVICE_URL}/estado-ventana",
+                         params={"to": REPARTO_WHATSAPP_TO}, timeout=10)
+        if r.ok:
+            out.update(r.json())
     except Exception as e:
-        print(f"[wa-grupo] no pude leer el cliente @{ig}: {e!r}", flush=True)
-        return jsonify({"url": ""})
-    return jsonify({"url": (c or {}).get("wa_group_url") or ""})
+        print(f"[wa-estado] no pude consultar: {e!r}", flush=True)
+    return jsonify(out)
+
+
+@app.route("/api/activar-wa", methods=["POST"])
+@require_login
+def activar_wa():
+    """Manda un TEMPLATE para poder abrir la ventana de 24h de Meta.
+
+    Por qué hace falta: Meta solo entrega texto libre si el destinatario le
+    escribió al bot en las últimas 24 horas. Con la ventana cerrada NO devuelve
+    error — acepta el envío con HTTP 200 y descarta el mensaje después, avisando
+    por webhook (que este proyecto no escucha). O sea: la tanda "sale bien" y no
+    llega nada. Verificado en producción: 15 mensajes aceptados, cero entregados.
+
+    Los templates sí atraviesan la ventana. Entonces: se manda uno, la persona
+    lo responde, y con esa respuesta la ventana queda abierta por 24 horas.
+    """
+    if not REPARTO_WHATSAPP_TO:
+        return jsonify({"error": "No hay número de WhatsApp configurado."}), 503
+    try:
+        resp = requests.post(f"{WHATSAPP_SERVICE_URL}/send-template",
+                             json={"to": REPARTO_WHATSAPP_TO,
+                                   "template": WHATSAPP_TEMPLATE_ACTIVACION,
+                                   "language": WHATSAPP_TEMPLATE_IDIOMA},
+                             timeout=30)
+        body = resp.json()
+    except Exception as e:
+        print(f"[activar-wa] falló: {e!r}", flush=True)
+        return jsonify({"error": "No se pudo contactar al servicio de WhatsApp."}), 502
+    if resp.status_code != 200:
+        return jsonify({"error": body.get("message") or body.get("error")
+                                 or "No se pudo mandar el mensaje de activación."}), 502
+    return jsonify({"ok": True})
 
 
 @app.route("/api/repartir-wa", methods=["POST"])
@@ -897,12 +937,12 @@ def wa_grupo():
 def repartir_wa():
     """Manda el link del post + un mensaje por comentario al WhatsApp del vendedor.
 
-    Llegan sueltos a propósito: desde ahí se reenvían al grupo del cliente con
-    el reenvío múltiple de WhatsApp, que es lo que reemplaza al copiar-pegar de
-    a uno. No van directo al grupo porque la API de Meta no escribe en grupos.
+    Llegan sueltos a propósito: desde ahí se reenvían con la selección múltiple
+    de WhatsApp, que es lo que reemplaza al copiar-pegar de a uno.
 
-    Versión simple: un solo número, el del .env. Cuando esto lo use más de una
-    persona hay que guardar el teléfono por vendedor.
+    Van siempre al MISMO número (el del .env), sin importar qué vendedor apriete
+    el botón. A dónde va cada tanda después lo decide quien recibe, en WhatsApp:
+    el sistema no conoce ni guarda los destinos.
     """
     if not REPARTO_WHATSAPP_TO:
         return jsonify({"error": "No hay número de WhatsApp configurado. "
@@ -914,9 +954,11 @@ def repartir_wa():
     if not comentarios:
         return jsonify({"error": "No hay comentarios para repartir."}), 400
 
-    # El link va primero: sin él, los comentarios sueltos en el grupo no se sabe
-    # a qué post pertenecen.
-    mensajes = ([url] if url else []) + comentarios
+    # Formato exacto del que ya se usa a mano en los grupos: un primer mensaje
+    # "Comentarios" con el link, y después cada comentario solo, sin numerar ni
+    # nada alrededor. Eso importa: lo que llega es lo que se reenvía al grupo, y
+    # un "1." o un prefijo terminaría pegado adentro del comentario en el post.
+    mensajes = ([f"Comentarios\n{url}"] if url else []) + comentarios
 
     try:
         resp = requests.post(f"{WHATSAPP_SERVICE_URL}/send-bulk",
@@ -1551,7 +1593,6 @@ def admin_clients_create():
         crm_idventa=d.get("crm_idventa"),
         crm_idvendedor=d.get("crm_idvendedor"),
         keyword_mode=d.get("keyword_mode"),
-        wa_group_url=d.get("wa_group_url"),
     )
     return jsonify({"client": c}), 201
 
@@ -1593,8 +1634,6 @@ def admin_clients_update(client_id):
         crm_idvendedor=d.get("crm_idvendedor"),
         keyword_mode=d.get("keyword_mode"),
         keyword_mode_set=("keyword_mode" in d),
-        wa_group_url=d.get("wa_group_url"),
-        wa_group_url_set=("wa_group_url" in d),
     )
     return jsonify({"client": c})
 

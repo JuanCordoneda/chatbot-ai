@@ -668,7 +668,6 @@ function mostrarScrape(data) {
   // campaña y se la pedimos a mano en el paso de órdenes.
   window._clienteAsignado = !!data.cliente_asignado;
   window._ventaElegida = "";
-  cargarGrupoWa(data.cliente_asignado ? window._clientIg : "");
 
   hide("loading-overlay");
 
@@ -1274,35 +1273,16 @@ function copiarComentario(e, index) {
 // ---------------------------------------------------------------------------
 // Repartir por WhatsApp
 //
-// El vendedor tiene un grupo por cliente y hoy reenvía el link y los comentarios
-// uno por uno a mano. Esto NO lo automatiza del todo, porque no se puede: la
-// Cloud API de Meta solo manda mensajes 1 a 1 y no escribe en grupos, y WhatsApp
-// tampoco deja abrir un grupo con el texto ya cargado. Lo que sí se puede es
-// sacar el copiar-pegar del medio: cada mensaje se abre ya escrito con
-// wa.me/?text= y el vendedor solo elige el chat y manda.
+// El bot manda la tanda a UN WhatsApp y desde ahí la persona la reenvía adonde
+// quiera. El destino no lo decide el sistema: la Cloud API de Meta solo entrega
+// a números (nunca a grupos), así que quien reparte es quien recibe.
 // ---------------------------------------------------------------------------
 
-// Link de invitación del grupo del cliente del post, si tiene uno cargado.
-let grupoWa = "";
 // Los mensajes de la tanda actual y cuáles ya se mandaron. El "enviado" es lo
 // único que hace utilizable la pantalla con 20 mensajes: sin la marca, después
 // de tres se pierde la cuenta de por dónde iba.
 let repartoItems = [];
 let repartoEnviados = new Set();
-
-async function cargarGrupoWa(ig) {
-  grupoWa = "";
-  if (!ig) return;
-  try {
-    const r = await fetch(`/api/wa-grupo?ig=${encodeURIComponent(ig)}`);
-    if (!r.ok) return;
-    grupoWa = (await r.json()).url || "";
-  } catch (e) {
-    // Sin grupo el reparto funciona igual (se elige el chat a mano): no vale
-    // la pena molestar al vendedor con un error por esto.
-    console.warn("no pude leer el grupo de WhatsApp del cliente", e);
-  }
-}
 
 function abrirRepartir() {
   const idx = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
@@ -1310,25 +1290,19 @@ function abrirRepartir() {
     .filter(i => !Number.isNaN(i));
   if (idx.length === 0) return;
 
-  // El link va primero porque es el mensaje que da contexto: sin él, los
-  // comentarios sueltos en el grupo no se sabe a qué post pertenecen.
-  repartoItems = [{ tipo: "link", texto: currentUrl }];
+  // Mismo formato que manda el bot (ver /api/repartir-wa): "Comentarios" + el
+  // link, y después cada comentario pelado. Los dos caminos tienen que mandar
+  // exactamente lo mismo, si no el grupo recibe dos formatos distintos según
+  // por dónde se haya repartido.
+  repartoItems = [{ tipo: "link", texto: `Comentarios\n${currentUrl}` }];
   idx.forEach(i => repartoItems.push({ tipo: "comentario", texto: comentariosGenerados[i] }));
   repartoEnviados = new Set();
 
-  const cliente = window._clientIg || "";
-  const grupoEl = document.getElementById("repartir-grupo");
-  if (grupoWa) {
-    grupoEl.href = grupoWa;
-    document.getElementById("repartir-grupo-nombre").textContent = cliente ? `@${cliente}` : "este cliente";
-    grupoEl.classList.remove("hidden");
-  } else {
-    grupoEl.classList.add("hidden");
-  }
   document.getElementById("repartir-sub").textContent =
     `El link del post y ${repartoItems.length - 1} comentario${repartoItems.length === 2 ? "" : "s"}, un mensaje cada uno.`;
 
   document.getElementById("repartir-bulk-n").textContent = repartoItems.length;
+  pintarVentanaWa();
   const msg = document.getElementById("repartir-bulk-msg");
   msg.className = "repartir-bulk-msg hidden";
   msg.textContent = "";
@@ -1337,9 +1311,9 @@ function abrirRepartir() {
   document.getElementById("repartir-overlay").classList.remove("hidden");
 }
 
-// Un click: el bot manda los mensajes sueltos al WhatsApp del vendedor. De ahí
-// al grupo van con el reenvío múltiple de WhatsApp — no hay forma de que el bot
-// escriba en el grupo, así que este es el camino más corto que existe.
+// Un click: el bot manda los mensajes sueltos al WhatsApp configurado. De ahí
+// se reenvían con la selección múltiple de WhatsApp, que es lo que reemplaza al
+// copiar-pegar de a uno.
 async function mandarTandaWa() {
   const btn = document.getElementById("repartir-bulk-btn");
   const msg = document.getElementById("repartir-bulk-msg");
@@ -1362,9 +1336,13 @@ async function mandarTandaWa() {
     const data = await r.json().catch(() => ({}));
 
     if (r.ok) {
-      // Se marcan como enviados: ya salieron de verdad, no "los abrí".
       marcarTodoRepartido();
-      msg.textContent = `✓ Listo, te mandé ${data.enviados} mensajes. Reenvialos al grupo desde WhatsApp.`;
+      // "Salieron", NO "llegaron". Meta devuelve 200 aunque después descarte los
+      // mensajes por la ventana de 24h vencida, y avisa por un webhook que no
+      // escuchamos. Prometer la entrega acá era el peor error posible: el
+      // vendedor veía el tilde verde y no llegaba nada.
+      msg.textContent = `Salieron ${data.enviados} mensajes. Si en unos segundos no ` +
+        `los ves en WhatsApp, apretá "Activar WhatsApp" acá arriba y reintentá.`;
       msg.className = "repartir-bulk-msg repartir-bulk-msg--ok";
     } else if (r.status === 207) {
       // Salió parte. Lo importante es cuántos faltan, no el detalle técnico:
@@ -1424,6 +1402,66 @@ function enviarWa(i) {
   // mandó de verdad. Por eso el botón queda como "Reenviar" y no desaparece.
   repartoEnviados.add(i);
   renderRepartir();
+}
+
+// Muestra si la ventana de 24h está abierta, antes de que el vendedor apriete
+// el botón. Sin esto se entera después, cuando los mensajes ya "salieron bien"
+// y no llegó nada.
+async function pintarVentanaWa() {
+  const box = document.getElementById("repartir-ventana");
+  if (!box) return;
+  box.className = "repartir-ventana hidden";
+  let e;
+  try {
+    const r = await fetch("/api/wa-estado");
+    e = await r.json();
+  } catch (_) {
+    return;   // sin datos no inventamos nada
+  }
+
+  // Link que abre el chat del bot con un "hola" escrito: un toque, y la ventana
+  // queda abierta. Es más corto que mandar un template y esperar a responderlo.
+  const link = e.numero_bot
+    ? ` <a class="repartir-activar" target="_blank" rel="noopener"
+           href="https://wa.me/${e.numero_bot}?text=hola">Abrir el chat del bot</a>`
+    : ` <button type="button" class="repartir-activar" onclick="activarWa()">Activar WhatsApp</button>`;
+
+  if (e.abierta === true) {
+    const h = Math.floor((e.minutos_restantes || 0) / 60);
+    box.innerHTML = `✓ WhatsApp activo — te quedan ${h > 0 ? h + " h" : (e.minutos_restantes || 0) + " min"}.`;
+    box.className = "repartir-ventana repartir-ventana--ok";
+  } else if (e.abierta === false) {
+    box.innerHTML = `⚠ WhatsApp inactivo: los mensajes NO te van a llegar.${link}`;
+    box.className = "repartir-ventana repartir-ventana--bad";
+  } else {
+    // null = el webhook no llega hasta acá. Decir "cerrada" sería inventar.
+    box.innerHTML = `No sé si WhatsApp está activo (falta configurar el webhook).
+      Si la tanda no te llega,${link} y respondelo.`;
+    box.className = "repartir-ventana repartir-ventana--warn";
+  }
+}
+
+// Abre la ventana de 24h de Meta. Manda un template (que sí atraviesa la
+// ventana); respondiéndolo, el texto libre vuelve a entregarse por 24 horas.
+async function activarWa() {
+  const msg = document.getElementById("repartir-bulk-msg");
+  msg.textContent = "Mandando el mensaje de activación…";
+  msg.className = "repartir-bulk-msg repartir-bulk-msg--warn";
+  try {
+    const r = await fetch("/api/activar-wa", { method: "POST" });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      msg.textContent = "Te mandé un mensaje al WhatsApp. Respondelo (con cualquier " +
+        "cosa) y después volvé a apretar el botón verde.";
+      msg.className = "repartir-bulk-msg repartir-bulk-msg--ok";
+    } else {
+      msg.textContent = data.error || "No se pudo mandar el mensaje de activación.";
+      msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
+    }
+  } catch (e) {
+    msg.textContent = "No se pudo contactar al servidor.";
+    msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
+  }
 }
 
 function marcarTodoRepartido() {
