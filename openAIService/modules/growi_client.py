@@ -21,6 +21,10 @@ IDVENTA    = os.environ.get("GROWI_IDVENTA", "32600")  # id del cliente en el CR
 # GROWI_HTTP_PROXY acepta VARIOS separados por coma y se prueban en orden; con
 # uno solo se comporta igual que antes. Ver common/proxy_pool.py.
 from common.proxy_pool import ProxyPool, proxies_de, _ofuscar
+# Auditoría: el ENVÍO de órdenes queda en la tabla growi_calls con su respuesta.
+# Solo el envío: es lo único que mueve plata y lo único que hay que poder
+# reconstruir cuando un vendedor dice que su orden no entró.
+from common.growi_trace import trazar
 
 _POOL = ProxyPool(os.environ.get("GROWI_HTTP_PROXY", ""))
 
@@ -423,52 +427,65 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
     # autorizado, así que correr sin él es un modo degradado válido.)
     max_intentos = int(os.environ.get(
         "GROWI_MAX_REINTENTOS_401", "12" if not _POOL.configurado else "4"))
-    for intento in range(1, max_intentos + 1):
-        try:
-            resp = session.post(
-                f"{CRM_URL}/paginas/enviar_trafico.php",
-                json=payload,
-                headers=request_headers,
-                timeout=_TIMEOUT,
-            )
-        except Exception as e:
-            if not _es_error_de_red(e):
-                raise
-            if not _falló_al_conectar(e):
-                # El POST salió y se cortó esperando la respuesta: la orden pudo
-                # haber entrado. Reintentar acá duplica la carga, así que
-                # cortamos y que un humano revise el CRM antes de reenviar.
-                print(f"[growi] timeout de lectura en el envío: la orden PUEDE "
-                      f"haber entrado, no reintento ({e!r})", flush=True)
-                raise GrowiUnavailable(
-                    "Se cortó la conexión esperando la respuesta del CRM. "
-                    "Revisá en Growi si la orden entró antes de volver a mandarla.",
-                    reintentable=False,
-                ) from e
-            # El proxy se murió con la campaña ya en curso. Antes esto era el
-            # final del camino; ahora lo marcamos y reintentamos por otro. Es el
-            # caso más caro de perder, porque los comentarios ya están generados.
-            print(f"[growi] se cayó el proxy durante el envío, reintento por otro "
-                  f"({e.__class__.__name__})", flush=True)
-            _descartar_sesion(por_proxy_caido=True)
-            if intento == max_intentos:
-                raise _sin_ruta(e) from e
+    # Una sola fila de auditoría por envío, con los reintentos contados adentro:
+    # lo que importa reconstruir después es "qué orden se mandó y qué contestó
+    # el CRM", no cada round-trip fallido por una sesión vencida.
+    with trazar("enviar_trafico", "POST", f"{CRM_URL}/paginas/enviar_trafico.php",
+                payload=payload, post_url=post_url, idventa=IDVENTA,
+                idvendedor=IDVENDEDOR, costo=round(costo_total, 6)) as tr:
+        # Los headers de la ida se dejan anotados ANTES de salir: si la request
+        # nunca llega a irse (proxy caído), no hay resp.request de dónde sacarlos
+        # y la traza quedaría sin la mitad del request.
+        tr.headers(request_headers)
+        for intento in range(1, max_intentos + 1):
             try:
+                resp = session.post(
+                    f"{CRM_URL}/paginas/enviar_trafico.php",
+                    json=payload,
+                    headers=request_headers,
+                    timeout=_TIMEOUT,
+                )
+            except Exception as e:
+                if not _es_error_de_red(e):
+                    raise
+                if not _falló_al_conectar(e):
+                    # El POST salió y se cortó esperando la respuesta: la orden pudo
+                    # haber entrado. Reintentar acá duplica la carga, así que
+                    # cortamos y que un humano revise el CRM antes de reenviar.
+                    print(f"[growi] timeout de lectura en el envío: la orden PUEDE "
+                          f"haber entrado, no reintento ({e!r})", flush=True)
+                    raise GrowiUnavailable(
+                        "Se cortó la conexión esperando la respuesta del CRM. "
+                        "Revisá en Growi si la orden entró antes de volver a mandarla.",
+                        reintentable=False,
+                    ) from e
+                # El proxy se murió con la campaña ya en curso. Antes esto era el
+                # final del camino; ahora lo marcamos y reintentamos por otro. Es el
+                # caso más caro de perder, porque los comentarios ya están generados.
+                print(f"[growi] se cayó el proxy durante el envío, reintento por otro "
+                      f"({e.__class__.__name__})", flush=True)
+                _descartar_sesion(por_proxy_caido=True)
+                if intento == max_intentos:
+                    raise _sin_ruta(e) from e
+                try:
+                    session = _get_session()
+                except GrowiUnavailable:
+                    raise           # se agotaron todos los proxies, ya viene con su mensaje
+                continue
+            if resp.status_code != 401:
+                break
+            print(f"[growi] 401 en intento {intento}/{max_intentos}, reintentando con login fresco", flush=True)
+            # 401 = la sesión no vale, pero el proxy anda: NO lo marcamos muerto.
+            _descartar_sesion()
+            if intento < max_intentos:
                 session = _get_session()
-            except GrowiUnavailable:
-                raise           # se agotaron todos los proxies, ya viene con su mensaje
-            continue
-        if resp.status_code != 401:
-            break
-        print(f"[growi] 401 en intento {intento}/{max_intentos}, reintentando con login fresco", flush=True)
-        # 401 = la sesión no vale, pero el proxy anda: NO lo marcamos muerto.
-        _descartar_sesion()
-        if intento < max_intentos:
-            session = _get_session()
-    resp.raise_for_status()
-    data = resp.json()
+        tr.intento(intento)
+        tr.via(_session_proxy)
+        tr.respuesta(resp)
+        resp.raise_for_status()
+        data = resp.json()
 
-    print(f"[growi] respuesta CRM: {json.dumps(data, ensure_ascii=False)}", flush=True)
+        print(f"[growi] respuesta CRM: {json.dumps(data, ensure_ascii=False)}", flush=True)
 
     return GrowiResult(
         success=data.get("success", False),

@@ -236,6 +236,67 @@ class Client(Base):
     account = relationship("Account", back_populates="clients")
 
 
+class GrowiCall(Base):
+    """Una fila por cada ENVÍO de órdenes al CRM de Growi, con su respuesta.
+
+    Existe porque el CRM es una caja negra de terceros y cuando algo sale mal
+    (una orden que "no entró", un 401, una sesión que se cae) lo único que había
+    era el print del último deploy: los logs se rotan y el vendedor reclama al
+    día siguiente. Con esta tabla se puede contestar qué se mandó exactamente,
+    qué contestó el CRM, cuánto tardó y por qué proxy salió.
+
+    Se escribe best-effort: si el insert falla, el envío sigue igual. Nunca se
+    le arruina una campaña a un vendedor por no poder auditar.
+    """
+    __tablename__ = "growi_calls"
+
+    id = Column(Integer, primary_key=True)
+    # Correlaciona los envíos de una misma acción del usuario (un click que
+    # dispara más de una orden).
+    trace_id = Column(String(36), nullable=True, index=True)
+    # De dónde salió: "web" (webService), "openai" (generación), "cola"
+    # (worker de reintentos), "monitor" (health check).
+    origen = Column(String(20), nullable=False, default="web")
+    # Hoy siempre "enviar_trafico". Queda como columna (y no como constante
+    # implícita) para poder sumar otra operación sin migrar la tabla.
+    operacion = Column(String(50), nullable=False, index=True)
+    method = Column(String(10), nullable=False, default="POST")
+    url = Column(Text, nullable=False)
+
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"),
+                        nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username = Column(String(200), nullable=True)
+
+    # El request y el response completos, ya redactados (sin passwords ni
+    # cookies) y truncados. El cuerpo enviado va como JSON porque se consulta
+    # por dentro (qué órdenes tenía); la respuesta va como texto porque el CRM a
+    # veces devuelve HTML de login en vez del JSON esperado.
+    request_payload = Column(JSON, nullable=True)
+    request_headers = Column(JSON, nullable=True)
+    response_body = Column(Text, nullable=True)
+    response_headers = Column(JSON, nullable=True)
+
+    status_code = Column(Integer, nullable=True)
+    # False también cuando el CRM contestó 200 pero con success=false.
+    ok = Column(Boolean, nullable=False, default=False, server_default="false")
+    duracion_ms = Column(Integer, nullable=True)
+    # Reintentos gastados dentro de ESTA llamada (relogin por sesión caída, 401).
+    intentos = Column(Integer, nullable=False, default=1, server_default="1")
+    proxy = Column(String(200), nullable=True)   # ofuscado: nunca la password del proxy
+    error = Column(Text, nullable=True)
+
+    # Contexto de negocio, todo opcional: sirve para buscar ("¿qué le mandamos a
+    # @cliente ayer?") pero nunca para decidir si se loguea.
+    post_url = Column(Text, nullable=True)
+    client_ig_username = Column(String(100), nullable=True, index=True)
+    idventa = Column(String(50), nullable=True)
+    idvendedor = Column(String(50), nullable=True)
+    costo = Column(Float, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+
+
 class PendingOrder(Base):
     """Orden armada que NO se pudo mandar al CRM, guardada para reintentar sola.
 

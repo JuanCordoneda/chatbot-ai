@@ -25,6 +25,11 @@ INTERVALO = float(os.environ.get("GROWI_QUEUE_INTERVAL", "60"))
 _PURGA_CADA = float(os.environ.get("POST_CACHE_PURGA_CADA", str(6 * 3600)))
 _PURGA_DIAS = int(os.environ.get("POST_CACHE_PURGA_DIAS", "30"))
 
+# Retención de la auditoría de llamadas al CRM (tabla growi_calls). 30 días
+# cubre de sobra el caso real: un vendedor que reclama por una orden de la
+# semana pasada.
+_TRAZAS_DIAS = int(os.environ.get("GROWI_TRAZAS_DIAS", "30"))
+
 _arrancado = False
 _lock = threading.Lock()
 
@@ -53,13 +58,22 @@ def procesar_una() -> bool:
     print(f"[cola] reintentando orden {oid} (intento {intentos}) "
           f"de {orden.get('post_url')}", flush=True)
 
+    # La traza de este envío tiene que decir que salió del WORKER y no de un
+    # vendedor apretando Publicar: si no, en el panel parece que alguien mandó
+    # la misma orden dos veces.
+    from common.growi_trace import contexto as traza_contexto
+
     try:
-        resultado = ejecutar_campana(
-            orden["post_url"],
-            payload.get("comentarios") or [],
-            payload.get("ordenes") or [],
-            float(payload.get("disponible") or 0),
-        )
+        with traza_contexto(origen="cola", account_id=orden.get("account_id"),
+                            user_id=orden.get("user_id"),
+                            post_url=orden.get("post_url"),
+                            client_ig_username=orden.get("client_ig_username")):
+            resultado = ejecutar_campana(
+                orden["post_url"],
+                payload.get("comentarios") or [],
+                payload.get("ordenes") or [],
+                float(payload.get("disponible") or 0),
+            )
     except GrowiUnavailable as e:
         repo.reprogramar_orden(oid, str(e), reintentable=e.reintentable)
         estado = "a revisar" if not e.reintentable else "reprogramada"
@@ -105,6 +119,13 @@ def _loop() -> None:
                 _repo().post_cache_purgar(dias=_PURGA_DIAS)
             except Exception as e:
                 print(f"[cola] error purgando el caché de posts: {e!r}", flush=True)
+            # Misma idea para la auditoría del CRM: es un log, no un registro
+            # contable. Sin purga la tabla crece para siempre con cuerpos de
+            # respuesta (una página de login son varios KB).
+            try:
+                _repo().growi_calls_purgar(dias=_TRAZAS_DIAS)
+            except Exception as e:
+                print(f"[cola] error purgando las trazas del CRM: {e!r}", flush=True)
 
         time.sleep(INTERVALO)
 

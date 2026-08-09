@@ -13,7 +13,7 @@ from werkzeug.security import check_password_hash
 
 from common.db import db_available, session_scope
 from common.models import (Account, User, Client, PromptRequest, UsageEvent,
-                           PendingOrder, PostCache, TokenUsage)
+                           PendingOrder, PostCache, TokenUsage, GrowiCall)
 from common import crypto
 
 
@@ -1204,6 +1204,140 @@ def cancelar_orden(orden_id: int, account_id=None) -> bool:
         p.estado = "cancelada"
         p.proximo_intento = None
         return True
+
+
+# ── Trazabilidad de las llamadas al CRM de Growi ──────────────────────────────
+# El CRM es de un tercero y no deja auditar nada del lado nuestro. Estas
+# funciones guardan y consultan qué le mandamos y qué contestó, para poder
+# reconstruir un envío días después (ver common/growi_trace.py).
+
+def _growi_call_to_dict(c: GrowiCall, con_cuerpos: bool = False) -> dict:
+    d = {
+        "id": c.id,
+        "trace_id": c.trace_id,
+        "origen": c.origen,
+        "operacion": c.operacion,
+        "method": c.method,
+        "url": c.url,
+        "account_id": c.account_id,
+        "user_id": c.user_id,
+        "username": c.username,
+        "status_code": c.status_code,
+        "ok": bool(c.ok),
+        "duracion_ms": c.duracion_ms,
+        "intentos": c.intentos,
+        "proxy": c.proxy,
+        "error": c.error,
+        "post_url": c.post_url,
+        "client_ig_username": c.client_ig_username,
+        "idventa": c.idventa,
+        "idvendedor": c.idvendedor,
+        "costo": c.costo,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+    if con_cuerpos:
+        # Los cuerpos solo viajan en el detalle: en el listado serían cientos de
+        # KB por pantalla para algo que casi nunca se mira fila por fila.
+        d["request_payload"] = c.request_payload
+        d["request_headers"] = c.request_headers
+        d["response_body"] = c.response_body
+        d["response_headers"] = c.response_headers
+    return d
+
+
+def registrar_llamada_crm(**campos) -> bool:
+    """Guarda una llamada al CRM. Devuelve False si no se pudo (sin DB o error):
+    la auditoría es best-effort y nunca corta el envío."""
+    if not db_available():
+        return False
+    try:
+        with session_scope() as s:
+            s.add(GrowiCall(**campos))
+        return True
+    except Exception as e:
+        print(f"[growi-trace] insert fallido: {e!r}", flush=True)
+        return False
+
+
+def list_growi_calls(account_id=None, *, operacion=None, solo_errores=False,
+                     q=None, trace_id=None, limite: int = 200) -> list[dict]:
+    """Últimas llamadas al CRM, de más nueva a más vieja.
+
+    account_id acota a una cuenta (el vendedor solo ve lo suyo); None trae todo,
+    que es lo que ve el admin.
+    """
+    if not db_available():
+        return []
+    from sqlalchemy import or_
+    limite = max(1, min(int(limite or 200), 500))
+    with session_scope() as s:
+        query = s.query(GrowiCall)
+        if account_id is not None:
+            query = query.filter(GrowiCall.account_id == account_id)
+        if operacion:
+            query = query.filter(GrowiCall.operacion == operacion)
+        if solo_errores:
+            query = query.filter(GrowiCall.ok == False)   # noqa: E712
+        if trace_id:
+            query = query.filter(GrowiCall.trace_id == trace_id)
+        if q:
+            like = f"%{q.strip().lstrip('@')}%"
+            query = query.filter(or_(GrowiCall.client_ig_username.ilike(like),
+                                     GrowiCall.username.ilike(like),
+                                     GrowiCall.post_url.ilike(like),
+                                     GrowiCall.idventa.ilike(like)))
+        filas = query.order_by(GrowiCall.created_at.desc()).limit(limite).all()
+        return [_growi_call_to_dict(c) for c in filas]
+
+
+def get_growi_call(call_id: int, account_id=None) -> Optional[dict]:
+    """Detalle con los cuerpos completos. account_id acota igual que el listado."""
+    if not db_available():
+        return None
+    with session_scope() as s:
+        q = s.query(GrowiCall).filter(GrowiCall.id == call_id)
+        if account_id is not None:
+            q = q.filter(GrowiCall.account_id == account_id)
+        c = q.first()
+        return _growi_call_to_dict(c, con_cuerpos=True) if c else None
+
+
+def growi_calls_resumen(account_id=None, horas: int = 24) -> dict:
+    """Cuántas llamadas y cuántas fallaron en las últimas N horas. Alimenta el
+    contador de la pestaña: lo que importa ver de un vistazo son los errores."""
+    if not db_available():
+        return {}
+    from datetime import timedelta
+    from sqlalchemy import func
+    desde = _utcnow_naive() - timedelta(hours=max(1, horas))
+    with session_scope() as s:
+        q = s.query(GrowiCall.ok, func.count(GrowiCall.id)).filter(GrowiCall.created_at >= desde)
+        if account_id is not None:
+            q = q.filter(GrowiCall.account_id == account_id)
+        filas = dict(q.group_by(GrowiCall.ok).all())
+        ok = int(filas.get(True, 0))
+        err = int(filas.get(False, 0))
+        return {"ok": ok, "errores": err, "total": ok + err, "horas": horas}
+
+
+def growi_calls_purgar(dias: int = 30) -> int:
+    """Borra trazas más viejas que N días. Es un log, no un registro contable:
+    sin purga la tabla crece para siempre con cuerpos de respuesta."""
+    if not db_available():
+        return 0
+    from datetime import timedelta
+    try:
+        limite = _utcnow_naive() - timedelta(days=max(1, dias))
+        with session_scope() as s:
+            n = (s.query(GrowiCall)
+                   .filter(GrowiCall.created_at < limite)
+                   .delete(synchronize_session=False))
+            if n:
+                print(f"[growi-trace] purgadas {n} trazas de más de {dias} días", flush=True)
+            return int(n or 0)
+    except Exception as e:
+        print(f"[growi-trace] error purgando: {e}", flush=True)
+        return 0
 
 
 # ── Contabilidad de tokens ────────────────────────────────────────────────────

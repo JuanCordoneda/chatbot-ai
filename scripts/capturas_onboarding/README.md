@@ -1,6 +1,7 @@
 # Capturas de la guía de onboarding
 
-Las imágenes de `/ayuda` (`paso-N.png`) y de `/ayuda-ordenes` (`orden-N.png`),
+Las imágenes de `/ayuda` (`paso-1..8`) y de `/ayuda-ordenes` (`orden-1..7`: link,
+PASO 1 verificados, PASO 2 comunes, PASO 3 WhatsApp, formulario, cuándo, órdenes),
 con su versión `-light`, en webService/static/onboarding/, salen de la interfaz REAL del panel, con clientes de demo: `harness.py`
 sirve los templates de verdad y falsea las respuestas de `/api/*`, así que no
 toca la base, ni el CRM, ni expone datos de un cliente.

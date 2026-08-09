@@ -113,6 +113,15 @@ COMENTARIOS_DEMO = [
     "Lo hice en casa y funciona", "Necesitaba algo sin máquinas, gracias",
     "Se nota la técnica, muy claro", "Me lo mandó mi hermano y no falló",
     "Tres ejercicios y listo, ideal", "Empiezo mañana sin excusas",
+    "Qué bueno que no hace falta gimnasio", "Lo probé recién y lo sentí al toque",
+    "Mi kinesiólogo me mandó algo parecido", "Buenísimo para los días sin tiempo",
+    "La explicación clarísima como siempre", "Voy a sumarlo a la rutina de espalda",
+    "Con banda es mucho más llevadero", "Justo venía con dolor de espalda",
+    "Me sirve para las mañanas antes del trabajo", "Simple y bien explicado",
+    "Ya lo guardé para el finde", "El tercero es el que más me cuesta",
+    "Gracias por compartirlo, muy útil", "Ideal para arrancar de a poco",
+    "Lo mando al grupo de entrenamiento", "Se puede hacer en cualquier lado",
+    "Sin excusas entonces", "Muy claro el paso a paso",
 ]
 
 
@@ -140,8 +149,9 @@ ANOTACIONES = {
     "ficha:trafico":     [("#client-venta", "De acá sale la plata", "arriba")],
     "gen":               [("#ig-link", "Pegá el link del post", "abajo")],
     "gen-link":          [("#ig-link", "Pegá el link del post o del reel", "abajo")],
-    "gen-lista":         [(".reparto-row", "Escribí cuántos de cada tipo y los marca solo", "arriba")],
-    "gen-reparto":       [("#cant-noverif", "Los comunes salen en 2 tandas", "abajo")],
+    "gen-paso1":         [(".tipo-panel--verificado .tp-rnd", "Te pregunta cuántos y los marca solo", "abajo")],
+    "gen-paso2":         [("#btn-cartel-saltar", "Si el cliente no lleva comunes, saltá", "abajo")],
+    "gen-paso3":         [("#btn-cartel-saltar", "También es opcional", "abajo")],
     "gen-orden":         [("#orden-producto", "Elegí el producto: el costo se calcula solo", "abajo")],
     "gen-cuando":        [('.cuando-pill[data-value="split3"]', "Parte la cantidad en varias órdenes", "abajo")],
     "gen-ordenes":       [("#btn-solicitar", "Recién acá salen al panel", "arriba")],
@@ -215,6 +225,11 @@ window.addEventListener("load", () => setTimeout(() => {
     document.body.style.cssText = "background:var(--bg);margin:0;";
     w.appendChild(el);
     document.body.appendChild(w);
+    // Al re-colgar el nodo, las animaciones de entrada (fundidos) arrancan de
+    // cero y la captura sale a medio aparecer: se cortan de raíz.
+    el.classList.remove("etapa-entrando");
+    el.style.animation = "none";
+    el.querySelectorAll("*").forEach(n => { n.style.animation = "none"; n.style.opacity = ""; });
     // El .app del panel escala todo un 20%: sin esa clase el recorte sale más
     // chico que en la pantalla real.
     w.classList.add("app");
@@ -230,17 +245,40 @@ window.addEventListener("load", () => setTimeout(() => {
     if (s === "gen-link") { dibujarMarcas(); return; }
 
     generarComentarios();
+    // La elección va en 3 pasos (verificados → comunes → WhatsApp). Se marcan
+    // unos cuantos de la etapa en curso, igual que haría el vendedor.
+    // Con 30 comentarios la captura sale de 3 metros: para la guía alcanza con
+    // ver el arranque de la lista.
+    const recortarLista = (n) => {
+      document.querySelectorAll(".tipo-panel:not(.hidden) .comentario-item").forEach((it, i) => {
+        if (i >= n) it.remove();
+      });
+    };
+    const marcarAlgunos = (n) => {
+      const cajas = [...document.querySelectorAll(".tipo-panel:not(.hidden) .comentario-item input[type=checkbox]")]
+        .filter(c => c.offsetParent !== null);
+      cajas.slice(0, n).forEach((c) => { if (!c.checked) c.click(); });
+    };
     setTimeout(() => {
-      // Elegir unos cuantos, como haría el vendedor antes de publicar.
-      const cajas = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]")];
-      cajas.slice(0, 6).forEach((c) => { if (!c.checked) c.click(); });
+      marcarAlgunos(6);
 
-      if (s === "gen-lista")   { window.scrollTo(0, 0); dibujarMarcas(); return; }
-      if (s === "gen-reparto") { solo(document.querySelector(".comments-actions-bar")); setTimeout(dibujarMarcas, 60); return; }
+      if (s === "gen-paso1") { recortarLista(9); solo(document.querySelector("#step-comentarios .comments-card")); setTimeout(dibujarMarcas, 80); return; }
 
-      publicar();
+      avanzarEtapa();                       // → PASO 2: comunes
       setTimeout(() => {
-        if (s === "gen-orden")  { window.scrollTo(0, 0); dibujarMarcas(); return; }
+        // La ficha del cliente premarca su cantidad; para la captura se deja una
+        // selección chica y así al paso 3 le sobra lista de verdad.
+        deseleccionarTodos();
+        marcarAlgunos(8);
+        if (s === "gen-paso2") { recortarLista(9); solo(document.querySelector("#step-comentarios .comments-card")); setTimeout(dibujarMarcas, 80); return; }
+
+        avanzarEtapa();                     // → PASO 3: WhatsApp
+        setTimeout(() => {
+          if (s === "gen-paso3") { recortarLista(9); solo(document.querySelector("#step-comentarios .comments-card")); setTimeout(dibujarMarcas, 80); return; }
+
+          saltarEtapa();                    // → órdenes, sin mandar nada por WhatsApp
+          setTimeout(() => {
+        if (s === "gen-orden")  { solo(document.querySelector("#step-ordenes .orden-form-card")); setTimeout(dibujarMarcas, 80); return; }
         if (s === "gen-cuando") {
           // "Dividir en 3/5" sólo aparece con un producto de tráfico elegido
           // (en comentarios no tiene sentido partir la cantidad).
@@ -263,7 +301,9 @@ window.addEventListener("load", () => setTimeout(() => {
           solo(caja);
           setTimeout(dibujarMarcas, 60); return;
         }
-      }, 1600);
+          }, 2200);
+        }, 700);
+      }, 700);
     }, 1600);
     return;
   }

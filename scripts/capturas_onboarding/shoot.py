@@ -31,11 +31,12 @@ SHOTS = [
 
     # Guía de órdenes (/ayuda-ordenes)
     ("orden-1", "/", "gen-link",    1460, 980, True),
-    ("orden-2", "/", "gen-lista",   1460, 1250, True),
-    ("orden-3", "/", "gen-reparto", 1200, 700, True),
-    ("orden-4", "/", "gen-orden",   1460, 1250, True),
-    ("orden-5", "/", "gen-cuando",  1000, 500, True),
-    ("orden-6", "/", "gen-ordenes", 1200, 900, True),
+    ("orden-2", "/", "gen-paso1",   1460, 1900, True),
+    ("orden-3", "/", "gen-paso2",   1460, 1900, True),
+    ("orden-4", "/", "gen-paso3",   1460, 1500, True),
+    ("orden-5", "/", "gen-orden",   1460, 1250, True),
+    ("orden-6", "/", "gen-cuando",  1000, 500, True),
+    ("orden-7", "/", "gen-ordenes", 1200, 900, True),
 ]
 
 MAX_W = 1400   # ancho final (se captura a 2x y se baja a esto)

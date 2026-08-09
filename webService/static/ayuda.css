@@ -91,3 +91,18 @@ body:not(.light) .ay-light, body.light .ay-dark { display: none; }
   .ay-paso::after { left: 11px; }
   .ay-paso::before { width: 23px; height: 23px; font-size: .74rem; }
 }
+
+/* Chapita "opcional" en el título de un paso que se puede saltar. */
+.ay-opt {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #06280f;
+  background: #25d366;
+  border-radius: 20px;
+  padding: 3px 9px;
+}

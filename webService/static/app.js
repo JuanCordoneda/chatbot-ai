@@ -1486,6 +1486,51 @@ function renderRepartir() {
   const sub = document.getElementById("repartir-sub");
   if (sub) sub.textContent = `El link del post y ${incluidos - 1} ` +
     `comentario${incluidos === 2 ? "" : "s"} elegido${incluidos === 2 ? "" : "s"}.`;
+  _pintarTodoEnUno();
+}
+
+// Arma el bloque único: el link del post y después cada comentario con su
+// propio wa.me para reenviarlo. Es texto plano, así que se puede mandar por el
+// mismo deep link de siempre — sin bot, sin ventana de 24h, sin lista blanca.
+function _textoTodoEnUno() {
+  const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
+  const partes = [`Comentarios\n${currentUrl}`];
+  coms.forEach((it, n) => {
+    // WhatsApp no permite texto sobre un link (no hay markdown ni hipervínculos):
+    // siempre muestra la URL cruda. Lo único que se puede acomodar es lo de
+    // alrededor, así que el comentario va primero —que es lo que se lee— y el
+    // link debajo con una flecha que lo ata visualmente a ese comentario.
+    partes.push(`${n + 1}. ${it.texto}\n` +
+                `↪ https://wa.me/?text=${encodeURIComponent(it.texto)}`);
+  });
+  return partes.join("\n\n");
+}
+
+function mandarTodoEnUno() {
+  const texto = _textoTodoEnUno();
+  // Se abre en otra pestaña: navegar en la misma recargaría el generador y se
+  // perderían los comentarios.
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+}
+
+// El botón muestra cuántos van y avisa si el mensaje se está yendo de largo.
+// WhatsApp corta en 4096 caracteres, pero el problema real aparece antes: el
+// deep link viaja en una URL y las muy largas fallan en algunos navegadores.
+function _pintarTodoEnUno() {
+  const btn = document.getElementById("repartir-uno");
+  const hint = document.getElementById("repartir-uno-hint");
+  const nEl = document.getElementById("repartir-uno-n");
+  if (!btn || !nEl) return;
+  const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
+  nEl.textContent = coms.length;
+  btn.disabled = coms.length === 0;
+  const largo = _textoTodoEnUno().length;
+  if (hint) {
+    hint.textContent = largo > 3500
+      ? `El mensaje quedaría de ${largo} caracteres y WhatsApp corta en 4096: destildá algunos o mandalos de a uno.`
+      : "Llega un mensaje con todos los comentarios, cada uno con su link para reenviarlo.";
+    hint.classList.toggle("repartir-uno-hint--warn", largo > 3500);
+  }
 }
 
 function toggleIncluido(i) {
@@ -1986,6 +2031,7 @@ function actualizarConteo() {
           : "Generá más, o volvé al paso anterior y sacá algunos.");
     }
   }
+  _syncSaltar(sel);
   // El reparto por WhatsApp ya no vive acá: es la etapa 2, después de publicar.
   actualizarPanel();
 }
@@ -2312,6 +2358,36 @@ function avanzarEtapa() {
     .map(_indiceDe);
   _repartoSigueAOrdenes = true;
   abrirRepartirCon(textos);
+}
+
+// En los pasos opcionales (2 y 3), si ya hay comentarios marcados "Saltar" no
+// tiene sentido: saltear los tiraría a la basura. Con selección el mismo botón
+// pasa a ser el de avanzar (paso 2 → WhatsApp, paso 3 → mandar la tanda), y
+// vuelve a "Saltar" si se destilda todo.
+function _syncSaltar(sel) {
+  const avanzar = etapa >= 2 && sel > 0;
+  const txtNav = etapa === 2
+    ? (avanzar ? "Seguir al PASO 3: WhatsApp" : "Saltar, ir a WhatsApp")
+    : (avanzar ? "📲 Enviar por WhatsApp" : "Saltar, ir a las órdenes");
+  const txtCartel = etapa === 2
+    ? (avanzar ? "Seguir con los elegidos al PASO 3: WhatsApp →" : "Saltar, ir al PASO 3: WhatsApp →")
+    : (avanzar ? "📲 Enviar los elegidos por WhatsApp →" : "Saltar, ir a las órdenes →");
+
+  const nav = document.getElementById("btn-etapa-saltar");
+  if (nav && !nav.classList.contains("hidden")) {
+    nav.textContent = txtNav;
+    nav.classList.toggle("btn-publish", avanzar);
+    nav.classList.toggle("btn-ghost", !avanzar);
+  }
+  const cartel = document.getElementById("btn-cartel-saltar");
+  if (cartel && etapa >= 2) cartel.textContent = txtCartel;
+}
+
+// Handler de los dos botones "Saltar": con selección avanza (en el paso 2 al de
+// WhatsApp, en el 3 manda la tanda) en vez de saltear.
+function saltarOEnviar() {
+  if (etapa >= 2 && contarSeleccionados() > 0) return avanzarEtapa();
+  saltarEtapa();
 }
 
 // Los pasos 2 y 3 son opcionales: "Saltar" avanza sin elegir nada. Desde los
@@ -3379,13 +3455,14 @@ function _fechaCRM(valor) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// La cantidad NO entra en la firma: con rangos automáticos cada carga saca un
+// número distinto al azar, así que dos órdenes del mismo producto al mismo link
+// y momento pasaban como diferentes cuando en realidad son la misma orden
+// cargada dos veces. Si hacen falta más unidades, se edita la que ya está.
 function _firmaOrden(o) {
-  return [o.productoId, (o.link || "").trim().toLowerCase(), o.cantidad,
+  return [o.productoId, (o.link || "").trim().toLowerCase(),
           o.cuando, o.fechaProgramada || ""].join("|");
 }
-
-// Firma que ya se confirmó a mano: el segundo click sobre la misma orden pasa.
-let _dupConfirmada = null;
 
 function _avisoDuplicado(msg) {
   const el = document.getElementById("orden-dup-alerta");
@@ -3439,34 +3516,30 @@ function agregarOrden() {
 
   if (!valid) return;
 
-  // ¿Ya hay una igual en la lista? Avisar y pedir un segundo click.
+  // ¿Ya hay una igual en la lista? Mismo producto + mismo link + mismo momento
+  // ya es la misma orden, sin importar la cantidad.
   const nSplit = cuando === "split3" ? 3 : cuando === "split5" ? 5 : 0;
   const linkNorm = link.toLowerCase();
   const prodId = parseInt(prodSelect.value);
   const prodNombre = prodSelect.options[prodSelect.selectedIndex].text;
   const fechaProgCand = cuando === "programar" && fechaEl.value ? _fechaCRM(fechaEl.value) : "";
-  const firmaCand = nSplit
-    // Una tanda partida se compara como el bloque entero: mismo producto, link,
-    // cantidad total y misma cantidad de partes. Las fechas no entran porque se
-    // calculan desde "ahora" y nunca serían iguales.
-    ? `split|${prodId}|${linkNorm}|${cantidad}|${nSplit}`
-    : _firmaOrden({ productoId: prodId, link, cantidad, cuando, fechaProgramada: fechaProgCand });
+  const firmaCand = _firmaOrden({ productoId: prodId, link, cuando, fechaProgramada: fechaProgCand });
 
   const repetida = nSplit
-    ? (() => {
-        const partes = ordenes.filter(o => o.splitTotal === nSplit && o.productoId === prodId
-                                        && (o.link || "").trim().toLowerCase() === linkNorm);
-        return partes.length === nSplit
-            && partes.reduce((t, o) => t + (o.cantidad || 0), 0) === cantidad;
-      })()
+    // Una tanda partida se compara como el bloque entero: mismo producto, link
+    // y misma cantidad de partes. Las fechas no entran porque se calculan desde
+    // "ahora" y nunca serían iguales.
+    ? ordenes.some(o => o.splitTotal === nSplit && o.productoId === prodId
+                     && (o.link || "").trim().toLowerCase() === linkNorm)
     : ordenes.some(o => !o.splitTotal && _firmaOrden(o) === firmaCand);
 
-  if (repetida && _dupConfirmada !== firmaCand) {
-    _dupConfirmada = firmaCand;
-    _avisoDuplicado(`⚠️ Ya cargaste esta misma orden: ${cantidad.toLocaleString("es-AR")} de "${prodNombre}" al mismo link y para el mismo momento. Si la querés duplicar igual, tocá "+ Agregar Orden" otra vez.`);
+  // Repetida = no entra. Antes se dejaba pasar con un segundo click, pero una
+  // orden duplicada al mismo link y momento siempre fue un error de carga: se
+  // paga dos veces lo mismo. Si hacen falta más unidades, se edita la que está.
+  if (repetida) {
+    _avisoDuplicado(`⛔ Ya hay una orden de "${prodNombre}" para este mismo link y momento. No se puede cargar dos veces lo mismo: editá la que ya está en la lista (✏️) para cambiarle la cantidad, o elegí otro producto, link o momento.`);
     return;
   }
-  _dupConfirmada = null;
   _avisoDuplicado(null);
 
   const isSplit = cuando === "split3" || cuando === "split5";
@@ -3559,7 +3632,6 @@ function editarOrden(id) {
   const o = ordenes.find(ord => ord.id === id);
   if (!o) return;
   // El form pasa a tener otra orden: el aviso de repetida ya no aplica.
-  _dupConfirmada = null;
   _avisoDuplicado(null);
 
   // Para órdenes de comentarios: volver al step de comentarios para reseleccionar

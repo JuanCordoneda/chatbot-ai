@@ -142,8 +142,13 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
     error_growi = None
 
     if GROWI_AVAILABLE:
+        from common.growi_trace import contexto as traza_contexto
         try:
-            resultado = ejecutar_campana(post_url, comentarios)
+            # origen="whatsapp": este flujo lo dispara el bot, no un vendedor
+            # desde el panel. En la auditoría hay que poder distinguirlos.
+            with traza_contexto(origen="whatsapp", post_url=post_url,
+                                client_ig_username=post_data.owner_username or None):
+                resultado = ejecutar_campana(post_url, comentarios)
         except GrowiUnavailable as e:
             error_growi = str(e)
         except NotImplementedError as e:

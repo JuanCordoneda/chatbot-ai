@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for, make_response
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for, make_response, has_request_context
 from functools import wraps
 import requests
 import os
@@ -147,6 +147,28 @@ except Exception:
 
         def marcar_vivo(self, p): pass
 
+from contextlib import contextmanager
+
+try:
+    from common.growi_trace import trazar, contexto as traza_contexto
+except Exception:
+    # Mismo criterio que los imports de arriba: sin el paquete común el
+    # webService tiene que seguir andando, solo que sin auditoría.
+    @contextmanager
+    def trazar(*a, **kw):
+        class _Nada:
+            def headers(self, *a, **kw): pass
+            def respuesta(self, *a, **kw): pass
+            def fallo(self, *a, **kw): pass
+            def intento(self, *a, **kw): pass
+            def via(self, *a, **kw): pass
+            def datos(self, *a, **kw): pass
+        yield _Nada()
+
+    @contextmanager
+    def traza_contexto(*a, **kw):
+        yield {}
+
 _GROWI_PROXY_URL = os.environ.get("GROWI_HTTP_PROXY", "")
 _GROWI_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -239,7 +261,7 @@ def _growi_session_ok(s, url):
         return None
 
 
-def _growi_login_with(cfg, verify=True):
+def _growi_login_with(cfg, verify=True, account_id=None):
     """Abre una sesión autenticada contra el CRM con las credenciales dadas.
     Con verify, comprueba que el login haya funcionado de verdad (mismo patrón
     que openAIService/growi_client) y falla fuerte si no."""
@@ -321,15 +343,19 @@ def _get_growi_session(account_id):
     entry = _growi_sessions.get(account_id)
     if entry is None:
         cfg = _account_crm_cfg(account_id)
-        entry = {"session": _growi_login_with(cfg), "cfg": cfg}
+        entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
         _growi_sessions[account_id] = entry
     return entry
 
 
 def _crm_base(account_id=None):
-    """URL base del CRM de la cuenta logueada (para armar referers). Cae al .env."""
+    """URL base del CRM de la cuenta logueada (para armar referers). Cae al .env.
+
+    has_request_context: también se llama desde hilos de fondo (el refresco de
+    ventas), donde tocar `session` explota.
+    """
     if account_id is None:
-        account_id = session.get("account_id")
+        account_id = session.get("account_id") if has_request_context() else None
     if _repo is not None and account_id:
         try:
             cfg = _repo.get_account_crm_config(account_id)
@@ -354,33 +380,77 @@ def _growi_sesion_caida(resp) -> bool:
     return False
 
 
+# Solo se audita el ENVÍO DE ÓRDENES. El resto del tráfico al CRM (la hora del
+# server, el listado de ventas, el login) son consultas de apoyo que se repiten
+# todo el tiempo y no mueven plata: trazarlas llenaba la tabla de ruido y tapaba
+# lo único que hay que poder reconstruir cuando un vendedor reclama.
+_PATH_ENVIO_ORDENES = "/paginas/enviar_trafico.php"
+
+
+class _SinTraza:
+    """Traza de mentira para las llamadas que no se auditan: mismo API, no hace
+    nada. Evita llenar _growi_request de `if hay_traza`."""
+
+    def headers(self, *a, **kw): pass
+    def respuesta(self, *a, **kw): pass
+    def fallo(self, *a, **kw): pass
+    def intento(self, *a, **kw): pass
+    def via(self, *a, **kw): pass
+    def datos(self, *a, **kw): pass
+
+
+@contextmanager
+def _sin_traza():
+    yield _SinTraza()
+
+
 def _growi_request(method, path, account_id=None, **kwargs):
     """GET/POST autenticado contra el CRM de la cuenta logueada, reintentando con
     login fresco si la sesión murió (401 o redirect al login). account_id
-    explícito o el de la sesión."""
+    explícito o el de la sesión.
+
+    Todo el tráfico al CRM pasa por acá, así que es también el único lugar donde
+    hay que auditar: el envío de órdenes queda en `growi_calls` con lo que se
+    mandó, lo que contestaron y cuántos relogins costó.
+    """
     if account_id is None:
-        account_id = session.get("account_id")
+        account_id = session.get("account_id") if has_request_context() else None
     timeout = kwargs.pop("timeout", 15)
     entry = _get_growi_session(account_id)
-    for intento in range(1, 5):
-        url = entry["cfg"].get("crm_url") or GROWI_CRM_URL
-        resp = entry["session"].request(
-            method, f"{url}{path}", timeout=timeout, **kwargs
-        )
-        if not _growi_sesion_caida(resp):
-            return resp
-        print(f"[growi-web] sesión caída ({resp.status_code}, url={resp.url}) en "
-              f"intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
-        _growi_sessions.pop(account_id, None)
-        cfg = _account_crm_cfg(account_id)
-        entry = {"session": _growi_login_with(cfg), "cfg": cfg}
-        _growi_sessions[account_id] = entry
-    # Cuatro logins frescos y la sesión sigue sin abrir: no es mala suerte de IP,
-    # es que no estamos entrando. Lo decimos con todas las letras.
-    raise GrowiAuthError(
-        f"El CRM rebotó al login en {path} después de 4 intentos. La sesión de "
-        "Growi no se está abriendo: revisá las credenciales del vendedor y el proxy."
+    es_envio = path.split("?")[0] == _PATH_ENVIO_ORDENES
+    traza = (
+        trazar("enviar_trafico", method, f"{_crm_base(account_id)}{path}",
+               payload=kwargs.get("json"), account_id=account_id,
+               user_id=session.get("user_id") if has_request_context() else None,
+               username=session.get("username") if has_request_context() else None)
+        if es_envio else _sin_traza()
     )
+    with traza as tr:
+        # Igual que en growi_client: si el request no llega a salir, la traza
+        # igual tiene que poder mostrar con qué headers se intentó.
+        tr.headers(kwargs.get("headers"))
+        for intento in range(1, 5):
+            tr.intento(intento)
+            url = entry["cfg"].get("crm_url") or GROWI_CRM_URL
+            tr.via(entry["cfg"].get("crm_proxy"))
+            resp = entry["session"].request(
+                method, f"{url}{path}", timeout=timeout, **kwargs
+            )
+            if not _growi_sesion_caida(resp):
+                tr.respuesta(resp)
+                return resp
+            print(f"[growi-web] sesión caída ({resp.status_code}, url={resp.url}) en "
+                  f"intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
+            _growi_sessions.pop(account_id, None)
+            cfg = _account_crm_cfg(account_id)
+            entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
+            _growi_sessions[account_id] = entry
+        # Cuatro logins frescos y la sesión sigue sin abrir: no es mala suerte de IP,
+        # es que no estamos entrando. Lo decimos con todas las letras.
+        raise GrowiAuthError(
+            f"El CRM rebotó al login en {path} después de 4 intentos. La sesión de "
+            "Growi no se está abriendo: revisá las credenciales del vendedor y el proxy."
+        )
 
 
 def _growi_relogin(account_id=None):
@@ -391,7 +461,7 @@ def _growi_relogin(account_id=None):
         account_id = session.get("account_id")
     _growi_sessions.pop(account_id, None)
     cfg = _account_crm_cfg(account_id)
-    entry = {"session": _growi_login_with(cfg), "cfg": cfg}
+    entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
     _growi_sessions[account_id] = entry
     return entry
 
@@ -1194,17 +1264,26 @@ def enviar_trafico():
         "x-requested-with": "XMLHttpRequest",
     }
 
-    try:
-        resp = _growi_request(
-            "POST", "/paginas/enviar_trafico.php",
-            json=payload,
-            headers=req_headers,
-        )
-        print(f"[enviar_trafico] respuesta CRM ({resp.status_code}): {resp.text[:2000]}", flush=True)
-        resp.raise_for_status()
-        return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # El contexto le pone nombre y apellido a la traza: de qué post, de qué
+    # cliente y de qué campaña salió la plata. Sin esto, la fila del envío es un
+    # POST anónimo y no se puede reconstruir un reclamo días después.
+    with traza_contexto(origen="web", account_id=session.get("account_id"),
+                        user_id=session.get("user_id"),
+                        username=session.get("username"),
+                        post_url=data.get("url"), client_ig_username=cliente_ig,
+                        idventa=idventa, idvendedor=idvendedor,
+                        costo=round(costo_total, 6)):
+        try:
+            resp = _growi_request(
+                "POST", "/paginas/enviar_trafico.php",
+                json=payload,
+                headers=req_headers,
+            )
+            print(f"[enviar_trafico] respuesta CRM ({resp.status_code}): {resp.text[:2000]}", flush=True)
+            resp.raise_for_status()
+            return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 # ── Menú de admin self-serve (TAREA 3) ──────────────────────────────────────────
@@ -1777,6 +1856,43 @@ def ordenes_pendientes_cancelar(orden_id):
     if not ok:
         return jsonify({"error": "No se pudo cancelar (ya salió, o la está enviando el worker)"}), 400
     return jsonify({"ok": True})
+
+
+# ── Trazabilidad del CRM: qué le mandamos a Growi y qué contestó ─────────────
+
+@app.route("/api/growi-calls", methods=["GET"])
+@require_login
+@_repo_error_response
+def growi_calls_list():
+    """Últimas llamadas al CRM. El admin ve todas; el vendedor, solo las suyas.
+
+    Es la respuesta a "mandé la orden y no entró": acá está el payload exacto,
+    la respuesta cruda del CRM y el status, sin depender de logs rotados.
+    """
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    return jsonify({
+        "calls": _repo.list_growi_calls(
+            account_id,
+            operacion=(request.args.get("operacion") or "").strip() or None,
+            solo_errores=request.args.get("errores") == "1",
+            q=(request.args.get("q") or "").strip() or None,
+            trace_id=(request.args.get("trace_id") or "").strip() or None,
+            limite=request.args.get("limite", 200),
+        ),
+        "resumen": _repo.growi_calls_resumen(account_id),
+    })
+
+
+@app.route("/api/growi-calls/<int:call_id>", methods=["GET"])
+@require_login
+@_repo_error_response
+def growi_call_detail(call_id):
+    """Detalle con los cuerpos completos (request y response)."""
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    call = _repo.get_growi_call(call_id, account_id)
+    if not call:
+        return jsonify({"error": "No existe esa llamada"}), 404
+    return jsonify({"call": call})
 
 
 # ── Asistente de IA para reescribir prompts (ADMIN ONLY) ─────────────────────

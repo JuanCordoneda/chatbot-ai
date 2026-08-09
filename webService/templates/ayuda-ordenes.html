@@ -8,13 +8,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v=1786864000" />
-  <link rel="stylesheet" href="/static/ayuda.css?v=2" />
+  <link rel="stylesheet" href="/static/ayuda.css?v=3" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al pegar el link (WhatsApp, Slack, etc.): miniatura propia de la
        sección de ayuda. La genera _thumb-onboarding.html. -->
   <meta property="og:type" content="website" />
   <meta property="og:title" content="GROWI — Onboarding" />
-  <meta property="og:description" content="Crear una orden · guía en 6 pasos, del link del post al panel." />
+  <meta property="og:description" content="Crear una orden · guía paso a paso, del link del post al panel." />
   <meta property="og:image" content="{{ url_for('static', filename='og-onboarding.png', _external=True) }}?v=1" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -77,7 +77,7 @@
         <a class="ay-tab ay-tab--on" href="/ayuda-ordenes">
           <span class="ay-tab-n">2</span>
           <span class="ay-tab-t">Crear una orden</span>
-          <span class="ay-tab-s">6 pasos · en cada post</span>
+          <span class="ay-tab-s">7 pasos · en cada post</span>
         </a>
       </nav>
 
@@ -96,54 +96,91 @@
           <h2>Pegá el link del post</h2>
           <p>Post o reel. Tarda un par de minutos: no cierres la pestaña.</p>
           <figure class="ay-fig">
-            <img class="ay-dark" src="/static/onboarding/orden-1.png?v=2" alt="Link del post" onclick="zoom(this)" />
-            <img class="ay-light" src="/static/onboarding/orden-1-light.png?v=2" alt="Link del post" onclick="zoom(this)" />
+            <img class="ay-dark" src="/static/onboarding/orden-1.png?v=3" alt="Link del post" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-1-light.png?v=3" alt="Link del post" onclick="zoom(this)" />
           </figure>
         </li>
 
         <li class="ay-paso">
-          <h2>Revisá y elegí los comentarios</h2>
-          <p>Arriba queda lo que leyó la IA. Cada comentario se edita con un click.</p>
+          <h2>PASO 1: marcá los <b>verificados</b></h2>
+          <p>
+            La elección va en <b>tres pasos, uno por servicio</b>: primero los verificados
+            sobre toda la tanda, después los comunes, y al final los de WhatsApp. En cada
+            paso ves sólo lo que sobró del anterior — lo que ya elegiste queda guardado y
+            no vuelve a aparecer.
+          </p>
+          <p>
+            Arriba de la lista tenés <b>Marcar todos</b>, <b>🎲 Marcar al azar</b> (te
+            pregunta cuántos y los tilda solo) y <b>+ generar más</b>. Cada comentario se
+            edita con un click.
+          </p>
           <figure class="ay-fig">
-            <img class="ay-dark" src="/static/onboarding/orden-2.png?v=2" alt="Comentarios generados" onclick="zoom(this)" />
-            <img class="ay-light" src="/static/onboarding/orden-2-light.png?v=2" alt="Comentarios generados" onclick="zoom(this)" />
+            <img class="ay-dark" src="/static/onboarding/orden-2.png?v=3" alt="Comentarios generados" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-2-light.png?v=3" alt="Comentarios generados" onclick="zoom(this)" />
+          </figure>
+          <p class="ay-ojo">Si la ficha del cliente tiene cargada una cantidad, la barra del paso te la muestra (“12 de 40 elegidos”) y se marca sola al abrir. Este paso es el único <b>obligatorio</b>.</p>
+        </li>
+
+        <li class="ay-paso">
+          <h2>PASO 2: los <b>comunes</b> <span class="ay-opt">opcional</span></h2>
+          <p>
+            Mismo mecanismo, sobre lo que sobró del paso 1. Si el cliente no lleva comunes,
+            tocá <b>Saltar, ir al PASO 3</b> y seguís de largo.
+          </p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-3.png?v=3" alt="Reparto de comentarios" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-3-light.png?v=3" alt="Reparto de comentarios" onclick="zoom(this)" />
+          </figure>
+          <p class="ay-ojo">Los <b>comunes</b> se parten en 2 tandas solos: no hay que dividir nada a mano. Si el otro turno ya pasó y querés que salgan todos hoy, tildá <b>“Mandar los comunes en una sola tanda”</b> arriba de la lista (tope 40, que es lo que entra en un turno). Máximo 80 por día (40 + 40).</p>
+        </li>
+
+        <li class="ay-paso">
+          <h2>PASO 3: <b>WhatsApp</b> <span class="ay-opt">opcional</span></h2>
+          <p>
+            Lo que marques acá no va al CRM: se reparte a mano por WhatsApp, un mensaje por
+            comentario. Se abre una ventana con la lista, tocás <b>Enviar</b> en cada uno y
+            elegís el chat (sirve el grupo del cliente). Si no hace falta, <b>Saltar, ir a
+            las órdenes</b>.
+          </p>
+          <figure class="ay-fig">
+            <img class="ay-dark" src="/static/onboarding/orden-4.png?v=3" alt="Paso 3: WhatsApp" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-4-light.png?v=3" alt="Paso 3: WhatsApp" onclick="zoom(this)" />
           </figure>
         </li>
 
         <li class="ay-paso">
-          <h2>Decí cuántos de cada tipo</h2>
-          <p>Escribí los números y <b>Elegirlos solo</b> los marca al azar por vos.</p>
+          <h2>Se arman las <b>órdenes</b> solas</h2>
+          <p>Al terminar los tres pasos pasás a las órdenes, con las del cliente ya armadas
+            (comentarios, likes, views, seguidores… según los rangos de su ficha). Ahí sumás
+            las que falten o editás las que hay.</p>
+          <p>Cada tarjeta muestra la <b>cantidad</b> destacada al lado del producto, cuándo
+            sale y el costo. <b>🎲 Automática</b> quiere decir que el número se sorteó dentro
+            del rango configurado para ese cliente.</p>
           <figure class="ay-fig">
-            <img class="ay-dark" src="/static/onboarding/orden-3.png?v=2" alt="Reparto de comentarios" onclick="zoom(this)" />
-            <img class="ay-light" src="/static/onboarding/orden-3-light.png?v=2" alt="Reparto de comentarios" onclick="zoom(this)" />
-          </figure>
-          <p class="ay-ojo">Los <b>comunes</b> se parten en 2 tandas solos: no hay que dividir nada a mano. Si el otro turno ya pasó y querés que salgan todos hoy, tildá <b>“Mandar los comunes en una sola tanda”</b> arriba de la lista (tope 40, que es lo que entra en un turno).</p>
-        </li>
-
-        <li class="ay-paso">
-          <h2><b>Publicar</b> todavía no manda nada</h2>
-          <p>Te lleva a las órdenes, con las del cliente ya armadas. Ahí sumás las que falten.</p>
-          <figure class="ay-fig">
-            <img class="ay-dark" src="/static/onboarding/orden-4.png?v=2" alt="Formulario de orden" onclick="zoom(this)" />
-            <img class="ay-light" src="/static/onboarding/orden-4-light.png?v=2" alt="Formulario de orden" onclick="zoom(this)" />
+            <img class="ay-dark" src="/static/onboarding/orden-5.png?v=3" alt="Formulario de orden" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-5-light.png?v=3" alt="Formulario de orden" onclick="zoom(this)" />
           </figure>
         </li>
 
         <li class="ay-paso">
           <h2>Elegí cuándo sale</h2>
-          <p>Ahora, programada, o dividida en 3 o 5 tandas espaciadas.</p>
+          <p>Ahora, programada para una fecha, o dividida en 3 o 5 tandas espaciadas. Al
+            elegir la división te pregunta el <b>intervalo</b>: minutos (mínimo 45) o días
+            (mínimo 1), con atajos para los valores de siempre.</p>
           <figure class="ay-fig">
-            <img class="ay-dark" src="/static/onboarding/orden-5.png?v=2" alt="Cuándo enviar" onclick="zoom(this)" />
-            <img class="ay-light" src="/static/onboarding/orden-5-light.png?v=2" alt="Cuándo enviar" onclick="zoom(this)" />
+            <img class="ay-dark" src="/static/onboarding/orden-6.png?v=3" alt="Cuándo enviar" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-6-light.png?v=3" alt="Cuándo enviar" onclick="zoom(this)" />
           </figure>
         </li>
 
         <li class="ay-paso">
           <h2>Revisá y tocá <b>Solicitar</b></h2>
-          <p>Es el único botón que las manda al panel.</p>
+          <p>Es el único botón que las manda al panel. Antes de eso no se envió nada: podés
+            volver a los comentarios con <b>← Volver a los comentarios</b> o con la flecha
+            de atrás del navegador, que retrocede un paso sin perder nada de lo generado.</p>
           <figure class="ay-fig">
-            <img class="ay-dark" src="/static/onboarding/orden-6.png?v=2" alt="Órdenes armadas" onclick="zoom(this)" />
-            <img class="ay-light" src="/static/onboarding/orden-6-light.png?v=2" alt="Órdenes armadas" onclick="zoom(this)" />
+            <img class="ay-dark" src="/static/onboarding/orden-7.png?v=3" alt="Órdenes armadas" onclick="zoom(this)" />
+            <img class="ay-light" src="/static/onboarding/orden-7-light.png?v=3" alt="Órdenes armadas" onclick="zoom(this)" />
           </figure>
         </li>
 

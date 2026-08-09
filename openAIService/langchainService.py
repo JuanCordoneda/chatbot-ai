@@ -859,53 +859,66 @@ def publicar_web():
     if not post_url or not comentarios:
         return jsonify({"error": "Faltan datos (url o comentarios)"}), 400
 
+    # Traza: todo lo que este publicar mande al CRM queda atado al post, al
+    # cliente y al vendedor que lo disparó (ver common/growi_trace.py).
     try:
-        from modules.reporter import generar_informe
-        resultado = None
-        error = None
-        encolada = None
-        try:
-            from modules.growi_client import ejecutar_campana, GrowiUnavailable
-            resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
-            informe = generar_informe(post_url, comentarios, resultado)
-        except GrowiUnavailable as e:
-            # Ya viene con un mensaje para el vendedor; sin el "Error en Growi:"
-            # adelante ni el volcado con la IP y el puerto del proxy.
-            error = str(e)
-            # No llegó a salir: en vez de perder los comentarios ya generados, la
-            # orden queda en cola y un worker la reintenta sola. Solo si el envío
-            # es seguro de repetir (si pudo haber entrado, se informa y listo).
-            if e.reintentable:
-                encolada = _encolar_pendiente(data, post_url, comentarios,
-                                              ordenes, disponible, error)
-                if encolada:
-                    error = ("No había conexión con el CRM, así que la orden quedó "
-                             "en cola y se va a enviar sola apenas vuelva. "
-                             "No hace falta que la cargues de nuevo.")
-            informe = generar_informe(post_url, comentarios, None, error=error)
-        except NotImplementedError as e:
-            error = str(e)
-            informe = generar_informe(post_url, comentarios, None, error=error)
-        except Exception as e:
-            error = f"Error en Growi: {e}"
-            informe = generar_informe(post_url, comentarios, None, error=error)
+        from common.growi_trace import contexto as traza_contexto
+        _ctx = traza_contexto(origen="openai", post_url=post_url,
+                              client_ig_username=data.get("client") or None,
+                              account_id=data.get("account_id"),
+                              user_id=data.get("user_id"))
+    except Exception:
+        from contextlib import nullcontext
+        _ctx = nullcontext()
 
-        # `informe` es el texto plano de siempre (queda como detalle técnico);
-        # `resultado` es lo mismo pero en campos, para que el front arme la
-        # pantalla de resultado en vez de imprimir un bloque de texto.
-        return jsonify({"informe": informe, "resultado": {
-            "ok": bool(resultado and resultado.success) and not error,
-            "insertadas": resultado.insertadas if resultado else 0,
-            "messages": (resultado.messages if resultado else []) or [],
-            "warnings": (resultado.warnings if resultado else []) or [],
-            "errors": ([error] if error else []) + ((resultado.errors if resultado else []) or []),
-            # El front usa esto para mostrar "en cola" en vez de un error rojo:
-            # la orden no se perdió, solo todavía no salió.
-            "encolada": bool(encolada),
-            "encolada_id": encolada.get("id") if encolada else None,
-        }})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    with _ctx:
+        try:
+            from modules.reporter import generar_informe
+            resultado = None
+            error = None
+            encolada = None
+            try:
+                from modules.growi_client import ejecutar_campana, GrowiUnavailable
+                resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
+                informe = generar_informe(post_url, comentarios, resultado)
+            except GrowiUnavailable as e:
+                # Ya viene con un mensaje para el vendedor; sin el "Error en Growi:"
+                # adelante ni el volcado con la IP y el puerto del proxy.
+                error = str(e)
+                # No llegó a salir: en vez de perder los comentarios ya generados, la
+                # orden queda en cola y un worker la reintenta sola. Solo si el envío
+                # es seguro de repetir (si pudo haber entrado, se informa y listo).
+                if e.reintentable:
+                    encolada = _encolar_pendiente(data, post_url, comentarios,
+                                                  ordenes, disponible, error)
+                    if encolada:
+                        error = ("No había conexión con el CRM, así que la orden quedó "
+                                 "en cola y se va a enviar sola apenas vuelva. "
+                                 "No hace falta que la cargues de nuevo.")
+                informe = generar_informe(post_url, comentarios, None, error=error)
+            except NotImplementedError as e:
+                error = str(e)
+                informe = generar_informe(post_url, comentarios, None, error=error)
+            except Exception as e:
+                error = f"Error en Growi: {e}"
+                informe = generar_informe(post_url, comentarios, None, error=error)
+
+            # `informe` es el texto plano de siempre (queda como detalle técnico);
+            # `resultado` es lo mismo pero en campos, para que el front arme la
+            # pantalla de resultado en vez de imprimir un bloque de texto.
+            return jsonify({"informe": informe, "resultado": {
+                "ok": bool(resultado and resultado.success) and not error,
+                "insertadas": resultado.insertadas if resultado else 0,
+                "messages": (resultado.messages if resultado else []) or [],
+                "warnings": (resultado.warnings if resultado else []) or [],
+                "errors": ([error] if error else []) + ((resultado.errors if resultado else []) or []),
+                # El front usa esto para mostrar "en cola" en vez de un error rojo:
+                # la orden no se perdió, solo todavía no salió.
+                "encolada": bool(encolada),
+                "encolada_id": encolada.get("id") if encolada else None,
+            }})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 def _encolar_pendiente(data, post_url, comentarios, ordenes, disponible, error):

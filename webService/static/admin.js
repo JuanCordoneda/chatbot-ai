@@ -124,6 +124,7 @@ function switchTab(name) {
   if (name === "usuarios") loadUsuarios();
   if (name === "pedidos") loadPedidos();
   if (name === "cola") loadCola();
+  if (name === "crm") loadCrm();
 }
 
 // ── Modales ──
@@ -2558,4 +2559,147 @@ function undoAiPrompt() {
   // sin que haya que abrir la pestaña. Es justamente lo que nadie va a mirar si
   // no lo ve solo.
   loadCola();
+  // Igual que la cola: el contador de errores del CRM se carga de entrada. Un
+  // envío rechazado que nadie mira es exactamente el problema que esto resuelve.
+  loadCrm();
 })();
+
+
+// ── Trazabilidad de los envíos de órdenes al CRM ─────────────────────────────
+// Growi es un CRM de terceros: no tiene panel que nos sirva ni forma de auditar
+// lo que le mandamos. Cuando un vendedor dice "mandé la orden y no entró", esta
+// vista es lo único capaz de contestar qué salió, qué contestaron y cuándo.
+// Se registra SOLO el envío de órdenes: es lo único que mueve plata.
+
+let crmCache = [];
+
+const CRM_ORIGENES = {
+  web: "Panel",
+  openai: "Publicar",
+  cola: "Reintento automático",
+  whatsapp: "Bot de WhatsApp",
+  monitor: "Monitor",
+};
+
+async function loadCrm() {
+  const qs = new URLSearchParams();
+  const q = (document.getElementById("crm-q") || {}).value || "";
+  const err = (document.getElementById("crm-estado") || {}).value || "";
+  if (q) qs.set("q", q);
+  if (err) qs.set("errores", "1");
+  try {
+    const d = await api("GET", `/api/growi-calls?${qs}`);
+    crmCache = d.calls || [];
+    renderCrm();
+    // El contador muestra ERRORES de las últimas 24h, no el total: un número de
+    // llamadas no dice nada, uno de fallas sí.
+    setTxt("tab-crm-cnt", (d.resumen || {}).errores || 0);
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function crmCard(c) {
+  const origen = CRM_ORIGENES[c.origen] || c.origen;
+  const pill = c.ok
+    ? `<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>OK</span>`
+    : `<span class="ax-pill"><span class="ax-pdot"></span>${esc(c.status_code ? "HTTP " + c.status_code : "Falló")}</span>`;
+  const quien = c.username ? esc(c.username) : "—";
+  const detalle = [
+    origen,
+    c.duracion_ms != null ? `${c.duracion_ms} ms` : null,
+    c.intentos > 1 ? `${c.intentos} intentos` : null,
+    c.idventa ? `campaña ${esc(c.idventa)}` : null,
+    c.costo ? `$${Number(c.costo).toFixed(2)}` : null,
+  ].filter(Boolean).join(" · ");
+  const err = c.error ? `<div class="ax-sub" style="opacity:.85;">${esc(c.error)}</div>` : "";
+
+  return `
+    <div class="ax-card" style="align-items:flex-start;">
+      <div class="ax-avatar" style="${avatarStyle(c.client_ig_username || "envio")}">${esc(initials("", c.client_ig_username || "envío"))}</div>
+      <div class="ax-main">
+        <div class="ax-name">${c.client_ig_username ? "@" + esc(c.client_ig_username) : "Sin cliente"} ${pill}</div>
+        <div class="ax-sub">${quien} · ${fechaCorta(c.created_at)}</div>
+        <div class="ax-sub">${esc(detalle)}</div>
+        ${err}
+      </div>
+      <div class="ax-acts">
+        <button class="ax-btn ax-btn--sm" onclick="verLlamadaCrm(${c.id})">Ver detalle</button>
+      </div>
+    </div>`;
+}
+
+function renderCrm() {
+  const list = document.getElementById("crm-list");
+  if (!list) return;
+  if (!crmCache.length) {
+    list.innerHTML = emptyState("Sin envíos registrados",
+      "Acá queda cada envío de órdenes al CRM con su respuesta: sirve para reconstruir una orden días después.");
+    return;
+  }
+  list.innerHTML = crmCache.map(crmCard).join("");
+}
+
+// Headers a texto plano, uno por línea, como se ven en cualquier volcado HTTP.
+// Devuelve null (y no "") cuando no hay: así la línea desaparece en vez de
+// dejar un hueco.
+function headersTxt(h) {
+  if (!h || !Object.keys(h).length) return null;
+  return Object.keys(h).sort().map(k => `${k}: ${h[k]}`).join("\n");
+}
+
+async function verLlamadaCrm(id) {
+  const body = document.getElementById("crm-mo-body");
+  const sub = document.getElementById("crm-mo-sub");
+  body.innerHTML = `<div class="ax-sub">Cargando…</div>`;
+  sub.textContent = "";
+  openMo("crm-mo");
+  try {
+    const { call: c } = await api("GET", `/api/growi-calls/${id}`);
+    sub.textContent = `${c.method} ${c.url}`;
+    // El request tal como salió: línea de pedido, headers y cuerpo. Se arma con
+    // la misma forma que un volcado HTTP para que se pueda leer (o pegar en un
+    // ticket) sin traducir nada.
+    const req = [
+      `${c.method} ${c.url}`,
+      headersTxt(c.request_headers),
+      "",
+      c.request_payload ? JSON.stringify(c.request_payload, null, 2) : "(sin cuerpo)",
+    ].filter(x => x !== null).join("\n");
+
+    // Y el response igual. Llega como texto porque el CRM a veces devuelve el
+    // HTML del login en vez de JSON; si es JSON se muestra formateado.
+    let cuerpo = c.response_body || "(sin cuerpo)";
+    try { cuerpo = JSON.stringify(JSON.parse(cuerpo), null, 2); } catch (e) {}
+    const resp = [
+      c.status_code == null ? "(sin respuesta: la request no llegó a completarse)" : `HTTP ${c.status_code}`,
+      headersTxt(c.response_headers),
+      "",
+      cuerpo,
+    ].filter(x => x !== null).join("\n");
+    const filas = [
+      ["Estado", c.ok ? "OK" : "Con error"],
+      ["HTTP", c.status_code == null ? "—" : c.status_code],
+      ["Cuándo", fechaCorta(c.created_at)],
+      ["Duración", c.duracion_ms == null ? "—" : c.duracion_ms + " ms"],
+      ["Intentos", c.intentos],
+      ["Origen", CRM_ORIGENES[c.origen] || c.origen],
+      ["Vendedor", c.username || "—"],
+      ["Cliente", c.client_ig_username ? "@" + c.client_ig_username : "—"],
+      ["Costo", c.costo == null ? "—" : "$" + Number(c.costo).toFixed(2)],
+      ["Campaña", c.idventa || "—"],
+      ["Proxy", c.proxy || "directo"],
+      ["Post", c.post_url || "—"],
+      ["Trace", c.trace_id || "—"],
+    ];
+    body.innerHTML = `
+      <div class="ax-sub" style="margin-bottom:10px;">
+        ${filas.map(([k, v]) => `<div><b>${esc(k)}:</b> ${esc(v)}</div>`).join("")}
+      </div>
+      ${c.error ? `<div class="ax-field"><label>Error</label><div class="ax-ped-txt">${esc(c.error)}</div></div>` : ""}
+      <div class="ax-field"><label>Request</label>
+        <div class="ax-ped-txt" style="max-height:260px;overflow:auto;font-family:ui-monospace,monospace;font-size:.78rem;">${esc(req)}</div></div>
+      <div class="ax-field"><label>Response</label>
+        <div class="ax-ped-txt" style="max-height:260px;overflow:auto;font-family:ui-monospace,monospace;font-size:.78rem;">${esc(resp)}</div></div>`;
+  } catch (e) {
+    body.innerHTML = `<div class="ax-sub">${esc(e.message)}</div>`;
+  }
+}

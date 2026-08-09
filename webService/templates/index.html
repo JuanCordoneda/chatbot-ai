@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786864000" />
+  <link rel="stylesheet" href="/static/style.css?v=1786864401" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -332,20 +332,24 @@
             <p class="ec-tranqui" id="etapa-cartel-tranqui"></p>
             <!-- El "Saltar" también acá: el de la barra de abajo obliga a
                  scrollear toda la lista para un paso que es opcional. -->
-            <button id="btn-cartel-saltar" class="btn-publish ec-saltar hidden" onclick="saltarEtapa()">Saltar, ir a las órdenes →</button>
+            <button id="btn-cartel-saltar" class="btn-publish ec-saltar hidden" onclick="saltarOEnviar()">Saltar, ir a las órdenes →</button>
           </div>
 
           <!-- Escape a la regla de las 2 tandas: si el turno de la mañana ya
                pasó, partir 50/50 deja la mitad programada para mañana y no hay
                forma de mandar todo hoy. Va ARRIBA de la lista porque es una
                decisión que se toma antes de elegir cuántos marcar. -->
-          <div class="tanda-unica hidden" id="tanda-unica-box">
-            <label class="tanda-unica-label">
+          <label class="tanda-unica hidden" id="tanda-unica-box" for="chk-tanda-unica">
+            <span class="tanda-unica-ico">📤</span>
+            <span class="tanda-unica-txt">
+              <span class="tanda-unica-titulo">Mandar los <b>comunes</b> en <b>una sola tanda</b></span>
+              <span class="tanda-unica-hint" id="tanda-unica-hint">Usalo cuando el otro turno ya pasó. Sin esto se parten 50/50 y la mitad queda para el próximo turno.</span>
+            </span>
+            <span class="tanda-unica-sw">
               <input type="checkbox" id="chk-tanda-unica" onchange="onTandaUnicaChange()" />
-              <span>📤 Mandar los <b>comunes</b> en <b>una sola tanda</b>, toda en este turno</span>
-            </label>
-            <span class="tanda-unica-hint" id="tanda-unica-hint">Usalo cuando el otro turno ya pasó. Sin esto se parten 50/50 y la mitad queda para el próximo turno.</span>
-          </div>
+              <span class="tu-track"><span class="tu-knob"></span></span>
+            </span>
+          </label>
 
           <div id="lista-comentarios"></div>
 
@@ -391,7 +395,7 @@
             <div class="etapa-nav">
               <button id="btn-etapa-volver" class="btn-ghost btn-sm hidden" onclick="volverEtapa()">← Volver al paso anterior</button>
               <span class="etapa-nav-resumen" id="etapa-nav-resumen"></span>
-              <button id="btn-etapa-saltar" class="btn-ghost btn-sm hidden" onclick="saltarEtapa()">Saltar, ir a las órdenes</button>
+              <button id="btn-etapa-saltar" class="btn-ghost btn-sm hidden" onclick="saltarOEnviar()">Saltar, ir a las órdenes</button>
               <button id="btn-publicar" class="btn-publish" onclick="avanzarEtapa()" disabled>
                 Siguiente: comunes →
               </button>
@@ -599,8 +603,8 @@
           </div>
 
           <!-- Aviso de orden repetida: mismo producto, link y cantidad que una
-               que ya está en la lista. No bloquea (a veces se repite a
-               propósito), pide confirmar. -->
+               que ya está en la lista. Bloquea el alta: cargar dos veces lo
+               mismo siempre fue un error de carga. -->
           <div id="orden-dup-alerta" class="orden-dup-alerta hidden"></div>
 
           <!-- Botón -->
@@ -704,6 +708,19 @@
         <span class="repartir-sel-tip">Vienen marcados los que elegiste para publicar</span>
       </div>
 
+      <!-- Todo en UN mensaje, sin bot: se abre WhatsApp con el bloque entero ya
+           escrito (cada comentario con su propio link wa.me) y elegís a quién
+           mandárselo, normalmente a vos mismo. Después, desde ese chat, cada
+           link reenvía su comentario. No necesita número dado de alta ni la
+           ventana de 24h: es el mismo deep link de siempre, con más texto. -->
+      <button type="button" class="repartir-uno" id="repartir-uno" onclick="mandarTodoEnUno()">
+        <span aria-hidden="true">📄</span>
+        <span>Mandarme <b id="repartir-uno-n">0</b> en un solo mensaje</span>
+      </button>
+      <p class="repartir-uno-hint" id="repartir-uno-hint">
+        Llega un mensaje con todos los comentarios, cada uno con su link para reenviarlo.
+      </p>
+
       <div id="repartir-lista" class="repartir-lista"></div>
 
       <!-- El envío por bot quedó fuera de la pantalla: necesitaba configuración y
@@ -776,7 +793,7 @@
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/header-menu.js?v=1786864000"></script>
-  <script src="/static/app.js?v=1786864000"></script>
+  <script src="/static/header-menu.js?v=1786864401"></script>
+  <script src="/static/app.js?v=1786864401"></script>
 </body>
 </html>

@@ -1806,6 +1806,41 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   opacity: 0.85;
 }
 
+/* Todo en un mensaje. Va arriba de la lista porque es un toque contra N. */
+.repartir-uno {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.88rem;
+  font-weight: 700;
+  border: 1px solid rgba(37,211,102,0.4);
+  border-radius: 11px;
+  padding: 12px 18px;
+  cursor: pointer;
+  transition: filter 0.15s, border-color 0.15s;
+}
+
+.repartir-uno:hover:not(:disabled) {
+  border-color: #25d366;
+  background: rgba(37,211,102,0.08);
+}
+
+.repartir-uno:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.repartir-uno-hint {
+  font-size: 0.74rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 7px 2px 14px;
+}
+
+.repartir-uno-hint--warn { color: var(--yellow); font-weight: 600; }
+
 /* El checkbox reemplaza al número: mismo lugar, misma medida, para que la fila
    no se mueva al tildar. */
 .repartir-check {
@@ -2917,13 +2952,13 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 .orden-dup-alerta {
   margin: 0 0 10px;
   padding: 10px 12px;
-  border: 1px solid var(--yellow);
+  border: 1px solid var(--red, #ef4444);
   border-radius: 10px;
-  background: var(--yellow-lo);
+  background: rgba(239, 68, 68, 0.10);
   font-size: 0.8rem;
   font-weight: 600;
   line-height: 1.45;
-  color: var(--muted2);
+  color: var(--text);
 }
 
 /* Cuándo pills */
@@ -4489,26 +4524,71 @@ input:focus-visible {
 .turnos-toggle b { color: var(--text); font-weight: 700; }
 
 /* ── "Una sola tanda" (arriba de la lista de comunes) ─────────────────────── */
+/* Tarjeta: ícono · texto · switch a la derecha. El checkbox nativo se esconde
+   (el switch dibujado es el que se ve), pero sigue siendo el que recibe foco y
+   teclado, así que el label completo es clickeable. */
 .tanda-unica {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 12px;
   margin: 0 0 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface2);
   font-size: 0.82rem;
   color: var(--muted2);
+  cursor: pointer;
   user-select: none;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.tanda-unica-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.tanda-unica-label input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--yellow); }
+.tanda-unica:hover { border-color: var(--yellow); }
+.tanda-unica-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: var(--yellow-lo);
+  font-size: 1rem;
+}
+.tanda-unica-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tanda-unica-titulo { font-size: 0.88rem; color: var(--text); }
 .tanda-unica b { color: var(--text); font-weight: 700; }
-.tanda-unica-hint { padding-left: 24px; font-size: 0.76rem; color: var(--muted); }
+.tanda-unica-hint { font-size: 0.76rem; color: var(--muted); }
+
+/* Switch */
+.tanda-unica-sw { flex: none; position: relative; display: inline-flex; }
+.tanda-unica-sw input {
+  position: absolute; inset: 0; margin: 0;
+  width: 100%; height: 100%;
+  opacity: 0; cursor: pointer;
+}
+.tu-track {
+  display: block;
+  width: 46px; height: 26px;
+  border-radius: 999px;
+  background: var(--border);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.22);
+  transition: background 0.2s ease;
+}
+.tu-knob {
+  display: block;
+  width: 20px; height: 20px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  transition: transform 0.2s ease;
+}
+.tanda-unica-sw input:checked ~ .tu-track { background: var(--yellow); }
+.tanda-unica-sw input:checked ~ .tu-track .tu-knob { transform: translateX(20px); }
+.tanda-unica-sw input:focus-visible ~ .tu-track { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
 /* Activada: se despega del resto para que quede claro que la orden va a salir
    distinto a lo habitual. */
 .tanda-unica--on { background: var(--yellow-lo); border-color: var(--yellow); }
+.tanda-unica--on .tanda-unica-ico { background: var(--surface2); }
 
 /* ══════════════════════════════════════════════════════════════════════════
    HOME (#step-input) — pulido visual

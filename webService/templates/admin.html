@@ -1187,6 +1187,9 @@
         <!-- Órdenes que no salieron al CRM. La ve también el vendedor (acotada a
              su cuenta): es SU trabajo el que quedó esperando. -->
         <div class="ax-tab" data-tab="cola" onclick="switchTab('cola')">En cola <span class="ax-cnt" id="tab-cola-cnt">0</span></div>
+        <!-- Auditoría de los envíos de órdenes: qué le mandamos a Growi y qué
+             contestó. La ve el vendedor también (solo lo suyo): es su orden. -->
+        <div class="ax-tab" data-tab="crm" onclick="switchTab('crm')">Envíos al CRM <span class="ax-cnt" id="tab-crm-cnt">0</span></div>
         {% if is_admin %}
         <div class="ax-tab" data-tab="pedidos" onclick="switchTab('pedidos')">Pedidos <span class="ax-cnt" id="tab-ped-cnt">0</span></div>
         <div class="ax-tab" data-tab="usuarios" onclick="switchTab('usuarios')">Usuarios <span class="ax-cnt" id="tab-usr-cnt">0</span></div>
@@ -1288,6 +1291,29 @@
         <button class="ax-btn" onclick="loadCola()">Actualizar</button>
       </div>
       <div class="ax-list" id="cola-list"></div>
+    </section>
+
+    <!-- Trazabilidad de los ENVÍOS de órdenes al CRM. Growi es de un tercero y
+         no deja auditar nada: cuando un vendedor dice "mandé la orden y no
+         entró", esto es lo único que contesta qué se mandó y qué contestaron.
+         Solo el envío: el resto del tráfico (login, hora del server, ventas) es
+         consulta de apoyo, no mueve plata y solo taparía lo que importa. -->
+    <section class="ax-panel" id="panel-crm">
+      <div class="ax-toolbar">
+        <div class="ax-search">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input id="crm-q" placeholder="Buscar por @cliente, vendedor, post o campaña…" onchange="loadCrm()" />
+        </div>
+        <div class="ax-field" style="margin:0;min-width:150px;">
+          <label for="crm-estado" style="font-size:.72rem;">Estado</label>
+          <select id="crm-estado" onchange="loadCrm()">
+            <option value="">Todas</option>
+            <option value="1">Solo con error</option>
+          </select>
+        </div>
+        <button class="ax-btn" onclick="loadCrm()">Actualizar</button>
+      </div>
+      <div class="ax-list" id="crm-list"></div>
     </section>
 
     {% if is_admin %}
@@ -1669,6 +1695,20 @@
   </div>
   {% endif %}
 
+  <!-- Detalle de un envío: el request tal como salió (URL, headers y cuerpo) y
+       el response crudo del CRM. Se carga al abrir: el listado no trae los
+       cuerpos porque serían cientos de KB por pantalla. -->
+  <div class="ax-mo" id="crm-mo">
+    <div class="ax-modal ax-modal--lg" role="dialog" aria-modal="true" aria-labelledby="crm-mo-title">
+      <h3 id="crm-mo-title">Envío al CRM</h3>
+      <div class="ax-msub" id="crm-mo-sub"></div>
+      <div id="crm-mo-body"></div>
+      <div class="ax-modal-actions">
+        <button class="ax-btn" onclick="closeMo('crm-mo')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Confirm -->
   <div class="ax-mo" id="confirm-mo">
     <div class="ax-modal ax-confirm" role="alertdialog" aria-modal="true"
@@ -1688,6 +1728,6 @@
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/header-menu.js?v=1785802900"></script>
-  <script src="/static/admin.js?v=1785900003"></script>
+  <script src="/static/admin.js?v=1786000003"></script>
 </body>
 </html>
