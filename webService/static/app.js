@@ -18,6 +18,59 @@ let objetivoV = 0, objetivoNV = 0;
 let asignadosV = 0, asignadosNV = 0;
 // Mientras corre "+ generar más" de una lista, TODO lo que llega va a esa lista.
 let tipoForzado = null;
+
+// ── Etapas de selección ──────────────────────────────────────────────────────
+// Una pantalla por servicio, en orden: 1) verificados sobre TODA la tanda
+// generada, 2) comunes sobre lo que quedó SIN elegir en la 1, 3) (opcional) la
+// tanda de WhatsApp sobre lo que sobró de las dos. Al pasar de etapa, lo elegido
+// se guarda y sale de la lista; lo no elegido se muda al panel de la etapa que
+// sigue. Así el vendedor nunca ve dos veces el mismo comentario disponible.
+// Los textos son largos a propósito: los usa gente que no conoce el sistema y
+// tiene que quedar imposible confundirse de qué se elige en cada paso y qué pasa
+// con lo que NO se elige.
+const ETAPAS = [
+  null,
+  {
+    tipo: "verificado", label: "Verificados", tag: "verificados",
+    paso: "PASO 1 DE 3",
+    titulo: "Elegí SOLO los comentarios VERIFICADOS",
+    desc: "De toda la lista de abajo, marcá únicamente los que querés mandar como <b>Comentarios Reales Verificados</b>. Los comunes NO se eligen acá.",
+    tranqui: "👉 Lo que NO marques no se pierde: pasa al paso 2 para elegir los comunes.",
+    subPaso: "de toda la tanda",
+    siguiente: "Listo, ir al PASO 2: comunes →",
+  },
+  {
+    tipo: "noverif", label: "Comunes", tag: "comunes",
+    paso: "PASO 2 DE 3 · OPCIONAL",
+    titulo: "Ahora elegí SOLO los comentarios COMUNES",
+    desc: "Abajo quedaron únicamente los que <b>no</b> elegiste en el paso 1. Marcá los que querés mandar como <b>Comentarios Reales</b> (comunes, no verificados).",
+    tranqui: "👉 Los verificados del paso 1 ya están guardados: acá no los volvés a ver. Este paso también es opcional: si el cliente no lleva comunes, tocá “Saltar”.",
+    subPaso: "de lo que sobró",
+    siguiente: "Listo, ir al PASO 3: WhatsApp →",
+  },
+  {
+    tipo: "wa", label: "WhatsApp", tag: "para WhatsApp",
+    paso: "PASO 3 DE 3 · OPCIONAL",
+    titulo: "¿Querés mandar algunos por WhatsApp?",
+    desc: "Abajo está lo que sobró de los pasos 1 y 2. Marcá los que quieras repartir por WhatsApp, uno por mensaje.",
+    tranqui: "👉 Este paso es opcional: si no hace falta, tocá “Saltar, ir a las órdenes”.",
+    subPaso: "opcional",
+    siguiente: "📲 Repartir por WhatsApp",
+  },
+];
+let etapa = 1;
+// Índices elegidos en cada etapa (etapaSel[1] = verificados, [2] = comunes, [3] = WA).
+let etapaSel = { 1: [], 2: [], 3: [] };
+// Los items ya consumidos por una etapa salen del DOM visible pero se conservan
+// acá con su estado, para poder volver atrás sin regenerar nada.
+let _guardaItems = null;
+
+function etapaTipo() { return ETAPAS[etapa].tipo; }
+function etapaObjetivo() {
+  if (etapa === 1) return objetivoV;
+  if (etapa === 2) return objetivoNV;
+  return 0;   // WhatsApp no tiene cantidad configurada en la ficha
+}
 let currentJobId = null;
 let streamOffset = 0;
 let streamProgresoOffset = 0;
@@ -221,6 +274,9 @@ async function generarComentarios() {
   document.getElementById("stream-status").textContent = "";
   hide("loading-overlay");
   show("step-comentarios");
+  // Entrada de guardia: desde acá el atrás ya no puede tirar abajo la página sin
+  // avisar (todo lo que sigue se generó y no se recupera con un F5).
+  _pushPaso("comentarios");
   setProgreso("Accediendo al post...");
 
   conectarStream();
@@ -347,6 +403,11 @@ function manejarEvento(evento) {
     tiposGenerados = [];
     asignadosV = 0;
     asignadosNV = 0;
+    // Se reinicia la tanda entera: volvemos a la etapa 1 sin nada elegido.
+    etapa = 1;
+    etapaSel = { 1: [], 2: [], 3: [] };
+    if (_guardaItems) _guardaItems.innerHTML = "";
+    renderEtapa();
     pendingComentarios = [];
     streamOffset = 0;
     // El reset borró el DOM: si es mixto, re-armamos las 2 columnas vacías.
@@ -719,14 +780,11 @@ function mostrarScrape(data) {
 // Arma los paneles (y, si el cliente es mixto, las 2 columnas de género) vacíos
 // antes de que llegue el primer comentario: así la pantalla no salta.
 function _prepararPaneles() {
-  if (objetivoV || !objetivoNV) _panelTipo("verificado");
-  if (objetivoNV) _panelTipo("noverif");
+  // Solo el panel de la etapa en curso: las otras etapas todavía no existen.
+  _panelTipo(etapaTipo());
   if (esMixto) {
-    for (const t of ["verificado", "noverif"]) {
-      if (!document.querySelector(`.tipo-panel[data-tipo="${t}"]`)) continue;
-      _seccionItems("hombres", t);
-      _seccionItems("mujeres", t);
-    }
+    _seccionItems("hombres", etapaTipo());
+    _seccionItems("mujeres", etapaTipo());
   }
   _refrescarSecciones();
 }
@@ -760,15 +818,23 @@ const _SECCIONES = [
   { key: "otros",   label: "Sin especificar", icon: "•" },
 ];
 
-// Panel de una de las dos listas (verificados / comunes). Cada una acumula sus
-// propias secciones de género y tiene su "+ generar más".
+// Panel de la lista de una etapa (verificados / comunes / WhatsApp). Cada una
+// acumula sus propias secciones de género y tiene su "+ generar más".
 const _TIPOS_PANEL = [
-  { key: "verificado", label: "Verificados", icon: "✅", corto: "V" },
-  { key: "noverif",    label: "Comunes",     icon: "💬", corto: "NV" },
+  { key: "verificado", label: "Marcá acá los VERIFICADOS", icon: "✅", corto: "V" },
+  { key: "noverif",    label: "Marcá acá los COMUNES",     icon: "💬", corto: "NV" },
+  { key: "wa",         label: "Marcá acá los de WHATSAPP", icon: "📲", corto: "WA" },
 ];
+const _TIPOS_ORDEN = _TIPOS_PANEL.map(t => t.key);
+
+// Normaliza cualquier alias al key de panel. Todo lo que no sea un tipo conocido
+// cae en "verificado", que es la etapa 1.
+function _tipoKey(tipo) {
+  return _TIPOS_ORDEN.includes(tipo) ? tipo : "verificado";
+}
 
 function _panelTipo(tipo) {
-  const key = tipo === "noverif" ? "noverif" : "verificado";
+  const key = _tipoKey(tipo);
   const lista = document.getElementById("lista-comentarios");
   let panel = lista.querySelector(`.tipo-panel[data-tipo="${key}"]`);
   if (!panel) {
@@ -782,23 +848,29 @@ function _panelTipo(tipo) {
         <span class="tp-label">${meta.label}</span>
         <span class="tp-count">0</span>
         <span class="tp-sel hidden">0 elegidos</span>
-        <button type="button" class="tp-all" onclick="togglePanel('${key}')">Todos</button>
+        <button type="button" class="tp-all" onclick="togglePanel('${key}')">Marcar todos</button>
+        <button type="button" class="tp-rnd" onclick="elegirAlAzar('${key}')">🎲 Marcar al azar</button>
         <button type="button" class="tp-mas" onclick="cargarMas('${key}')">+ generar más</button>
       </div>
       <div class="tp-progreso hidden"><span></span></div>
       <div class="tipo-panel-items"></div>`;
-    // Verificados arriba, comunes abajo — el mismo orden del reparto.
-    const siguiente = key === "verificado"
-      ? lista.querySelector('.tipo-panel[data-tipo="noverif"]')
-      : null;
+    // Orden fijo: verificados → comunes → WhatsApp (el mismo de las etapas).
+    const pos = _TIPOS_ORDEN.indexOf(key);
+    const siguiente = [...lista.querySelectorAll(".tipo-panel")]
+      .find(p => _TIPOS_ORDEN.indexOf(p.dataset.tipo) > pos);
     lista.insertBefore(panel, siguiente || null);
   }
   return panel;
 }
 
 function _seccionItems(genero, tipo) {
-  const key = (genero === "hombres" || genero === "mujeres") ? genero : "otros";
-  const tipoKey = tipo === "noverif" ? "noverif" : "verificado";
+  const tipoKey = _tipoKey(tipo);
+  // WhatsApp va en UNA lista sola: el género define a qué cuenta se le asigna
+  // cada comentario en el CRM, y al grupo se manda todo junto igual. Separarlo
+  // en dos columnas era ruido en un paso que solo copia texto.
+  const key = tipoKey === "wa"
+    ? "otros"
+    : ((genero === "hombres" || genero === "mujeres") ? genero : "otros");
   const lista = _panelTipo(tipoKey).querySelector(".tipo-panel-items");
   let sec = lista.querySelector(`.genero-seccion[data-genero="${key}"]`);
   if (!sec) {
@@ -831,14 +903,13 @@ function _seccionItems(genero, tipo) {
 function _refrescarSecciones() {
   const lista = document.getElementById("lista-comentarios");
   let n = 0;
-  // Los paneles vacíos no se muestran: recién aparecen cuando cae el primer
-  // comentario de esa lista (o cuando el objetivo de la ficha dice que va).
+  // En pantalla vive UNA sola lista: la de la etapa en curso. Las de las otras
+  // etapas quedan creadas pero ocultas (las llena avanzarEtapa/volverEtapa).
   lista.querySelectorAll(".tipo-panel").forEach((panel) => {
     const total = panel.querySelectorAll(".comentario-item").length;
     const cnt = panel.querySelector(".tp-count");
     if (cnt) cnt.textContent = total;
-    const objetivo = panel.dataset.tipo === "noverif" ? objetivoNV : objetivoV;
-    panel.classList.toggle("hidden", total === 0 && !objetivo);
+    panel.classList.toggle("hidden", panel.dataset.tipo !== etapaTipo());
   });
   lista.querySelectorAll(".genero-seccion").forEach((sec) => {
     const items = sec.querySelectorAll(".comentario-item");
@@ -851,7 +922,8 @@ function _refrescarSecciones() {
     // debajo se ven como un hueco muerto.
     const g = sec.dataset.genero;
     const hayAlguno = lista.querySelector(".comentario-item");
-    const mantener = esMixto && hayAlguno && (g === "hombres" || g === "mujeres");
+    const esWa = sec.closest('.tipo-panel[data-tipo="wa"]');
+    const mantener = !esWa && esMixto && hayAlguno && (g === "hombres" || g === "mujeres");
     sec.classList.toggle("hidden", items.length === 0 && !mantener);
     items.forEach((it) => {
       n++;
@@ -861,13 +933,19 @@ function _refrescarSecciones() {
   });
   // 2 columnas (Hombres | Mujeres) dentro de cada panel, si el cliente es mixto
   // o si ese panel ya tiene los dos géneros.
-  let mixto = esMixto;
+  // Manda el panel VISIBLE (el de la etapa en curso): en el paso 3 la lista es
+  // una sola columna aunque el cliente sea mixto, y la tarjeta no debe quedar
+  // ancha por lo que muestran los paneles ocultos.
+  let mixto = false;
   lista.querySelectorAll(".tipo-panel-items").forEach((cont) => {
     const hayH = cont.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
     const hayM = cont.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
-    const dos = esMixto || !!(hayH && hayM);
+    // La lista de WhatsApp nunca va en 2 columnas: no se separa por género.
+    const dos = cont.closest('.tipo-panel[data-tipo="wa"]')
+      ? false
+      : (esMixto || !!(hayH && hayM));
     cont.classList.toggle("lista-2col", dos);
-    mixto = mixto || dos;
+    if (!cont.closest(".tipo-panel").classList.contains("hidden")) mixto = mixto || dos;
   });
   // En mixto la tarjeta rompe el ancho de .main y usa todo el ancho visible.
   const card = lista.closest(".comments-card");
@@ -1019,23 +1097,12 @@ function agregarComentarioFiltrado(texto, index) {
   agregarComentario(texto, index);
 }
 
-// A qué lista va el comentario que acaba de llegar: primero se completa el
-// objetivo de verificados, después el de comunes, y lo que sobra se reparte
-// alternado como reserva de las dos listas.
+// Todo lo que llega entra a la lista de la etapa en curso: ya no hay reparto
+// V/NV al generar. Lo que no se elija en esta etapa pasa entero a la siguiente.
 function _tipoParaNuevo() {
-  if (tipoForzado) {
-    if (tipoForzado === "verificado") asignadosV++; else asignadosNV++;
-    return tipoForzado;
-  }
-  if (asignadosV < objetivoV) { asignadosV++; return "verificado"; }
-  if (asignadosNV < objetivoNV) { asignadosNV++; return "noverif"; }
-  // Sin objetivos cargados en la ficha no hay nada que repartir: todo entra
-  // como verificado y el vendedor mueve lo que quiera, como venía siendo.
-  if (!objetivoV && !objetivoNV) { asignadosV++; return "verificado"; }
-  // Cubiertos los dos objetivos, lo que sobra queda de reserva, alternado.
-  if (asignadosV - objetivoV <= asignadosNV - objetivoNV) { asignadosV++; return "verificado"; }
-  asignadosNV++;
-  return "noverif";
+  const t = _tipoKey(tipoForzado || etapaTipo());
+  if (t === "verificado") asignadosV++; else if (t === "noverif") asignadosNV++;
+  return t;
 }
 
 function agregarComentario(texto, index) {
@@ -1055,12 +1122,15 @@ function agregarComentario(texto, index) {
   generosGenerados[i] = generoActual;
   if (tiposGenerados[i] === undefined) tiposGenerados[i] = _tipoParaNuevo();
   const tipo = tiposGenerados[i];
-  // Dentro del objetivo de la ficha: viene marcado. El vendedor destilda lo que
+  // Dentro del objetivo de la etapa: viene marcado. El vendedor destilda lo que
   // no le guste en vez de tener que elegir 80 comentarios a mano.
   // Modo palabra clave: la tanda entera es el pedido (N veces la misma palabra),
   // no hay nada que elegir entre comentarios — van todos marcados de una.
-  const autoElegido = currentKeyword ? true : (!tipoForzado &&
-    (tipo === "verificado" ? asignadosV <= objetivoV : asignadosNV <= objetivoNV));
+  const objetivoEtapa = etapaObjetivo();
+  const yaElegidos = document.querySelectorAll(
+    "#lista-comentarios input[type=checkbox]:checked").length;
+  const autoElegido = currentKeyword ? true
+    : (!!objetivoEtapa && yaElegidos < objetivoEtapa);
 
   const item = document.createElement("div");
   item.className = "comentario-item" + (autoElegido ? " selected" : "");
@@ -1073,7 +1143,6 @@ function agregarComentario(texto, index) {
     <input type="checkbox" id="chk-${i}" ${autoElegido ? "checked" : ""} onchange="onCheckChange(${i})" />
     <span class="comentario-texto" id="txt-${i}">${escapeHtml(texto)}</span>
     ${switchGenero}
-    <button type="button" class="tipo-switch tipo-switch--${tipo}" id="tipo-${i}" title="Verificado / No verificado — click para cambiar" onclick="toggleTipo(event, ${i})"><span class="ts-knob">${tipo === "verificado" ? "V" : "NV"}</span></button>
     <button type="button" class="comentario-edit" title="Editar" onclick="editarComentario(event, ${i})">✎</button>
   `;
   // Doble click/tap sobre el texto abre la edición, además del lápiz: en mobile
@@ -1120,6 +1189,10 @@ function agregarComentario(texto, index) {
 
   actualizarConteo();
   document.getElementById("comments-actions-bar").classList.remove("hidden");
+  // La barra recién aparece con el primer comentario: es acá donde el stepper y
+  // los textos de la etapa 1 tienen que quedar pintados. Una sola vez: repetirlo
+  // por cada comentario que entra es trabajo al pedo en una tanda de 80.
+  if (document.getElementById("etapa-stepper")?.classList.contains("hidden")) renderEtapa();
 }
 
 function onCheckChange(index) {
@@ -1151,34 +1224,16 @@ function toggleGenero(e, index) {
   }
 }
 
-// Fija el tipo de un comentario (verificado = producto 94, noverif = 95) y
-// sincroniza el switch.
+// Fija el tipo (= etapa) de un comentario y lo muda al panel que corresponde.
+// Ya no hay switch V/NV por fila: el tipo lo define la etapa en la que se elige
+// (etapa 1 = verificado/producto 94, etapa 2 = noverif/95, etapa 3 = WhatsApp).
 function _setTipo(index, nuevo) {
   const anterior = tiposGenerados[index];
-  tiposGenerados[index] = nuevo;
-  const sw = document.getElementById(`tipo-${index}`);
-  if (sw) {
-    sw.classList.toggle("tipo-switch--verificado", nuevo === "verificado");
-    sw.classList.toggle("tipo-switch--noverif", nuevo === "noverif");
-    const knob = sw.querySelector(".ts-knob");
-    if (knob) knob.textContent = nuevo === "verificado" ? "V" : "NV";
-    // Cambiar el tipo lo muda de lista: si no, el panel diría una cosa y el
-    // switch otra.
-    if (anterior !== nuevo) {
-      const item = sw.closest(".comentario-item");
-      if (item) {
-        _seccionItems(generosGenerados[index], nuevo).appendChild(item);
-        _refrescarSecciones();
-      }
-    }
-  }
-}
-
-// Alterna un comentario entre verificado (94) y no verificado (95).
-function toggleTipo(e, index) {
-  e.stopPropagation();
-  _setTipo(index, tiposGenerados[index] === "noverif" ? "verificado" : "noverif");
-  actualizarConteo();
+  tiposGenerados[index] = _tipoKey(nuevo);
+  if (anterior === tiposGenerados[index]) return;
+  const item = document.querySelector(`#lista-comentarios .comentario-item[data-index="${index}"]`);
+  if (!item) return;
+  _seccionItems(generosGenerados[index], tiposGenerados[index]).appendChild(item);
 }
 
 // Edición inline: el ✎ vuelve editable el texto; se guarda al salir o con Enter.
@@ -1284,24 +1339,8 @@ function copiarComentario(e, index) {
 let repartoItems = [];
 let repartoEnviados = new Set();
 
-function abrirRepartir() {
-  // Se listan TODOS los comentarios generados, no solo los que van al CRM: lo
-  // que se publica y lo que se manda al grupo no tienen por qué ser lo mismo.
-  // Vienen tildados los que eligió para publicar, como punto de partida.
-  const elegidos = new Set(
-    [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
-      .map(c => parseInt(c.closest(".comentario-item").dataset.index, 10))
-      .filter(i => !Number.isNaN(i)));
-
-  const textos = [];
-  comentariosGenerados.forEach((t, i) => {
-    if (!t || generoDeHeader(t)) return;   // los encabezados no son comentarios
-    textos.push({ texto: t, incluido: elegidos.has(i) });
-  });
-  if (!textos.length) return;
-  abrirRepartirCon(textos);
-}
-
+// La lista a repartir la arma la ETAPA 3 (avanzarEtapa): son los comentarios
+// que sobraron de las etapas 1 y 2 y que el vendedor eligió mandar al grupo.
 function abrirRepartirCon(textos) {
 
   // Mismo formato que manda el bot (ver /api/repartir-wa): "Comentarios" + el
@@ -1320,7 +1359,7 @@ function abrirRepartirCon(textos) {
   // abre: la vía manual no depende del bot, y pedirle el teléfono a alguien que
   // solo quiere mandar de a uno es fricción sin motivo.
   document.getElementById("repartir-bulk").classList.add("hidden");
-  document.getElementById("repartir-toggle").classList.remove("repartir-toggle--abierto");
+  document.getElementById("repartir-toggle")?.classList.remove("repartir-toggle--abierto");
   _botCargado = false;
   const msg = document.getElementById("repartir-bulk-msg");
   msg.className = "repartir-bulk-msg hidden";
@@ -1385,12 +1424,19 @@ async function mandarTandaWa() {
   }
 }
 
+// Cerrar el modal NO avanza: devuelve a la lista de comentarios del paso 3, por
+// si quiere cambiar la selección y repartir otra tanda. Para seguir a las
+// órdenes está el botón explícito del pie del modal.
 function cerrarRepartir() {
   document.getElementById("repartir-overlay").classList.add("hidden");
-  if (_repartoSigueAOrdenes) {
-    _repartoSigueAOrdenes = false;
-    irAOrdenes();
-  }
+  _repartoSigueAOrdenes = false;
+}
+
+// Pie del modal: termina el paso 3 (haya mandado o no) y va a las órdenes.
+function continuarAOrdenes() {
+  document.getElementById("repartir-overlay").classList.add("hidden");
+  _repartoSigueAOrdenes = false;
+  irAOrdenes();
 }
 
 function renderRepartir() {
@@ -1473,7 +1519,7 @@ function toggleBot() {
   const caja = document.getElementById("repartir-bulk");
   const tog = document.getElementById("repartir-toggle");
   const abierto = !caja.classList.toggle("hidden");
-  tog.classList.toggle("repartir-toggle--abierto", abierto);
+  tog?.classList.toggle("repartir-toggle--abierto", abierto);
   if (abierto && !_botCargado) {
     _botCargado = true;
     cargarMiWhatsapp();   // recién acá se pide el teléfono y el estado
@@ -1759,7 +1805,7 @@ function _refrescarConteoPaneles() {
     const sel = checks.filter(c => c.checked).length;
     const badge = panel.querySelector(".tp-sel");
     if (badge) {
-      const objetivo = panel.dataset.tipo === "noverif" ? objetivoNV : objetivoV;
+      const objetivo = etapaObjetivo();
       badge.textContent = objetivo ? `${sel} de ${objetivo} elegidos` : `${sel} elegidos`;
       badge.classList.toggle("hidden", checks.length === 0);
       // Verde cuando coincide con lo que pide la ficha del cliente.
@@ -1768,14 +1814,14 @@ function _refrescarConteoPaneles() {
     const btn = panel.querySelector(".tp-all");
     if (btn) {
       const todos = checks.length > 0 && sel === checks.length;
-      btn.textContent = todos ? "Ninguno" : "Todos";
+      btn.textContent = todos ? "Desmarcar todos" : "Marcar todos";
       btn.disabled = checks.length === 0;
     }
     // Barra de avance hacia lo que pide la ficha del cliente: el número solo
     // ("12 de 40") obliga a hacer la cuenta cada vez que se marca uno.
     const barra = panel.querySelector(".tp-progreso");
     if (barra) {
-      const objetivo = panel.dataset.tipo === "noverif" ? objetivoNV : objetivoV;
+      const objetivo = etapaObjetivo();
       barra.classList.toggle("hidden", !objetivo || checks.length === 0);
       if (objetivo) {
         const pct = Math.min(100, Math.round((sel / objetivo) * 100));
@@ -1823,15 +1869,78 @@ function togglePanel(tipo) {
   actualizarConteo();
 }
 
-// Cuenta los comentarios seleccionados separados por tipo (V / NV).
-function contarPorTipo() {
-  let verif = 0, noverif = 0;
-  document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked").forEach((c) => {
-    const idx = parseInt(c.closest(".comentario-item").dataset.index, 10);
-    if (Number.isNaN(idx)) return;
-    if (tiposGenerados[idx] === "noverif") noverif++; else verif++;
+// Sortea la selección de un panel: desmarca todo y marca N al azar. N es el
+// objetivo de la etapa (lo que pidió el cliente); si no hay objetivo cargado se
+// respeta la cantidad que ya estaba marcada, así el botón solo "re-sortea".
+// Pregunta cuántos marcar. La cantidad cambia post a post, así que se propone
+// la de la ficha del cliente (o lo que ya haya tildado) pero se puede escribir
+// cualquier otra.
+let _azarTipo = null;
+
+function elegirAlAzar(tipo) {
+  const panel = document.querySelector(`.tipo-panel[data-tipo="${tipo}"]`);
+  if (!panel) return;
+  const total = panel.querySelectorAll("input[type=checkbox]").length;
+  if (!total) return;
+  _azarTipo = tipo;
+  const yaSel = [...panel.querySelectorAll("input[type=checkbox]")].filter(c => c.checked).length;
+  const sugerido = Math.min(etapaObjetivo() || yaSel || 10, total);
+  const input = document.getElementById("azar-cant");
+  input.max = total;
+  input.value = sugerido;
+  document.getElementById("azar-sub").textContent =
+    `Sobre ${total} de la lista${etapaObjetivo() ? ` · la ficha del cliente pide ${etapaObjetivo()}` : ""}`;
+  document.getElementById("azar-error").classList.add("hidden");
+  show("azar-overlay");
+  input.focus();
+  input.select();
+}
+
+function cerrarAzar() {
+  hide("azar-overlay");
+  _azarTipo = null;
+}
+
+function confirmarAzar() {
+  const panel = document.querySelector(`.tipo-panel[data-tipo="${_azarTipo}"]`);
+  if (!panel) return cerrarAzar();
+  const total = panel.querySelectorAll("input[type=checkbox]").length;
+  const n = parseInt(document.getElementById("azar-cant").value, 10);
+  if (!Number.isInteger(n) || n < 1 || n > total) {
+    const err = document.getElementById("azar-error");
+    err.textContent = `Poné un número entre 1 y ${total}`;
+    err.classList.remove("hidden");
+    return;
+  }
+  const tipo = _azarTipo;
+  cerrarAzar();
+  _marcarAlAzar(tipo, n);
+}
+
+// Enter confirma: es un solo campo y se usa a repetición.
+document.addEventListener("keydown", e => {
+  if (document.getElementById("azar-overlay")?.classList.contains("hidden")) return;
+  if (e.key === "Enter") { e.preventDefault(); confirmarAzar(); }
+  if (e.key === "Escape") cerrarAzar();
+});
+
+function _marcarAlAzar(tipo, n) {
+  const panel = document.querySelector(`.tipo-panel[data-tipo="${tipo}"]`);
+  if (!panel) return;
+  const checks = [...panel.querySelectorAll("input[type=checkbox]")];
+  if (!checks.length) return;
+  n = Math.min(n, checks.length);
+  // Fisher-Yates sobre una copia: los primeros n quedan marcados.
+  const mezcla = checks.slice();
+  for (let i = mezcla.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [mezcla[i], mezcla[j]] = [mezcla[j], mezcla[i]];
+  }
+  mezcla.forEach((c, i) => {
+    c.checked = i < n;
+    c.closest(".comentario-item").classList.toggle("selected", c.checked);
   });
-  return { verif, noverif };
+  actualizarConteo();
 }
 
 function actualizarConteo() {
@@ -1839,16 +1948,44 @@ function actualizarConteo() {
   _refrescarConteoSecciones();
   const label = document.getElementById("count-label");
   if (label) {
-    // Desglose V/NV a la vista: es lo que hay que chequear antes de publicar
-    // (y lo que define en cuántas órdenes se parte).
-    const { verif, noverif } = contarPorTipo();
+    // Lo elegido en ESTA etapa (los de las etapas anteriores ya están guardados
+    // y se muestran en el stepper).
+    const objetivo = etapaObjetivo();
     label.textContent = sel === 0
-      ? "0 seleccionados"
-      : `${verif} verificados · ${noverif} comunes`;
+      ? `0 ${ETAPAS[etapa].tag}`
+      : `${sel} ${ETAPAS[etapa].tag}${objetivo ? ` de ${objetivo}` : ""}`;
     label.classList.toggle("count-label--lleno", sel > 0);   // pill amarilla con selección
   }
   const btnPublicar = document.getElementById("btn-publicar");
   if (btnPublicar) btnPublicar.disabled = sel === 0;
+
+  // Resumen de la barra fija: lo elegido en esta etapa + lo que ya quedó cerrado
+  // en las anteriores, para no tener que subir hasta el stepper a controlarlo.
+  const resumen = document.getElementById("etapa-nav-resumen");
+  if (resumen) {
+    const partes = [];
+    for (let n = 1; n < etapa; n++) {
+      const q = (etapaSel[n] || []).length;
+      if (q) partes.push(`${q} ${ETAPAS[n].tag} ✓`);
+    }
+    partes.push(`<b>${sel} ${ETAPAS[etapa].tag}</b> ahora`);
+    resumen.innerHTML = partes.join(" · ");
+  }
+
+  // Lista vacía = no sobró nada de los pasos anteriores.
+  const vacia = document.getElementById("etapa-vacia");
+  if (vacia) {
+    const hay = document.querySelector("#lista-comentarios .comentario-item");
+    const mostrar = !hay && etapa > 1;
+    vacia.classList.toggle("hidden", !mostrar);
+    if (mostrar) {
+      document.getElementById("etapa-vacia-txt").textContent =
+        `No sobró ningún comentario para el paso ${etapa}: los elegiste todos en los pasos anteriores. ` +
+        (etapa === 3
+          ? "Podés saltar este paso e ir directo a las órdenes."
+          : "Generá más, o volvé al paso anterior y sacá algunos.");
+    }
+  }
   // El reparto por WhatsApp ya no vive acá: es la etapa 2, después de publicar.
   actualizarPanel();
 }
@@ -1868,6 +2005,9 @@ function actualizarPanel() {
   }
 
   panel.classList.remove("hidden");
+  try {
+    panel.classList.toggle("collapsed", localStorage.getItem("panelSelColapsado") === "1");
+  } catch (e) {}
   count.textContent = `${seleccionados.length}`;
 
   lista.innerHTML = seleccionados.map((item, i) => {
@@ -1879,6 +2019,13 @@ function actualizarPanel() {
       <button class="panel-remove" onclick="quitarSeleccion(${index})">×</button>
     </div>`;
   }).join("");
+}
+
+function togglePanelSeleccionados() {
+  const panel = document.getElementById("panel-seleccionados");
+  if (!panel) return;
+  const colapsado = panel.classList.toggle("collapsed");
+  try { localStorage.setItem("panelSelColapsado", colapsado ? "1" : "0"); } catch (e) {}
 }
 
 function quitarSeleccion(index) {
@@ -1911,18 +2058,13 @@ function _autocompletarComentarios(clienteLabel) {
   const verif = tirar(cfg.verificados);
   const comunes = tirar(cfg.comunes);
 
-  const set = (id, v) => {
-    const el = document.getElementById(id);
-    if (el) el.value = v == null ? 0 : v;
-  };
-  set("cant-verif", verif);
-  set("cant-noverif", comunes);
-
-  // Estos son los objetivos del reparto automático: la generación va a marcar
-  // sola esa cantidad de cada tipo. Sin ficha cargada no se reparte nada y el
-  // vendedor elige a mano, como antes.
+  // Estos son los objetivos de cada etapa: la etapa 1 marca sola esa cantidad de
+  // verificados y la 2 esa cantidad de comunes. Sin ficha cargada quedan en 0 y
+  // el vendedor elige a mano, como antes.
   objetivoV = verif || 0;
   objetivoNV = comunes || 0;
+  const inputEtapa = document.getElementById("cant-etapa");
+  if (inputEtapa) inputEtapa.value = etapaObjetivo();
   asignadosV = 0;
   asignadosNV = 0;
 
@@ -1936,54 +2078,302 @@ function _autocompletarComentarios(clienteLabel) {
   }
 }
 
-// Tomás: contar a mano y togglear el V/NV de a uno para llegar a "60 verificados
-// + 80 comunes" es un viaje. Con esto se pide la cantidad exacta de cada tipo y
-// el reparto lo hace solo: elige al azar CUÁLES comentarios van (para que no
-// mande siempre los mismos) pero respeta al pie la cantidad pedida.
-function repartirPorTipo() {
+function _errorEtapa(txt) {
   const msg = document.getElementById("turnos-msg");
-  const error = (txt) => {
-    if (msg) { msg.textContent = txt; msg.classList.remove("hidden"); }
-  };
-  if (msg) msg.classList.add("hidden");
+  if (!msg) return;
+  if (!txt) { msg.classList.add("hidden"); return; }
+  msg.textContent = txt;
+  msg.classList.remove("hidden");
+}
 
-  const leer = (id) => {
-    const raw = parseInt(document.getElementById(id)?.value, 10);
-    return Math.max(0, Number.isFinite(raw) ? raw : 0);
-  };
-  const pedido = { verificado: leer("cant-verif"), noverif: leer("cant-noverif") };
+// Tomás: contar a mano para llegar a "60 verificados" es un viaje. Con esto se
+// pide la cantidad exacta de ESTA etapa y el reparto lo hace solo: elige al azar
+// CUÁLES comentarios van (para no mandar siempre los mismos) respetando el número.
+function repartirEtapa() {
+  _errorEtapa(null);
+  const raw = parseInt(document.getElementById("cant-etapa")?.value, 10);
+  const n = Math.max(0, Number.isFinite(raw) ? raw : 0);
+  const nombre = ETAPAS[etapa].tag;
 
-  if (pedido.verificado + pedido.noverif === 0) {
-    return error("Escribí cuántos comentarios verificados y cuántos comunes querés mandar.");
-  }
-  if (pedido.noverif > TURNOS_MAX) {
-    return error(`Los comunes tienen un tope de ${TURNOS_MAX} por día (40 + 40) y pediste ${pedido.noverif}. Bajá a ${TURNOS_MAX} o menos.`);
-  }
-
-  // Cada lista se reparte por su cuenta: se eligen al azar CUÁLES de esa lista
-  // van (para no mandar siempre los mismos), respetando la cantidad pedida.
-  for (const [tipo, n] of Object.entries(pedido)) {
-    const panel = document.querySelector(`.tipo-panel[data-tipo="${tipo}"]`);
-    const items = panel ? [...panel.querySelectorAll(".comentario-item")] : [];
-    const nombre = tipo === "verificado" ? "verificados" : "comunes";
-    if (n > items.length) {
-      return error(`Pediste ${n} ${nombre} y hay ${items.length} generados. Tocá "+ generar más" en esa lista, o bajá la cantidad.`);
+  if (n === 0) return _errorEtapa(`Escribí cuántos comentarios ${nombre} querés mandar.`);
+  if (etapa === 2) {
+    const tope = tandaUnicaActiva() ? TURNO_MAX : TURNOS_MAX;
+    if (n > tope) {
+      return _errorEtapa(tandaUnicaActiva()
+        ? `En una sola tanda el tope es ${TURNO_MAX} comunes (lo que entra en un turno) y pediste ${n}.`
+        : `Los comunes tienen un tope de ${TURNOS_MAX} por día (40 + 40) y pediste ${n}. Bajá a ${TURNOS_MAX} o menos.`);
     }
-    const orden = items.map((_, k) => k);
-    for (let k = orden.length - 1; k > 0; k--) {
-      const j = Math.floor(Math.random() * (k + 1));
-      [orden[k], orden[j]] = [orden[j], orden[k]];
-    }
-    orden.forEach((k, pos) => {
-      const item = items[k];
-      const elegido = pos < n;
-      const chk = item.querySelector("input[type=checkbox]");
-      if (chk) chk.checked = elegido;
-      item.classList.toggle("selected", elegido);
-    });
   }
+
+  const items = [...document.querySelectorAll(
+    `.tipo-panel[data-tipo="${etapaTipo()}"] .comentario-item`)];
+  if (n > items.length) {
+    return _errorEtapa(`Pediste ${n} ${nombre} y hay ${items.length} disponibles en esta etapa. Tocá "+ generar más", o bajá la cantidad.`);
+  }
+
+  const orden = items.map((_, k) => k);
+  for (let k = orden.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1));
+    [orden[k], orden[j]] = [orden[j], orden[k]];
+  }
+  orden.forEach((k, pos) => {
+    const item = items[k];
+    const elegido = pos < n;
+    const chk = item.querySelector("input[type=checkbox]");
+    if (chk) chk.checked = elegido;
+    item.classList.toggle("selected", elegido);
+  });
 
   actualizarConteo();
+}
+
+// ── Navegación entre etapas ──────────────────────────────────────────────────
+// Los items elegidos se guardan fuera de la lista (no se destruyen: volver atrás
+// tiene que devolverlos tal cual, sin regenerar). Los NO elegidos se mudan al
+// panel de la etapa siguiente.
+function _guarda() {
+  if (!_guardaItems) {
+    _guardaItems = document.createElement("div");
+    _guardaItems.id = "etapa-guarda";
+    _guardaItems.className = "hidden";
+    document.body.appendChild(_guardaItems);
+  }
+  return _guardaItems;
+}
+
+function _itemsEtapa() {
+  return [...document.querySelectorAll(
+    `.tipo-panel[data-tipo="${etapaTipo()}"] .comentario-item`)];
+}
+
+function _indiceDe(item) {
+  return parseInt(item.dataset.index, 10);
+}
+
+// Refresca todo lo que depende de en qué etapa estamos: stepper, textos, botones.
+function renderEtapa() {
+  const meta = ETAPAS[etapa];
+
+  document.getElementById("etapa-stepper")?.classList.remove("hidden");
+  document.querySelectorAll("#etapa-stepper .etapa-paso").forEach((p) => {
+    const n = parseInt(p.dataset.etapa, 10);
+    const hecho = n < etapa;
+    p.classList.toggle("etapa-paso--activo", n === etapa);
+    p.classList.toggle("etapa-paso--hecho", hecho);
+    // Un paso ya cerrado muestra CUÁNTOS quedaron elegidos: es la única forma de
+    // controlar de un vistazo lo que se va a mandar sin volver atrás.
+    const sub = p.querySelector(".ep-sub");
+    if (sub) {
+      sub.textContent = hecho
+        ? `${(etapaSel[n] || []).length} elegidos ✓`
+        : (ETAPAS[n]?.subPaso || sub.textContent);
+      sub.classList.toggle("ep-sub--ok", hecho);
+    }
+  });
+
+  // Cartel grande: qué se elige AHORA y qué pasa con lo que no se elige.
+  const cartel = document.getElementById("etapa-cartel");
+  if (cartel) {
+    cartel.classList.remove("hidden");
+    cartel.classList.toggle("etapa-cartel--opcional", etapa >= 2);
+    document.getElementById("etapa-cartel-paso").textContent = meta.paso;
+    document.getElementById("etapa-cartel-titulo").textContent = meta.titulo;
+    document.getElementById("etapa-cartel-desc").innerHTML = meta.desc;
+    document.getElementById("etapa-cartel-tranqui").textContent = meta.tranqui;
+    const saltarCartel = document.getElementById("btn-cartel-saltar");
+    if (saltarCartel) {
+      saltarCartel.classList.toggle("hidden", etapa === 1);
+      saltarCartel.textContent = etapa === 2
+        ? "Saltar, ir al PASO 3: WhatsApp →"
+        : "Saltar, ir a las órdenes →";
+    }
+  }
+
+  const titulo = document.getElementById("reparto-titulo");
+  if (titulo) {
+    titulo.textContent = etapa === 3
+      ? "¿Cuántos mando por WhatsApp?"
+      : `¿Cuántos ${meta.tag} mando?`;
+  }
+  // El título de la tarjeta también dice la etapa: en mobile el cartel puede
+  // quedar arriba, fuera de la pantalla, mientras se scrollea la lista.
+  const cardTitle = document.querySelector("#step-comentarios .comments-card .card-title");
+  if (cardTitle) cardTitle.textContent = `Paso ${etapa}: elegí los ${meta.tag}`;
+  const tag = document.getElementById("reparto-tag");
+  if (tag) {
+    tag.textContent = meta.tag;
+    tag.className = "reparto-tag " + (etapa === 1 ? "reparto-tag--v" : "reparto-tag--nv");
+  }
+  // El aviso de turnos y el check de "una sola tanda" son SOLO de los comunes.
+  document.getElementById("tanda-unica-box")?.classList.toggle("hidden", etapa !== 2);
+  document.getElementById("turnos-toggle")?.classList.toggle("hidden", etapa !== 2 || tandaUnicaActiva());
+  _errorEtapa(null);
+
+  const volver = document.getElementById("btn-etapa-volver");
+  if (volver) volver.classList.toggle("hidden", etapa === 1);
+  const saltar = document.getElementById("btn-etapa-saltar");
+  if (saltar) {
+    saltar.classList.toggle("hidden", etapa === 1);
+    saltar.textContent = etapa === 2 ? "Saltar, ir a WhatsApp" : "Saltar, ir a las órdenes";
+  }
+  const btn = document.getElementById("btn-publicar");
+  if (btn) btn.textContent = meta.siguiente;
+
+  // "Cargar más" global tiene que caer en la lista de la etapa en curso.
+  const cargar = document.getElementById("btn-cargar-mas");
+  if (cargar) cargar.setAttribute("onclick", `cargarMas('${meta.tipo}')`);
+
+  actualizarConteo();
+}
+
+// Guarda lo elegido en esta etapa y pasa a la siguiente con los sobrantes.
+function _pasarA(siguiente) {
+  const elegidos = [], sobrantes = [];
+  _itemsEtapa().forEach((item) => {
+    (item.querySelector("input[type=checkbox]")?.checked ? elegidos : sobrantes).push(item);
+  });
+
+  etapaSel[etapa] = elegidos.map(_indiceDe).filter(i => !Number.isNaN(i));
+  elegidos.forEach((item) => {
+    item.dataset.etapaElegida = String(etapa);
+    _guarda().appendChild(item);
+  });
+
+  etapa = siguiente;
+  // Los sobrantes cambian de tipo (= de servicio) y de panel.
+  sobrantes.forEach((item) => {
+    const i = _indiceDe(item);
+    tiposGenerados[i] = etapaTipo();
+    const chk = item.querySelector("input[type=checkbox]");
+    if (chk) chk.checked = false;
+    item.classList.remove("selected");
+    _seccionItems(generosGenerados[i], etapaTipo()).appendChild(item);
+  });
+
+  _refrescarSecciones();
+  renderEtapa();
+  // Un fundido corto al cambiar de paso: sin él la lista se recorta de golpe y
+  // no se percibe que cambió de pantalla (es la misma tarjeta).
+  const card = document.querySelector("#step-comentarios .comments-card");
+  if (card) {
+    card.classList.remove("etapa-entrando");
+    void card.offsetWidth;   // fuerza el reinicio de la animación
+    card.classList.add("etapa-entrando");
+  }
+  // La cantidad de la etapa nueva sale de la ficha del cliente; si hay, se
+  // marcan solos igual que en la etapa 1 y el vendedor solo ajusta.
+  const input = document.getElementById("cant-etapa");
+  const objetivo = Math.min(etapaObjetivo(), _itemsEtapa().length);
+  if (input) input.value = objetivo;
+  if (objetivo > 0) repartirEtapa();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  _pushPaso("comentarios");
+}
+
+// Botón principal. En la etapa 3 no publica: abre el reparto por WhatsApp.
+function avanzarEtapa() {
+  _errorEtapa(null);
+  // Si no sobró nada para esta etapa no se puede elegir: se deja pasar de largo.
+  const hayItems = _itemsEtapa().length > 0;
+  // Sólo el paso 1 (verificados) es obligatorio: los comunes y WhatsApp se
+  // saltean si el cliente no los lleva.
+  if (hayItems && contarSeleccionados() === 0 && etapa === 1) {
+    return _errorEtapa(`Elegí al menos un comentario ${ETAPAS[etapa].tag}.`);
+  }
+  if (!hayItems && etapa >= 2) return saltarEtapa();
+
+  if (etapa === 1) {
+    // Ya eligió los verificados: la IA no tiene que seguir generando.
+    cancelarGeneracion();
+    return _pasarA(2);
+  }
+
+  if (etapa === 2) {
+    const n = contarSeleccionados();
+    const tope = tandaUnicaActiva() ? TURNO_MAX : TURNOS_MAX;
+    if (n > tope) {
+      return _errorEtapa(tandaUnicaActiva()
+        ? `En una sola tanda podés mandar hasta ${TURNO_MAX} comunes (tope de un turno). Tenés ${n} — sacá ${n - TURNO_MAX} o destildá "una sola tanda".`
+        : `Podés mandar hasta ${TURNOS_MAX} comunes por día (40 + 40). Tenés ${n} seleccionados — sacá ${n - TURNOS_MAX}.`);
+    }
+    return _pasarA(3);
+  }
+
+  // Etapa 3: la tanda de WhatsApp. Al cerrar el reparto sigue solo a las órdenes.
+  const textos = _itemsEtapa()
+    .filter(it => it.querySelector("input[type=checkbox]")?.checked)
+    .map(it => ({ texto: comentariosGenerados[_indiceDe(it)], incluido: true }))
+    .filter(t => t.texto);
+  if (!textos.length) {
+    return _errorEtapa("Elegí los comentarios que querés repartir por WhatsApp, o tocá “Saltar”.");
+  }
+  etapaSel[3] = _itemsEtapa()
+    .filter(it => it.querySelector("input[type=checkbox]")?.checked)
+    .map(_indiceDe);
+  _repartoSigueAOrdenes = true;
+  abrirRepartirCon(textos);
+}
+
+// Los pasos 2 y 3 son opcionales: "Saltar" avanza sin elegir nada. Desde los
+// comunes va al paso 3; desde WhatsApp, derecho a las órdenes.
+function saltarEtapa() {
+  if (etapa === 2) {
+    deseleccionarTodos();
+    return _pasarA(3);
+  }
+  return saltarEtapaWa();
+}
+
+function saltarEtapaWa() {
+  etapaSel[3] = [];
+  irAOrdenes();
+}
+
+// Vuelve a la etapa anterior: los sobrantes de la actual y lo que se había
+// elegido en la anterior vuelven juntos a esa lista, con su tilde intacto.
+function volverEtapa() {
+  if (etapa === 1) return;
+  // Si el atrás del navegador está armado para esta etapa, lo consumimos: botón
+  // y flecha tienen que dejar el historial igual.
+  if (history.state?.step === "comentarios" && history.state?.etapa === etapa) {
+    return history.back();
+  }
+  _volverEtapaUI();
+}
+
+function _volverEtapaUI() {
+  if (etapa === 1) return;
+  const previa = etapa - 1;
+  const tipoPrevio = ETAPAS[previa].tipo;
+
+  _itemsEtapa().forEach((item) => {
+    const i = _indiceDe(item);
+    tiposGenerados[i] = tipoPrevio;
+    const chk = item.querySelector("input[type=checkbox]");
+    if (chk) chk.checked = false;
+    item.classList.remove("selected");
+    _seccionItems(generosGenerados[i], tipoPrevio).appendChild(item);
+  });
+
+  [..._guarda().querySelectorAll(`.comentario-item[data-etapa-elegida="${previa}"]`)]
+    .forEach((item) => {
+      const i = _indiceDe(item);
+      delete item.dataset.etapaElegida;
+      tiposGenerados[i] = tipoPrevio;
+      const chk = item.querySelector("input[type=checkbox]");
+      if (chk) chk.checked = true;
+      item.classList.add("selected");
+      _seccionItems(generosGenerados[i], tipoPrevio).appendChild(item);
+    });
+
+  etapaSel[etapa] = [];
+  etapaSel[previa] = [];
+  etapa = previa;
+  _refrescarSecciones();
+  renderEtapa();
+  const input = document.getElementById("cant-etapa");
+  if (input) input.value = contarSeleccionados() || etapaObjetivo();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function deseleccionarTodos() {
@@ -1994,31 +2384,9 @@ function deseleccionarTodos() {
   actualizarConteo();
 }
 
-function publicar() {
-  // Ya eligió los comentarios: la IA no tiene que seguir generando.
-  cancelarGeneracion();
-  // ETAPA 2 antes de las órdenes. Se pregunta acá porque los comentarios están
-  // recién elegidos y a la vista; una vez en las órdenes el vendedor ya está en
-  // otra tarea (cantidades, campañas) y volver atrás es fricción.
-  const n = contarSeleccionados();
-  const sub = document.getElementById("wa-paso-sub");
-  if (sub) sub.textContent = `Los ${n} que acabás de elegir, uno por mensaje, listos para repartir.`;
-  document.getElementById("wa-paso-overlay").classList.remove("hidden");
-}
-
-// El reparto es opcional: se puede saltar y seguir con las órdenes de siempre.
-function seguirSinWhatsapp() {
-  document.getElementById("wa-paso-overlay").classList.add("hidden");
-  irAOrdenes();
-}
-
-// Abre la lista de reparto y, al cerrarla, sigue solo a las órdenes: el vendedor
-// no tiene que acordarse de retomar el flujo donde lo dejó.
-function repartirYSeguir() {
-  document.getElementById("wa-paso-overlay").classList.add("hidden");
-  _repartoSigueAOrdenes = true;
-  abrirRepartir();
-}
+// El botón principal ahora avanza de etapa (avanzarEtapa). Se deja publicar()
+// como alias por si quedó algún enganche viejo apuntando acá.
+function publicar() { avanzarEtapa(); }
 
 let _repartoSigueAOrdenes = false;
 
@@ -2049,6 +2417,30 @@ let comentariosParaPublicar = [];
 // Al publicar se reparten 50/50: una tanda al turno actual y la otra programada
 // al próximo turno (hora fija 10:00 / 19:00, AR = hora local del navegador).
 const TURNOS_MAX = 80;
+// Con "una sola tanda" no hay reparto: todo entra en el turno de ahora, así que
+// el tope es el de UN turno (la mitad del diario).
+const TURNO_MAX = TURNOS_MAX / 2;
+
+function tandaUnicaActiva() {
+  return !!document.getElementById("chk-tanda-unica")?.checked;
+}
+
+function onTandaUnicaChange() {
+  const box = document.getElementById("tanda-unica-box");
+  const on  = tandaUnicaActiva();
+  box?.classList.toggle("tanda-unica--on", on);
+  const hint = document.getElementById("tanda-unica-hint");
+  if (hint) {
+    hint.textContent = on
+      ? `Todos los comunes salen juntos en este turno. Máximo ${TURNO_MAX} (es el tope de un turno).`
+      : "Usalo cuando el otro turno ya pasó. Sin esto se parten 50/50 y la mitad queda para el próximo turno.";
+  }
+  // El cartel de "siempre 2 tandas" pasa a ser mentira con el check puesto.
+  document.getElementById("turnos-toggle")?.classList.toggle("hidden", on || etapa !== 2);
+  _errorEtapa(null);
+}
+
+
 
 function _fmtFechaCRM(d) {
   const p = x => String(x).padStart(2, "0");
@@ -2082,13 +2474,19 @@ function _turnosPlan() {
   return [prog(prox(10)), prog(prox(19))];
 }
 
+// Tanda única: sale toda en el turno de ahora. Fuera de horario no hay "ahora",
+// así que se programa al próximo turno que abra (la primera del plan normal).
+function _turnoUnicoSpec() {
+  return _turnosPlan()[0];
+}
+
 async function irAOrdenes() {
-  // Seleccionamos por data-index (no por posición del DOM), porque la lista se
-  // muestra mezclada visualmente.
-  const idxSeleccionados = [...document.querySelectorAll("#lista-comentarios input[type=checkbox]:checked")]
-    .map(c => parseInt(c.closest(".comentario-item").dataset.index, 10))
-    .filter(i => !Number.isNaN(i));
-  if (idxSeleccionados.length === 0) return;
+  // La selección ya la fijaron las etapas 1 y 2 (por índice, no por posición del
+  // DOM: la lista se muestra mezclada visualmente). La etapa 3 es solo WhatsApp
+  // y no genera órdenes.
+  const idxVerif   = (etapaSel[1] || []).filter(i => !Number.isNaN(i));
+  const idxNoVerif = (etapaSel[2] || []).filter(i => !Number.isNaN(i));
+  if (idxVerif.length === 0 && idxNoVerif.length === 0) return;
 
   // Reconstruye la lista con los encabezados de género (hombres:/mujeres:) para
   // un conjunto de índices. Los encabezados NO cuentan como comentarios; el
@@ -2105,18 +2503,17 @@ async function irAOrdenes() {
     return { payload, cantidad: sel.length };  // cantidad = comentarios reales, sin headers
   }
 
-  const idxVerif   = idxSeleccionados.filter(i => tiposGenerados[i] !== "noverif");
-  const idxNoVerif = idxSeleccionados.filter(i => tiposGenerados[i] === "noverif");
-
   // Los no-verificados SIEMPRE se reparten en turnos (mañana/tarde), sin toggle.
   // Tope de no-verif por día (40 mañana + 40 tarde).
-  const turnosMsg = document.getElementById("turnos-msg");
-  if (turnosMsg) turnosMsg.classList.add("hidden");
-  if (idxNoVerif.length > TURNOS_MAX) {
-    if (turnosMsg) {
-      turnosMsg.textContent = `Podés mandar hasta ${TURNOS_MAX} no verificados por día (40 + 40). Tenés ${idxNoVerif.length} seleccionados — sacá ${idxNoVerif.length - TURNOS_MAX}.`;
-      turnosMsg.classList.remove("hidden");
-    }
+  // ...salvo que se haya pedido explícitamente una sola tanda, que entra entera
+  // en el turno de ahora y por eso tiene el tope de un turno, no el diario.
+  const unaTanda = tandaUnicaActiva();
+  const topeNoVerif = unaTanda ? TURNO_MAX : TURNOS_MAX;
+  _errorEtapa(null);
+  if (idxNoVerif.length > topeNoVerif) {
+    _errorEtapa(unaTanda
+      ? `En una sola tanda podés mandar hasta ${TURNO_MAX} no verificados (es el tope de un turno). Tenés ${idxNoVerif.length} seleccionados — sacá ${idxNoVerif.length - TURNO_MAX} o destildá "una sola tanda".`
+      : `Podés mandar hasta ${TURNOS_MAX} no verificados por día (40 + 40). Tenés ${idxNoVerif.length} seleccionados — sacá ${idxNoVerif.length - TURNOS_MAX}.`);
     return;   // no armamos órdenes hasta que baje del tope
   }
 
@@ -2156,7 +2553,9 @@ async function irAOrdenes() {
 
   // No verificados: SIEMPRE repartidos 50/50 en turnos (mañana/tarde). Con un
   // solo comentario va una única tanda (no se puede partir en dos).
-  if (idxNoVerif.length) {
+  if (idxNoVerif.length && unaTanda) {
+    pushOrdenComentarios(idxNoVerif, 95, "Comentarios Reales", _turnoUnicoSpec(), null);
+  } else if (idxNoVerif.length) {
     const [spec1, spec2] = _turnosPlan();
     const mitad = Math.ceil(idxNoVerif.length / 2);   // impar → la de más va en la 1ra tanda
     const hayDos = idxNoVerif.length > mitad;
@@ -2198,6 +2597,45 @@ async function irAOrdenes() {
 
   hide("step-comentarios");
   show("step-ordenes");
+  _pushPaso("ordenes");
+}
+
+// ── Atrás del navegador ──────────────────────────────────────────────────────
+// Sin esto, la flecha de atrás se lleva puesta la página entera: hay que volver
+// a pegar el link, re-scrapear y re-generar todo. Cada avance (etapa 1→2, 2→3,
+// comentarios→órdenes) deja una entrada en el historial, así el atrás retrocede
+// UN paso, igual que los botones de la pantalla.
+function _pushPaso(step) {
+  const st = { step, etapa };
+  if (history.state?.step === step && history.state?.etapa === etapa) return;
+  history.pushState(st, "", location.href);
+}
+
+window.addEventListener("popstate", () => {
+  if (!document.getElementById("step-ordenes").classList.contains("hidden")) {
+    return _volverAComentariosUI();   // órdenes → comentarios (etapa 3)
+  }
+  if (!document.getElementById("step-comentarios").classList.contains("hidden") && etapa > 1) {
+    return _volverEtapaUI();          // etapa N → etapa N-1
+  }
+  // No hay paso anterior. Si ya hay comentarios generados, salir sería tirar
+  // todo el trabajo: se queda donde está y se avisa.
+  if (comentariosGenerados.length) {
+    history.pushState({ step: "inicio", etapa }, "", location.href);
+    _avisoAtras();
+  }
+});
+
+function _avisoAtras() {
+  const toast = document.getElementById("copy-toast");
+  if (!toast) return;
+  toast.textContent = "Ya estás en el primer paso";
+  toast.classList.remove("hidden");
+  toast.classList.add("show");
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => { toast.classList.add("hidden"); toast.textContent = "✓ Copiado"; }, 200);
+  }, 1600);
 }
 
 async function actualizarProductos() {
@@ -2211,6 +2649,10 @@ async function actualizarProductos() {
   document.getElementById("opt-split5").style.display = "none";
   document.getElementById("orden-demora-badge")?.classList.add("hidden");
   document.getElementById("orden-costo-badge")?.classList.add("hidden");
+  // El rango es por producto: al cambiar de red social el anterior ya no vale y
+  // no tiene que clampear la cantidad del producto nuevo.
+  _lastCantMin = null;
+  _lastCantMax = null;
 
   // Obtener nombre de la red social en paralelo con los productos
   const [, ] = await Promise.all([
@@ -2279,6 +2721,27 @@ async function obtenerDemora(productoNombre) {
 
 let _lastCosto = null; // último costo fetched, para guardarlo en la orden
 let _lastCantMin = null; // último cantmin fetched, para validar el split de intervalo
+let _lastCantMax = null; // último cantmax fetched, para el clamp al salir del campo
+
+// Lleva la cantidad al rango del producto. Se llama SOLO cuando el usuario no
+// está tipeando (blur / al agregar la orden): si corre durante la carga pisa
+// el número a medio escribir.
+function _ajustarCantidadAlRango() {
+  const cantEl = document.getElementById("orden-cantidad");
+  if (!cantEl || !cantEl.value) return;
+  const min = _lastCantMin || 0;
+  const max = _lastCantMax || 0;
+  if (!min && !max) return;
+  const cant = parseInt(cantEl.value) || 0;
+  if (min && max && min === max) cantEl.value = min;
+  else if (min && cant < min)    cantEl.value = min;
+  else if (max && cant > max)    cantEl.value = max;
+}
+
+function onCantidadBlur() {
+  _ajustarCantidadAlRango();
+  obtenerCosto();
+}
 let _costoTimer = null;
 async function obtenerCosto() {
   clearTimeout(_costoTimer);
@@ -2311,17 +2774,17 @@ async function _fetchCosto() {
       const min = parseInt(data.cantmin) || 0;
       const max = parseInt(data.cantmax) || 0;
       _lastCantMin = min;
+      _lastCantMax = max;
       hint.textContent = `Min: ${min.toLocaleString()} — Max: ${max.toLocaleString()}`;
       hint.classList.remove("hidden");
 
-      const cant = parseInt(cantEl.value) || 0;
-      if (min === max && min > 0) {
-        cantEl.value = min;
-      } else if (cant < min) {
-        cantEl.value = min;
-      } else if (max > 0 && cant > max) {
-        cantEl.value = max;
-      }
+      // BUG (Lautaro, 08/08): el ajuste al rango corría mientras se tipeaba y
+      // pisaba el campo. Escribías "1500", a los 300ms de pausa saltaba esta
+      // rama con lo escrito hasta ahí ("1") y lo reemplazaba por el mínimo —
+      // de ahí los números sueltos (un 7, un 1) apareciendo solos. Con el campo
+      // enfocado no se toca: el clamp se hace al salir (onCantidadBlur) y antes
+      // de agregar la orden, que es cuando el número ya está completo.
+      if (document.activeElement !== cantEl) _ajustarCantidadAlRango();
       clearFieldError("orden-cantidad");
     }
 
@@ -2784,8 +3247,9 @@ function abrirIntervaloModal(val, btn) {
   _intervaloPendingBtn = { val, btn };
   document.getElementById("intervalo-input-error").classList.add("hidden");
   document.getElementById("intervalo-input").classList.remove("orden-input--error");
-  selectIntervaloUnidad(document.getElementById("orden-intervalo-unidad").value || "minutos");
+  selectIntervaloUnidad(document.getElementById("orden-intervalo-unidad").value || "minutos", true);
   document.getElementById("intervalo-input").value = document.getElementById("orden-intervalo-valor").value || "60";
+  _syncIntervaloPresets();
   show("intervalo-overlay");
 }
 
@@ -2794,15 +3258,50 @@ function cerrarIntervaloModal() {
   hide("intervalo-overlay");
 }
 
-function selectIntervaloUnidad(unidad) {
+// Mínimo y valor por defecto de cada unidad. 60 días no es un intervalo que
+// alguien quiera: al cambiar de unidad el número tiene que cambiar con ella.
+const _INTERVALO_UNIDADES = {
+  minutos: { min: 45, def: 60, presets: [45, 60, 120], label: "minutos" },
+  dias:    { min: 1,  def: 1,  presets: [1, 2, 7],     label: "días" },
+};
+
+function selectIntervaloUnidad(unidad, conservarValor) {
+  const meta = _INTERVALO_UNIDADES[unidad] || _INTERVALO_UNIDADES.minutos;
+  const input = document.getElementById("intervalo-input");
+  const cambio = input.dataset.unidad && input.dataset.unidad !== unidad;
+
   document.getElementById("intervalo-unidad-minutos").classList.toggle("cuando-pill--active", unidad === "minutos");
   document.getElementById("intervalo-unidad-dias").classList.toggle("cuando-pill--active", unidad === "dias");
-  document.getElementById("intervalo-hint").textContent = unidad === "dias"
-    ? "Ingresá el intervalo en días (mínimo 1)."
-    : "Ingresá el intervalo en minutos (mínimo 45).";
-  document.getElementById("intervalo-input").dataset.unidad = unidad;
+  document.getElementById("intervalo-hint").textContent = `Ingresá el intervalo en ${meta.label} (mínimo ${meta.min}).`;
+  document.getElementById("intervalo-unidad-txt").textContent = meta.label;
+  input.dataset.unidad = unidad;
+  input.min = meta.min;
+  // Al cambiar de unidad se arranca del valor típico de esa unidad (60 minutos,
+  // 1 día); al abrir el modal se respeta lo que ya estaba elegido.
+  if (cambio && !conservarValor) input.value = meta.def;
+
+  document.getElementById("intervalo-presets").innerHTML = meta.presets.map(v =>
+    `<button type="button" class="intervalo-preset" data-v="${v}" onclick="setIntervaloPreset(${v})">${v} ${meta.label}</button>`
+  ).join("");
+  _syncIntervaloPresets();
+
   document.getElementById("intervalo-input-error").classList.add("hidden");
-  document.getElementById("intervalo-input").classList.remove("orden-input--error");
+  input.classList.remove("orden-input--error");
+}
+
+function setIntervaloPreset(v) {
+  const input = document.getElementById("intervalo-input");
+  input.value = v;
+  clearFieldError("intervalo-input");
+  _syncIntervaloPresets();
+}
+
+// Marca el atajo que coincide con lo escrito, para que el estado se vea.
+function _syncIntervaloPresets() {
+  const v = document.getElementById("intervalo-input").value;
+  document.querySelectorAll("#intervalo-presets .intervalo-preset").forEach(b => {
+    b.classList.toggle("intervalo-preset--on", b.dataset.v === String(v));
+  });
 }
 
 function confirmarIntervalo() {
@@ -2868,6 +3367,33 @@ function clearFieldError(fieldId) {
   if (error) error.classList.add("hidden");
 }
 
+// ── Órdenes repetidas ────────────────────────────────────────────────────────
+// Se mandaban dos veces la misma orden sin que nada avisara (el CRM las junta
+// después, pero mientras tanto el gasto se duplica). Dos órdenes son "la misma"
+// si coinciden producto, link, cantidad y cuándo salen.
+// "2026-08-09T19:30" (input datetime-local) → "2026-08-09 19:30" (formato CRM).
+function _fechaCRM(valor) {
+  const d = new Date(valor);
+  if (isNaN(d)) return "";
+  const p = x => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function _firmaOrden(o) {
+  return [o.productoId, (o.link || "").trim().toLowerCase(), o.cantidad,
+          o.cuando, o.fechaProgramada || ""].join("|");
+}
+
+// Firma que ya se confirmó a mano: el segundo click sobre la misma orden pasa.
+let _dupConfirmada = null;
+
+function _avisoDuplicado(msg) {
+  const el = document.getElementById("orden-dup-alerta");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("hidden", !msg);
+}
+
 function agregarOrden() {
   const rsSelect = document.getElementById("orden-redsocial");
   const prodSelect = document.getElementById("orden-producto");
@@ -2884,6 +3410,9 @@ function agregarOrden() {
     valid = false;
   } else clearFieldError("orden-producto");
 
+  // El número ya está completo: ahora sí se lo lleva al rango del producto
+  // (durante la carga no se toca, ver _ajustarCantidadAlRango).
+  _ajustarCantidadAlRango();
   const cantidad = parseInt(cantidadEl.value);
   const tipoOrden = _tipoProducto(prodSelect.options[prodSelect.selectedIndex]?.text || "");
   const pisoViews = _pisoViewsActual();
@@ -2909,6 +3438,36 @@ function agregarOrden() {
   } else fechaEl.classList.remove("orden-input--error");
 
   if (!valid) return;
+
+  // ¿Ya hay una igual en la lista? Avisar y pedir un segundo click.
+  const nSplit = cuando === "split3" ? 3 : cuando === "split5" ? 5 : 0;
+  const linkNorm = link.toLowerCase();
+  const prodId = parseInt(prodSelect.value);
+  const prodNombre = prodSelect.options[prodSelect.selectedIndex].text;
+  const fechaProgCand = cuando === "programar" && fechaEl.value ? _fechaCRM(fechaEl.value) : "";
+  const firmaCand = nSplit
+    // Una tanda partida se compara como el bloque entero: mismo producto, link,
+    // cantidad total y misma cantidad de partes. Las fechas no entran porque se
+    // calculan desde "ahora" y nunca serían iguales.
+    ? `split|${prodId}|${linkNorm}|${cantidad}|${nSplit}`
+    : _firmaOrden({ productoId: prodId, link, cantidad, cuando, fechaProgramada: fechaProgCand });
+
+  const repetida = nSplit
+    ? (() => {
+        const partes = ordenes.filter(o => o.splitTotal === nSplit && o.productoId === prodId
+                                        && (o.link || "").trim().toLowerCase() === linkNorm);
+        return partes.length === nSplit
+            && partes.reduce((t, o) => t + (o.cantidad || 0), 0) === cantidad;
+      })()
+    : ordenes.some(o => !o.splitTotal && _firmaOrden(o) === firmaCand);
+
+  if (repetida && _dupConfirmada !== firmaCand) {
+    _dupConfirmada = firmaCand;
+    _avisoDuplicado(`⚠️ Ya cargaste esta misma orden: ${cantidad.toLocaleString("es-AR")} de "${prodNombre}" al mismo link y para el mismo momento. Si la querés duplicar igual, tocá "+ Agregar Orden" otra vez.`);
+    return;
+  }
+  _dupConfirmada = null;
+  _avisoDuplicado(null);
 
   const isSplit = cuando === "split3" || cuando === "split5";
   const base = {
@@ -2958,12 +3517,7 @@ function agregarOrden() {
       costo: _lastCosto,
       cuando,
       cuandoLabel,
-      fechaProgramada: cuando === "programar" && fechaEl.value
-        ? (() => {
-            const d = new Date(fechaEl.value);
-            return isNaN(d) ? "" : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-          })()
-        : "",
+      fechaProgramada: fechaProgCand,
     });
   }
 
@@ -2985,6 +3539,8 @@ function agregarOrden() {
   const costoField = document.getElementById("orden-costo-display");
   if (costoField) costoField.value = "";
   _lastCosto = null;
+  _lastCantMin = null;
+  _lastCantMax = null;
 
   renderOrdenes();
 
@@ -3002,6 +3558,9 @@ function eliminarOrden(id) {
 function editarOrden(id) {
   const o = ordenes.find(ord => ord.id === id);
   if (!o) return;
+  // El form pasa a tener otra orden: el aviso de repetida ya no aplica.
+  _dupConfirmada = null;
+  _avisoDuplicado(null);
 
   // Para órdenes de comentarios: volver al step de comentarios para reseleccionar
   if (o.tipo === "comentarios") {
@@ -3108,11 +3667,13 @@ function renderOrdenes() {
             ${rsIconHtml} ${escapeHtml(rs.label)}
           </span>
           <span class="orden-card-nombre">${escapeHtml(o.productoNombre)}</span>
+          <span class="orden-card-pill orden-card-pill--qty">${o.tipo === "comentarios"
+            ? `<b>${o.cantidad}</b> comentarios`
+            : `<b>${o.cantidad.toLocaleString("es-AR")}</b> unidades`}</span>
           ${o.splitTotal ? `<span class="orden-card-pill orden-card-pill--split">${o.splitIndex}/${o.splitTotal}</span>` : ""}
           ${o.turno ? `<span class="orden-card-pill orden-card-pill--split">⏰ turno ${o.turno}</span>` : ""}
         </div>
         <div class="orden-card-meta">
-          <span class="orden-card-pill orden-card-pill--qty">${o.tipo === "comentarios" ? `${o.cantidad} comentarios` : `${o.cantidad.toLocaleString()} uds`}</span>
           <span class="orden-card-pill orden-card-pill--when">${(o.splitTotal || o.turno) ? "⏰" : (CUANDO_ICONS[o.cuando] || "⚡")} ${escapeHtml(o.cuandoLabel)}</span>
           ${o.costo != null && o.costo > 0 ? `<span class="orden-card-pill orden-card-pill--cost">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
           ${o.tipo === "comentarios" ? `<span class="orden-card-pill orden-card-pill--green">✓ Comentarios IA</span>` : ""}
@@ -3130,6 +3691,13 @@ function renderOrdenes() {
 }
 
 function volverAComentarios() {
+  // Si el "atrás" del navegador está armado, lo consumimos: así el botón y el
+  // gesto de atrás dejan el historial en el mismo estado.
+  if (history.state?.step === "ordenes") { history.back(); return; }
+  _volverAComentariosUI();
+}
+
+function _volverAComentariosUI() {
   hide("step-ordenes");
   show("step-comentarios");
   document.getElementById("panel-seleccionados").classList.remove("hidden");
@@ -3288,7 +3856,7 @@ function _bloqueOrdenes() {
     const prog = o.cuando !== "ahora";
     const cant = o.tipo === "comentarios"
       ? `${o.cantidad} comentarios`
-      : `${Number(o.cantidad || 0).toLocaleString("es-AR")} uds`;
+      : `${Number(o.cantidad || 0).toLocaleString("es-AR")} unidades`;
     return `
       <div class="res-orden">
         <span class="res-orden-dot" style="background:${rs.color}"></span>

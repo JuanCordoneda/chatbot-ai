@@ -1221,7 +1221,9 @@ body.light .skeleton-px {
    switches donde terminaba su texto y la lista se veía desprolija. */
 .comentario-item {
   display: grid;
-  grid-template-columns: 22px 19px minmax(0, 1fr) auto auto auto;
+  /* nº · check · texto · switch de género · lápiz. El switch V/NV se fue: el
+     tipo lo define el paso en el que se elige el comentario. */
+  grid-template-columns: 22px 20px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   padding: 9px 12px 9px 10px;
@@ -1257,6 +1259,7 @@ body.light .skeleton-px {
 .comentario-item:hover {
   background: rgba(255,255,255,0.05);
   border-color: rgba(255,255,255,0.07);
+  transform: translateY(-1px);
 }
 .comentario-item:hover::after { opacity: 0; }
 .comentario-item.selected {
@@ -2310,13 +2313,65 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 .intervalo-card { min-width: 320px; max-width: 380px; padding: 40px 36px; text-align: left; }
 .intervalo-subtitle { font-size: 0.82rem; color: var(--faint); margin: -4px 0 18px; }
 .intervalo-pills { margin-bottom: 16px; }
-.intervalo-input { text-align: center; font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+/* Campo + unidad en la misma caja: "60" solo no dice si son minutos o días, y la
+   unidad estaba tres renglones más abajo, en la letra chica. */
+.intervalo-campo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  border-radius: 12px;
+  padding: 4px 14px 4px 4px;
+  margin-bottom: 8px;
+}
+.intervalo-campo:focus-within { border-color: var(--yellow); }
+.intervalo-input {
+  flex: 1;
+  text-align: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin-bottom: 0;
+  background: transparent;
+  border: none;
+}
+.intervalo-input:focus { outline: none; box-shadow: none; }
+.intervalo-unidad {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Atajos de intervalo */
+.intervalo-presets { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.intervalo-preset {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--muted2);
+  border-radius: 10px;
+  padding: 8px 6px;
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.intervalo-preset:hover { color: var(--yellow); border-color: var(--yellow); }
+.intervalo-preset--on { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
 .intervalo-hint { font-size: 0.72rem; color: var(--faint); margin: 0 0 4px; }
 .intervalo-actions { display: flex; gap: 10px; margin-top: 20px; }
 .intervalo-actions .header-action-btn { flex: 1; justify-content: center; }
 .intervalo-btn-confirmar { flex: 1; margin-top: 0; }
 
 /* ── Panel lateral de seleccionados ── */
+/* OCULTO POR AHORA: ocupaba mucho espacio y corría el contenido. La selección
+   igual se ve resaltada en la lista y en el contador. Para reactivarlo, borrar
+   esta regla. */
+.panel-seleccionados { display: none !important; }
+
 .panel-seleccionados {
   position: fixed;
   top: 80px;
@@ -2351,10 +2406,32 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
 }
+
+.panel-toggle {
+  font-size: 0.7rem;
+  color: var(--muted);
+  transition: transform 0.18s;
+  transform: rotate(90deg);   /* ▾ = abierto */
+}
+
+/* Colapsado: se corre a la derecha y queda sólo el encabezado, sin la lista. */
+.panel-seleccionados.collapsed {
+  width: auto;
+  max-height: none;
+}
+.panel-seleccionados.collapsed .panel-lista { display: none; }
+.panel-seleccionados.collapsed .panel-header {
+  border-bottom: none;
+  padding: 10px 14px;
+}
+.panel-seleccionados.collapsed .panel-toggle { transform: rotate(0deg); }
 
 .panel-title {
   font-size: 0.78rem;
@@ -2836,6 +2913,19 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   font-weight: 500;
 }
 
+/* Aviso de orden repetida (arriba del botón de agregar). */
+.orden-dup-alerta {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--yellow);
+  border-radius: 10px;
+  background: var(--yellow-lo);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--muted2);
+}
+
 /* Cuándo pills */
 .cuando-pills {
   display: flex;
@@ -2941,7 +3031,11 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   display: flex;
   align-items: center;
   gap: 7px;
+  flex-wrap: wrap;
 }
+/* La cantidad va pegada al nombre del producto, no en la fila de abajo: sola en
+   su renglón se comía media tarjeta. */
+.orden-card-header .orden-card-pill--qty { flex-shrink: 0; }
 
 .orden-card-num {
   font-size: 0.65rem;
@@ -2996,11 +3090,17 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   white-space: nowrap;
 }
 
+/* La cantidad es EL dato de la orden: si sale del mismo tamaño que "⚡ ahora" o
+   el costo, hay que buscarla entre las chapitas. Va grande y amarilla. */
 .orden-card-pill--qty {
-  background: var(--surface3);
-  border: 1px solid var(--border2);
-  color: var(--text);
+  background: var(--yellow-lo);
+  border: 1px solid var(--yellow-md);
+  color: var(--yellow);
+  font-size: 0.86rem;
+  padding: 5px 13px;
+  letter-spacing: -0.01em;
 }
+.orden-card-pill--qty b { font-weight: 800; }
 
 .orden-card-pill--when {
   background: rgba(110,130,255,0.20);
@@ -4127,6 +4227,182 @@ input:focus-visible {
 }
 .tipo-panel--verificado .tipo-panel-header::before { background: #34c759; }
 .tipo-panel--noverif    .tipo-panel-header::before { background: #6b7280; }
+.tipo-panel--wa         .tipo-panel-header::before { background: #25d366; }
+.tipo-panel--wa .tipo-panel-header {
+  border-color: rgba(37,211,102,.32);
+  background: linear-gradient(90deg, rgba(37,211,102,0.10), var(--surface2) 55%);
+}
+
+/* ── Etapas de selección (1 verificados / 2 comunes / 3 WhatsApp) ───────────
+   Una pantalla por servicio. El stepper es lo único que dice dónde está parado
+   el vendedor: sin él, las tres etapas son la misma lista y se pierde. */
+.etapa-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 18px;
+  flex-wrap: wrap;
+}
+.etapa-stepper.hidden { display: none; }
+.etapa-paso {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  opacity: .5;
+  transition: opacity .15s, border-color .15s, background .15s;
+}
+.etapa-paso--activo { opacity: 1; border-color: var(--yellow); background: var(--yellow-lo); }
+.etapa-paso--hecho  { opacity: .85; border-color: rgba(74,222,128,.4); }
+.ep-num {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  font-size: .74rem; font-weight: 800;
+  background: var(--surface3); color: var(--muted);
+}
+.etapa-paso--activo .ep-num { background: var(--yellow); color: #111; }
+.etapa-paso--hecho .ep-num { background: #34c759; color: #0b2712; }
+.ep-txt { display: flex; flex-direction: column; line-height: 1.15; }
+.ep-txt b { font-size: .85rem; font-weight: 800; letter-spacing: -0.01em; }
+.ep-txt small { font-size: .68rem; color: var(--muted); }
+.ep-sub--ok { color: #4ade80; font-weight: 800; }
+.etapa-sep { flex: 1; min-width: 12px; height: 1px; background: var(--border2); }
+
+/* Cartel de la etapa. Es lo primero que se lee: pensado para alguien que abre el
+   sistema por primera vez y no sabe qué es "verificado" ni por qué hay 3 pasos. */
+.etapa-cartel {
+  border: 1px solid var(--yellow);
+  background: var(--yellow-lo);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.etapa-cartel.hidden { display: none; }
+.etapa-cartel--opcional { border-color: rgba(37,211,102,.45); background: rgba(37,211,102,.08); }
+.ec-paso {
+  display: inline-block;
+  font-size: .68rem; font-weight: 900; letter-spacing: .09em;
+  color: #111; background: var(--yellow);
+  border-radius: 20px; padding: 3px 10px;
+}
+.etapa-cartel--opcional .ec-paso { background: #25d366; color: #06280f; }
+.ec-titulo {
+  margin: 10px 0 6px;
+  font-size: 1.22rem; font-weight: 900; letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.ec-desc { margin: 0; font-size: .9rem; line-height: 1.5; color: var(--muted2); }
+.ec-desc b { color: var(--text); font-weight: 800; }
+.ec-tranqui {
+  margin: 9px 0 0;
+  font-size: .84rem; line-height: 1.45; font-weight: 700; color: var(--muted);
+}
+.ec-saltar { margin-top: 12px; }
+@media (max-width: 768px) {
+  .ec-titulo { font-size: 1.06rem; }
+  .ec-saltar { width: 100%; }
+}
+
+/* Barra de avance pegada al fondo de la pantalla: con 80 comentarios, el botón
+   al final de la tarjeta quedaba a un scroll largo y no se veía el conteo. */
+/* El paso 3 (WhatsApp) NO separa por género: es una sola lista. Sin ocultar el
+   encabezado de sección quedaba un "Sin especificar" colgado arriba de todo, y
+   el switch H/M no significa nada para lo que se manda al grupo. */
+.tipo-panel--wa .genero-seccion-header,
+.tipo-panel--wa .genero-switch { display: none; }
+.tipo-panel--wa .genero-seccion { border: 0; padding: 0; background: transparent; }
+.tipo-panel--wa .comentario-item { grid-template-columns: 22px 20px minmax(0, 1fr) auto; }
+
+/* Encabezados pegajosos: en una lista de 80, al scrollear se perdía de vista en
+   qué paso y en qué sección estabas parado. */
+.tipo-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+}
+/* El encabezado de género NO va sticky: con el zoom de .app, Chrome lo despega
+   de la sección y queda pisando la primera fila (el mismo bug por el que el
+   header de la app usa fixed). El de la etapa, arriba, alcanza para saber dónde
+   estás parado. */
+.genero-seccion-header { position: relative; z-index: 1; }
+
+.etapa-nav {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px -18px -18px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 -8px 22px rgba(0,0,0,.22);
+}
+.etapa-nav .btn-publish { margin-left: 0; margin-top: 0; }
+.etapa-nav-resumen {
+  margin-left: auto;
+  font-size: .82rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.etapa-nav-resumen b { color: var(--text); font-weight: 800; }
+
+/* Fundido al cambiar de paso: es la misma tarjeta, si no el cambio no se percibe. */
+@keyframes etapaEntra {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.etapa-entrando { animation: etapaEntra .22s ease-out; }
+@media (prefers-reduced-motion: reduce) { .etapa-entrando { animation: none; } }
+
+/* No sobró nada para este paso. Sin esto la tarjeta queda vacía y parece rota. */
+.etapa-vacia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 34px 20px;
+  border: 1px dashed var(--border2);
+  border-radius: 14px;
+  text-align: center;
+}
+.etapa-vacia.hidden { display: none; }
+.ev-ico { font-size: 1.7rem; }
+.ev-txt { margin: 0; max-width: 46ch; font-size: .88rem; line-height: 1.5; color: var(--muted); }
+
+/* Pie del modal de reparto: "Cerrar" vuelve a elegir, y este botón es el único
+   que termina el paso 3. Va separado del resto para que no se confundan. */
+.repartir-continuar-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.repartir-continuar { margin-top: 0; width: 100%; }
+.repartir-continuar-hint {
+  font-size: .76rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .etapa-sep { display: none; }
+  .etapa-paso { flex: 1 1 100%; }
+  .etapa-nav { margin: 14px -14px -14px; padding: 10px 14px; }
+  .etapa-nav .btn-publish { width: 100%; order: 3; }
+  .etapa-nav-resumen { order: 2; margin-left: 0; width: 100%; }
+}
 .tipo-panel--verificado .tipo-panel-header {
   border-color: rgba(74,222,128,.32);
   background: linear-gradient(90deg, rgba(74,222,128,0.10), var(--surface2) 55%);
@@ -4166,13 +4442,13 @@ input:focus-visible {
 .tp-sel.hidden { display: none; }
 /* Verde cuando lo elegido coincide con lo que pide la ficha del cliente. */
 .tp-sel--ok { color: #4ade80; }
-.tp-all, .tp-mas {
+.tp-all, .tp-mas, .tp-rnd {
   background: var(--surface2); border: 1px solid var(--border2); color: var(--muted2);
   border-radius: 9px; padding: 6px 11px; cursor: pointer;
   font-family: var(--font); font-size: .78rem; font-weight: 700;
   transition: color .13s, border-color .13s, background .13s;
 }
-.tp-all:hover, .tp-mas:hover { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
+.tp-all:hover, .tp-mas:hover, .tp-rnd:hover { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-lo); }
 .tp-all:disabled { opacity: .45; cursor: default; }
 .tp-all:disabled:hover { color: var(--muted2); border-color: var(--border2); background: var(--surface2); }
 @media (max-width: 768px) {
@@ -4194,13 +4470,7 @@ input:focus-visible {
    hay comentarios seleccionados (>1500px). En ese caso achicamos la tarjeta y la
    pegamos a la izquierda para no quedar debajo del panel. Sin selección, la
    tarjeta queda centrada a todo el ancho (regla de arriba). */
-@media (min-width: 1501px) {
-  body:has(#panel-seleccionados:not(.hidden)) .comments-card--wide {
-    width: calc(100vw / 1.2 - 1.5rem - 20rem);
-    margin-left: calc((100% - 100vw / 1.2) / 2 + 1.5rem);
-    margin-right: 0;
-  }
-}
+/* Desactivada mientras el panel esté oculto: la tarjeta queda siempre centrada. */
 
 /* ── Toggle "Repartir en turnos" (no verificados) ─────────────────────────── */
 .turnos-toggle {
@@ -4217,6 +4487,28 @@ input:focus-visible {
   user-select: none;
 }
 .turnos-toggle b { color: var(--text); font-weight: 700; }
+
+/* ── "Una sola tanda" (arriba de la lista de comunes) ─────────────────────── */
+.tanda-unica {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+  font-size: 0.82rem;
+  color: var(--muted2);
+  user-select: none;
+}
+.tanda-unica-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.tanda-unica-label input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--yellow); }
+.tanda-unica b { color: var(--text); font-weight: 700; }
+.tanda-unica-hint { padding-left: 24px; font-size: 0.76rem; color: var(--muted); }
+/* Activada: se despega del resto para que quede claro que la orden va a salir
+   distinto a lo habitual. */
+.tanda-unica--on { background: var(--yellow-lo); border-color: var(--yellow); }
 
 /* ══════════════════════════════════════════════════════════════════════════
    HOME (#step-input) — pulido visual
@@ -4851,7 +5143,7 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   /* ── Contenedores de comentarios ── */
   .tipo-panel-header { border-radius: 10px; padding: 10px 12px; gap: 8px; }
   .tp-label { font-size: 0.88rem; }
-  .tp-all, .tp-mas { padding: 7px 10px; font-size: 0.72rem; }
+  .tp-all, .tp-mas, .tp-rnd { padding: 7px 10px; font-size: 0.72rem; }
   .tp-progreso { margin-top: 8px; }
   .genero-seccion { margin: 10px 0; border-radius: 12px; }
 
@@ -4864,7 +5156,7 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
    los botones se cortan contra el borde. */
 @media (max-width: 400px) {
   .tp-count { padding: 2px 7px; }
-  .tp-all, .tp-mas { padding: 6px 9px; font-size: 0.68rem; }
+  .tp-all, .tp-mas, .tp-rnd { padding: 6px 9px; font-size: 0.68rem; }
   .tipo-panel-header { padding: 9px 10px; }
   .ig-reciente { max-width: 38vw; }
 }
@@ -4933,7 +5225,7 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   }
 
   /* Los dos botones se acortan para entrar en la misma línea. */
-  .tp-all, .tp-mas {
+  .tp-all, .tp-mas, .tp-rnd {
     padding: 6px 10px;
     border-radius: 8px;
     flex-shrink: 0;
@@ -5181,3 +5473,24 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   /* Sin el "Atrás", la barra de abajo queda sólo con Solicitar. */
   #step-ordenes .nuevo-post-bar { flex-direction: column; }
 }
+
+/* ── Modal "marcar al azar" ──────────────────────────────────────────────────
+   Card chica: es una sola pregunta (cuántos) y un número. */
+.azar-card { padding: 36px 40px; min-width: 300px; }
+.azar-input {
+  width: 140px;
+  margin: 18px auto 0;
+  display: block;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: var(--font);
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-align: center;
+}
+.azar-input:focus { outline: none; border-color: var(--yellow); }
+.azar-acciones { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+.azar-acciones .btn-primary { padding: 10px 18px; font-size: 0.85rem; }

@@ -292,11 +292,82 @@ function onCalidadChange() {
   const c = calidadElegida();
   if (c) obtenerDemora(c.nombre);
   obtenerCosto();
+  pintarGoteo();
 }
 
 function onCantidadInput() {
   $("fw-cantidad-error").classList.add("hidden");
   obtenerCosto();
+  pintarGoteo();
+}
+
+// ── Goteo por días ───────────────────────────────────────────────────────────
+// 1 = todo junto (una sola orden, como siempre). N > 1 = N órdenes iguales,
+// la primera ahora y las demás programadas cada `dias`.
+let goteoTandas = 1;
+
+function setGoteo(n, btn) {
+  goteoTandas = n;
+  document.querySelectorAll('.cuando-pill[data-goteo]')
+    .forEach(b => b.classList.toggle("cuando-pill--active", b === btn));
+  $("fw-goteo-cfg").classList.toggle("hidden", n === 1);
+  pintarGoteo();
+}
+
+function onGoteoDiasInput() { pintarGoteo(); }
+
+function goteoDias() {
+  return Math.max(1, parseInt($("fw-goteo-dias").value || "1") || 1);
+}
+
+// Reparto parejo; el resto se lo llevan las primeras tandas.
+function partesGoteo(cantidad, n) {
+  const base = Math.floor(cantidad / n);
+  const resto = cantidad - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < resto ? 1 : 0));
+}
+
+// Fechas de cada tanda: la primera ahora, las siguientes cada `dias`.
+function fechasGoteo(n, dias, desde) {
+  const p = x => String(x).padStart(2, "0");
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(desde.getTime() + i * dias * 24 * 60 * 60 * 1000);
+    out.push({
+      crm: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`,
+      label: d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }),
+    });
+  }
+  return out;
+}
+
+// Preview + el único límite duro: cada tanda tiene que llegar al mínimo del
+// producto, si no el CRM rechaza las órdenes chicas.
+function pintarGoteo() {
+  const err = $("fw-goteo-error");
+  err.classList.add("hidden");
+  if (goteoTandas === 1) return true;
+
+  const cant = parseInt($("fw-cantidad").value || "0");
+  const dias = goteoDias();
+  const partes = partesGoteo(cant, goteoTandas);
+  const fechas = fechasGoteo(goteoTandas, dias, new Date());
+  const hint = $("fw-goteo-hint");
+
+  if (cant > 0) {
+    hint.textContent = `${goteoTandas} tandas de ~${partes[0].toLocaleString("es-AR")}: ` +
+      fechas.map((f, i) => `${partes[i].toLocaleString("es-AR")} el ${f.label}`).join(" · ");
+    hint.classList.remove("hidden");
+  } else {
+    hint.textContent = "";
+  }
+
+  if (cant > 0 && cantMinActual && partes[goteoTandas - 1] < cantMinActual) {
+    err.textContent = `Cada tanda quedaría en ${partes[goteoTandas - 1].toLocaleString("es-AR")} y el mínimo del producto es ${cantMinActual.toLocaleString("es-AR")}. Subí la cantidad o usá menos tandas.`;
+    err.classList.remove("hidden");
+    return false;
+  }
+  return true;
 }
 
 async function obtenerDemora(nombre) {
@@ -314,6 +385,9 @@ async function obtenerDemora(nombre) {
 // descuenta de la campaña.
 let costoActual = null;
 let costoTimer = null;
+// Mínimo por orden del producto elegido: con goteo, cada tanda tiene que
+// llegar a este número.
+let cantMinActual = 0;
 
 function obtenerCosto() {
   clearTimeout(costoTimer);
@@ -334,7 +408,9 @@ async function _obtenerCosto() {
     });
     const d = await r.json();
     costoActual = d.costoTrafico != null ? parseFloat(d.costoTrafico) : null;
+    cantMinActual = parseInt(d.cantmin) || 0;
     $("fw-costo").value = costoActual != null ? plata(costoActual) : "—";
+    pintarGoteo();
   } catch {
     $("fw-costo").value = "—";
   }
@@ -358,6 +434,7 @@ function pedirFollowers() {
   }
   if (!prod) { $("fw-calidad-error").classList.remove("hidden"); return; }
   if (!cant || cant < 1) { $("fw-cantidad-error").classList.remove("hidden"); return; }
+  if (!pintarGoteo()) { $("fw-goteo-dias").focus(); return; }
 
   const cliente = clienteElegido();
   const venta = $("fw-campana").value;
@@ -372,6 +449,9 @@ function pedirFollowers() {
     <div class="fw-crow"><span>Perfil</span><b>@${esc(usuario)}</b></div>
     <div class="fw-crow"><span>Calidad</span><b>${esc(prod.nombre)}</b></div>
     <div class="fw-crow"><span>Cantidad</span><b>${cant.toLocaleString("es-AR")} followers</b></div>
+    <div class="fw-crow"><span>Entrega</span><b>${goteoTandas === 1
+      ? "Todo junto, ahora"
+      : `${goteoTandas} tandas cada ${goteoDias()} día${goteoDias() === 1 ? "" : "s"}`}</b></div>
     <div class="fw-crow"><span>Fondos</span><b>${cliente
       ? "Campaña de @" + esc(cliente.ig_username)
       : "Campaña #" + esc(venta)}</b></div>
@@ -390,30 +470,35 @@ async function enviarFollowers() {
   ok.disabled = true;
   ok.textContent = "Enviando…";
   try {
-    const orden = {
+    const url = `https://www.instagram.com/${usuario}/`;
+    // Sin goteo va una sola orden "ahora", igual que siempre. Con goteo van N
+    // órdenes programadas; el costo se reparte proporcional a cada tanda.
+    const partes = goteoTandas === 1 ? [cant] : partesGoteo(cant, goteoTandas);
+    const fechas = goteoTandas === 1 ? [] : fechasGoteo(goteoTandas, goteoDias(), new Date());
+    const ordenes = partes.map((parte, i) => ({
       redsocial_id: RS_ID,
       redsocial: RS_NOMBRE,
       prod: prod.nombre,
       demora: " - ",
-      url: `https://www.instagram.com/${usuario}/`,
-      costo: costoActual || 0,
-      obs: "",
-      cant_inicial: String(cant),
-      cantidad: String(cant),
-      programado: 0,
-      fecha_programada: null,
+      url,
+      costo: costoActual ? costoActual * (parte / cant) : 0,
+      obs: goteoTandas === 1 ? "" : `Goteo ${i + 1}/${goteoTandas}`,
+      cant_inicial: String(parte),
+      cantidad: String(parte),
+      programado: goteoTandas === 1 ? 0 : 1,
+      fecha_programada: goteoTandas === 1 ? null : fechas[i].crm,
       comentarios: [],
-    };
+    }));
     const r = await fetch("/api/enviar_trafico", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ordenes: [orden],
+        ordenes,
         costo_total: costoActual || 0,
         client: cliente ? cliente.ig_username : "",
         // Solo pesa cuando el perfil no es un cliente: el backend la valida.
         idventa: cliente ? "" : ($("fw-campana").value || ""),
-        url: orden.url,
+        url,
       }),
     });
     const d = await r.json().catch(() => ({}));

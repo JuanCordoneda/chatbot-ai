@@ -1191,7 +1191,7 @@ function renderRangos() {
         <span class="ax-range-name">${RANGE_LABELS[k]}</span>
         <span class="ax-range-resumen"></span>
         ${lista.length >= 2
-          ? `<button type="button" class="ax-range-add" onclick="agregarCalidad('${k}')">+ otra calidad</button>`
+          ? `<button type="button" class="ax-range-add" onclick="agregarCalidad('${k}')">+ Agregar otra calidad</button>`
           : ""}
         <button type="button" class="ax-range-del" title="Sacar ${esc(RANGE_LABELS[k])}" onclick="toggleTipo('${k}')">×</button>
       </div>`;

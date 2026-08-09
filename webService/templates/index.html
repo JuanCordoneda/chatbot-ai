@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786001300" />
+  <link rel="stylesheet" href="/static/style.css?v=1786864000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -299,7 +299,63 @@
             <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:80%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
           </div>
 
+          <!-- La elección se hace en 3 etapas, una pantalla por servicio: primero
+               los VERIFICADOS sobre toda la tanda generada; después los COMUNES,
+               eligiendo entre lo que sobró de la etapa 1; y por último (opcional)
+               la tanda de WHATSAPP sobre lo que sobró de las dos. Antes las dos
+               listas convivían en la misma pantalla y había que ir y venir con el
+               switch V/NV comentario por comentario. -->
+          <div id="etapa-stepper" class="etapa-stepper hidden">
+            <div class="etapa-paso etapa-paso--activo" data-etapa="1">
+              <span class="ep-num">1</span>
+              <span class="ep-txt"><b>Verificados</b><small class="ep-sub">de toda la tanda</small></span>
+            </div>
+            <span class="etapa-sep"></span>
+            <div class="etapa-paso" data-etapa="2">
+              <span class="ep-num">2</span>
+              <span class="ep-txt"><b>Comunes</b><small class="ep-sub">de lo que sobró</small></span>
+            </div>
+            <span class="etapa-sep"></span>
+            <div class="etapa-paso" data-etapa="3">
+              <span class="ep-num">3</span>
+              <span class="ep-txt"><b>WhatsApp</b><small class="ep-sub">opcional</small></span>
+            </div>
+          </div>
+
+          <!-- Cartel de la etapa. Es para gente que NO conoce el sistema: tiene
+               que quedar imposible confundirse de qué se está eligiendo ahora y
+               qué pasa con lo que no se elige. Lo llena renderEtapa(). -->
+          <div id="etapa-cartel" class="etapa-cartel hidden">
+            <span class="ec-paso" id="etapa-cartel-paso">PASO 1 DE 3</span>
+            <h3 class="ec-titulo" id="etapa-cartel-titulo">Elegí SOLO los comentarios verificados</h3>
+            <p class="ec-desc" id="etapa-cartel-desc"></p>
+            <p class="ec-tranqui" id="etapa-cartel-tranqui"></p>
+            <!-- El "Saltar" también acá: el de la barra de abajo obliga a
+                 scrollear toda la lista para un paso que es opcional. -->
+            <button id="btn-cartel-saltar" class="btn-publish ec-saltar hidden" onclick="saltarEtapa()">Saltar, ir a las órdenes →</button>
+          </div>
+
+          <!-- Escape a la regla de las 2 tandas: si el turno de la mañana ya
+               pasó, partir 50/50 deja la mitad programada para mañana y no hay
+               forma de mandar todo hoy. Va ARRIBA de la lista porque es una
+               decisión que se toma antes de elegir cuántos marcar. -->
+          <div class="tanda-unica hidden" id="tanda-unica-box">
+            <label class="tanda-unica-label">
+              <input type="checkbox" id="chk-tanda-unica" onchange="onTandaUnicaChange()" />
+              <span>📤 Mandar los <b>comunes</b> en <b>una sola tanda</b>, toda en este turno</span>
+            </label>
+            <span class="tanda-unica-hint" id="tanda-unica-hint">Usalo cuando el otro turno ya pasó. Sin esto se parten 50/50 y la mitad queda para el próximo turno.</span>
+          </div>
+
           <div id="lista-comentarios"></div>
+
+          <!-- Puede pasar que no sobre nada para el paso siguiente (se eligieron
+               todos). Sin este cartel la pantalla queda en blanco y parece roto. -->
+          <div id="etapa-vacia" class="etapa-vacia hidden">
+            <span class="ev-ico">📭</span>
+            <p class="ev-txt" id="etapa-vacia-txt"></p>
+            <button type="button" class="btn-ghost btn-sm" onclick="cargarMas(ETAPAS[etapa].tipo)">+ Generar más comentarios</button>
+          </div>
 
           <div id="comments-actions-bar" class="comments-actions-bar hidden">
             <div class="select-row">
@@ -312,32 +368,34 @@
               <span class="select-tip">Shift+click para elegir un bloque</span>
             </div>
 
-            <!-- Reparto por cantidad: en vez de contar y togglear V/NV de a uno,
-                 se escribe cuántos de cada tipo y el sistema los elige solo. -->
+            <!-- Reparto por cantidad: en vez de contar a mano, se escribe cuántos
+                 van EN ESTA ETAPA y el sistema los elige solo. -->
             <div class="reparto-row">
-              <span class="reparto-titulo">¿Cuántos comentarios mando?</span>
+              <span class="reparto-titulo" id="reparto-titulo">¿Cuántos verificados mando?</span>
               <label class="reparto-campo">
-                <input id="cant-verif" class="reparto-input" type="number" min="0" value="0" placeholder="0" />
-                <span class="reparto-tag reparto-tag--v">verificados</span>
+                <input id="cant-etapa" class="reparto-input" type="number" min="0" value="0" placeholder="0" />
+                <span class="reparto-tag reparto-tag--v" id="reparto-tag">verificados</span>
               </label>
-              <label class="reparto-campo">
-                <input id="cant-noverif" class="reparto-input" type="number" min="0" value="0" placeholder="0" />
-                <span class="reparto-tag reparto-tag--nv">comunes</span>
-              </label>
-              <button class="btn-ghost btn-sm" onclick="repartirPorTipo()">🎲 Elegirlos solo</button>
+              <button class="btn-ghost btn-sm" onclick="repartirEtapa()">🎲 Elegirlos solo</button>
               <span class="reparto-hint" id="reparto-hint">Elige al azar cuáles de la lista y los marca por vos</span>
             </div>
 
-            <div class="turnos-toggle" id="turnos-toggle" title="Los comentarios comunes (no verificados) no se pueden mandar todos juntos: se parten en 2 tandas iguales. Una sale ahora y la otra queda programada para el próximo turno (10:00 si es de tarde, 19:00 si es de mañana). Máximo 80 por día.">
+            <div class="turnos-toggle hidden" id="turnos-toggle" title="Los comentarios comunes (no verificados) no se pueden mandar todos juntos: se parten en 2 tandas iguales. Una sale ahora y la otra queda programada para el próximo turno (10:00 si es de tarde, 19:00 si es de mañana). Máximo 80 por día.">
               <span>⏰ Los <b>comunes</b> salen siempre en <b>2 tandas iguales</b>: la mitad ahora y la mitad programada para el próximo turno. Máximo 80 por día (40 + 40).</span>
             </div>
             <div id="turnos-msg" class="error hidden"></div>
-            <!-- Solo publicar. El reparto por WhatsApp es la ETAPA 2 y aparece
-                 después, en la pantalla de resultado: tenerlo acá al lado hacía
-                 que las dos acciones compitieran en el mismo momento. -->
-            <button id="btn-publicar" class="btn-publish" onclick="publicar()" disabled>
-              Publicar seleccionados
-            </button>
+
+            <!-- Barra pegada al fondo: con 80 comentarios en pantalla, el botón
+                 de avanzar quedaba a un scroll largo de distancia y no se veía
+                 cuántos llevabas elegidos mientras marcabas. -->
+            <div class="etapa-nav">
+              <button id="btn-etapa-volver" class="btn-ghost btn-sm hidden" onclick="volverEtapa()">← Volver al paso anterior</button>
+              <span class="etapa-nav-resumen" id="etapa-nav-resumen"></span>
+              <button id="btn-etapa-saltar" class="btn-ghost btn-sm hidden" onclick="saltarEtapa()">Saltar, ir a las órdenes</button>
+              <button id="btn-publicar" class="btn-publish" onclick="avanzarEtapa()" disabled>
+                Siguiente: comunes →
+              </button>
+            </div>
           </div>
         </div>
 
@@ -467,7 +525,7 @@
             </div>
             <div class="orden-field orden-field--qty">
               <label class="orden-label">Cant. Final</label>
-              <input type="number" id="orden-cantidad" class="orden-input" placeholder="1000" min="1" oninput="onCantidadInput()" />
+              <input type="number" id="orden-cantidad" class="orden-input" placeholder="1000" min="1" oninput="onCantidadInput()" onblur="onCantidadBlur()" />
               <button type="button" id="btn-roll-cantidad" onclick="rollCantidad()" title="Elegir una cantidad al azar dentro del rango del cliente" style="display:none;margin-top:6px;align-self:flex-start;background:var(--surface3);border:1px solid var(--border2);color:var(--text);border-radius:8px;padding:5px 10px;font-size:.76rem;cursor:pointer;">🎲 Al azar</button>
               <span id="orden-cantidad-hint" class="orden-field-hint hidden"></span>
               <span id="orden-cantidad-error" class="orden-field-error hidden">Cantidad inválida</span>
@@ -514,7 +572,16 @@
                 <button type="button" class="cuando-pill" id="intervalo-unidad-dias" onclick="selectIntervaloUnidad('dias')">Días</button>
               </div>
 
-              <input type="number" id="intervalo-input" class="orden-input intervalo-input" value="60" min="1" oninput="clearFieldError('intervalo-input')" />
+              <!-- Atajos: el 99% de las veces es uno de estos tres. Escribir a
+                   mano queda para el caso raro. -->
+              <div class="intervalo-presets" id="intervalo-presets"></div>
+
+              <div class="intervalo-campo">
+                <input type="number" id="intervalo-input" class="orden-input intervalo-input" value="60" min="45"
+                       oninput="clearFieldError('intervalo-input'); _syncIntervaloPresets()"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarIntervalo();}" />
+                <span class="intervalo-unidad" id="intervalo-unidad-txt">minutos</span>
+              </div>
               <p id="intervalo-hint" class="intervalo-hint">Ingresá el intervalo en minutos (mínimo 45).</p>
               <span id="intervalo-input-error" class="orden-field-error hidden"></span>
 
@@ -530,6 +597,11 @@
             <label class="orden-label">Observaciones <span class="orden-label-opt">— opcional</span></label>
             <textarea id="orden-obs" class="orden-textarea" placeholder="Notas para el trafficker..."></textarea>
           </div>
+
+          <!-- Aviso de orden repetida: mismo producto, link y cantidad que una
+               que ya está en la lista. No bloquea (a veces se repite a
+               propósito), pide confirmar. -->
+          <div id="orden-dup-alerta" class="orden-dup-alerta hidden"></div>
 
           <!-- Botón -->
           <button class="orden-btn-agregar" onclick="agregarOrden()">
@@ -580,9 +652,10 @@
 
   <!-- Panel lateral de seleccionados -->
   <div id="panel-seleccionados" class="panel-seleccionados hidden">
-    <div class="panel-header">
+    <div class="panel-header" onclick="togglePanelSeleccionados()" title="Mostrar/ocultar la lista">
       <span class="panel-title">Seleccionados</span>
       <span class="panel-count" id="panel-count">0 / 20</span>
+      <span class="panel-toggle" id="panel-toggle" aria-hidden="true">▸</span>
     </div>
     <div id="panel-lista" class="panel-lista"></div>
   </div>
@@ -601,25 +674,8 @@
     </div>
   </div>
 
-  <!-- ETAPA 2, entre elegir los comentarios y armar las órdenes. Se ofrece acá
-       y no al final porque es el momento en que el vendedor todavía tiene los
-       comentarios en la cabeza; después de las órdenes ya cambió de tarea. -->
-  <div id="wa-paso-overlay" class="overlay hidden">
-    <div class="overlay-card wa-paso-card">
-      <p class="overlay-title">¿Querés enviar los comentarios por WhatsApp?</p>
-      <p class="intervalo-subtitle" id="wa-paso-sub">
-        Los que acabás de elegir, uno por mensaje, listos para repartir.
-      </p>
-      <div class="wa-paso-actions">
-        <button type="button" class="header-action-btn" onclick="seguirSinWhatsapp()">
-          No, seguir a las órdenes
-        </button>
-        <button type="button" class="wa-cartel-btn" onclick="repartirYSeguir()">
-          <span aria-hidden="true">📲</span> Repartir por WhatsApp
-        </button>
-      </div>
-    </div>
-  </div>
+  <!-- El paso de WhatsApp dejó de ser un overlay: es la ETAPA 3 de la selección,
+       con su propia lista (lo que sobró de las etapas 1 y 2) y es opcional. -->
 
   <!-- Modal: repartir por WhatsApp -->
   <div id="repartir-overlay" class="overlay hidden">
@@ -650,13 +706,9 @@
 
       <div id="repartir-lista" class="repartir-lista"></div>
 
-      <!-- El bot manda los mensajes de una, pero necesita configuración y el
-           ritual diario de la ventana de 24h. Va plegado: es la alternativa,
-           no el camino por defecto. -->
-      <button type="button" class="repartir-toggle" id="repartir-toggle" onclick="toggleBot()">
-        ⚡ ¿Preferís que te los mande el bot de una? <span class="repartir-toggle-chev">▾</span>
-      </button>
-
+      <!-- El envío por bot quedó fuera de la pantalla: necesitaba configuración y
+           el ritual diario de la ventana de 24h de Meta. El bloque sigue acá
+           (oculto) porque el JS lo usa; sin el toggle no hay forma de abrirlo. -->
       <div class="repartir-bulk hidden" id="repartir-bulk">
         <div id="repartir-ventana" class="repartir-ventana hidden"></div>
 
@@ -688,16 +740,43 @@
         <div id="repartir-bulk-msg" class="repartir-bulk-msg hidden"></div>
       </div>
 
+      <!-- "Cerrar" vuelve a la lista de comentarios de WhatsApp (paso 3), NO a
+           las órdenes: cerrar el modal no puede decidir por vos que terminaste.
+           Para seguir está el botón de abajo, explícito. -->
       <div class="intervalo-actions">
-        <button type="button" class="header-action-btn" onclick="cerrarRepartir()">Cerrar</button>
-        <button type="button" class="orden-btn-agregar intervalo-btn-confirmar" onclick="marcarTodoRepartido()">Marcar todo como enviado</button>
+        <button type="button" class="header-action-btn" onclick="cerrarRepartir()">← Cerrar y volver a elegir</button>
+      </div>
+
+      <div class="repartir-continuar-row">
+        <button type="button" class="btn-publish repartir-continuar" onclick="continuarAOrdenes()">
+          Listo, continuar a las órdenes →
+        </button>
+        <span class="repartir-continuar-hint">
+          Podés seguir aunque no hayas mandado nada por WhatsApp: es un paso opcional.
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- "Marcar al azar": antes marcaba una cantidad adivinada (la de la ficha del
+       cliente o lo que ya hubiera tildado). Ahora se pregunta cuántos, que es lo
+       que cambia de post en post. -->
+  <div id="azar-overlay" class="overlay hidden">
+    <div class="overlay-card azar-card">
+      <p class="overlay-title">¿Cuántos querés marcar al azar?</p>
+      <p class="intervalo-subtitle" id="azar-sub">Sobre 0 de la lista</p>
+      <input id="azar-cant" class="azar-input" type="number" min="1" value="1" />
+      <span id="azar-error" class="orden-field-error hidden">Poné un número dentro de la lista</span>
+      <div class="azar-acciones">
+        <button type="button" class="btn-ghost btn-sm" onclick="cerrarAzar()">Cancelar</button>
+        <button type="button" class="btn-primary btn-sm" onclick="confirmarAzar()">🎲 Marcar</button>
       </div>
     </div>
   </div>
 
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
-  <script src="/static/header-menu.js?v=1786001300"></script>
-  <script src="/static/app.js?v=1786001300"></script>
+  <script src="/static/header-menu.js?v=1786864000"></script>
+  <script src="/static/app.js?v=1786864000"></script>
 </body>
 </html>

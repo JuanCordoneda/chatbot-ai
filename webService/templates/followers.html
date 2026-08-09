@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786001300" />
+  <link rel="stylesheet" href="/static/style.css?v=1786864000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -28,6 +28,9 @@
     .fw-main .ig-btn { margin-top: 6px; }
 
     /* Resultado y confirmación */
+    .fw-goteo-cfg { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .fw-goteo-dias { width: 90px; }
+    .fw-goteo-cfg .orden-field-hint { flex: 1 1 220px; }
     .fw-confirm-card { max-width: 460px; text-align: left; }
     .fw-confirm-body { margin: 16px 0 20px; display: grid; gap: 9px; }
     .fw-crow { display: flex; justify-content: space-between; gap: 16px; font-size: .9rem; }
@@ -179,6 +182,27 @@
             </div>
           </div>
 
+          <!-- Goteo: en vez de una sola orden por el total, N órdenes iguales
+               programadas cada X días. Meter 5000 followers de golpe se nota;
+               repartidos parece crecimiento. -->
+          <div class="orden-row">
+            <div class="orden-field orden-field--grow">
+              <label class="orden-label">Entrega</label>
+              <div class="cuando-pills">
+                <button type="button" class="cuando-pill cuando-pill--active" data-goteo="1" onclick="setGoteo(1, this)">⚡ Todo junto</button>
+                <button type="button" class="cuando-pill" data-goteo="3" onclick="setGoteo(3, this)">◑ Goteo en 3</button>
+                <button type="button" class="cuando-pill" data-goteo="5" onclick="setGoteo(5, this)">◔ Goteo en 5</button>
+                <button type="button" class="cuando-pill" data-goteo="7" onclick="setGoteo(7, this)">◕ Goteo en 7</button>
+              </div>
+              <div id="fw-goteo-cfg" class="fw-goteo-cfg hidden">
+                <label class="orden-label" for="fw-goteo-dias">Cada cuántos días</label>
+                <input type="number" id="fw-goteo-dias" class="orden-input fw-goteo-dias" min="1" max="60" value="1" oninput="onGoteoDiasInput()" />
+                <span id="fw-goteo-hint" class="orden-field-hint"></span>
+              </div>
+              <span id="fw-goteo-error" class="orden-field-error hidden"></span>
+            </div>
+          </div>
+
           <!-- Solo cuando el perfil no es un cliente cargado: sin esto, el gasto
                se descuenta de la campaña por defecto de la cuenta. -->
           <div id="fw-campana-row" class="orden-row hidden">
@@ -235,7 +259,7 @@
   </div>
 
   <div id="copy-toast" class="copy-toast"></div>
-  <script src="/static/header-menu.js?v=1786001300"></script>
-  <script src="/static/followers.js?v=1786001300"></script>
+  <script src="/static/header-menu.js?v=1786864000"></script>
+  <script src="/static/followers.js?v=1786864000"></script>
 </body>
 </html>
