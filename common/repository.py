@@ -799,6 +799,30 @@ def update_account_crm_password(account_id: int, plaintext: str) -> None:
             a.crm_password_enc = crypto.encrypt(plaintext)
 
 
+def guardar_idvendedor(account_id: int, idvendedor: str) -> bool:
+    """Guarda el ID de vendedor que el CRM le reconoce a esta cuenta.
+
+    Se llama al loguearse: el CRM lo dice en el listado de campañas, y tenerlo en
+    la base evita depender de que ese parseo funcione justo cuando el vendedor
+    manda una orden. Si no lo tuviéramos, una cuenta sin campañas visibles no
+    podría cargar nada a su nombre.
+
+    Devuelve True si cambió algo (para poder loguearlo sin ensuciar cada login).
+    """
+    idvendedor = (idvendedor or "").strip()
+    if not db_available() or not account_id or not idvendedor:
+        return False
+    with session_scope() as s:
+        a = s.query(Account).filter(Account.id == account_id).first()
+        if not a or (a.crm_idvendedor or "") == idvendedor:
+            return False
+        anterior = a.crm_idvendedor
+        a.crm_idvendedor = idvendedor
+        print(f"[cuenta {account_id}] idvendedor del CRM: "
+              f"{anterior or '(vacío)'} → {idvendedor}", flush=True)
+        return True
+
+
 def list_vendedores() -> list[dict]:
     """Todas las cuentas-vendedor (sin secretos). Para el panel del admin."""
     if not db_available():

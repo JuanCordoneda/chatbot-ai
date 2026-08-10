@@ -321,6 +321,53 @@ def _growi_login_with(cfg, verify=True, account_id=None):
     )
 
 
+def _idvendedor_del_crm(account_id):
+    """El ID de vendedor que el CRM le reconoce a esta cuenta.
+
+    Sale del listado de campañas: cada campaña viene con `data-idvendedor`, y ese
+    listado está acotado al vendedor logueado (verificado contra el CRM real: una
+    cuenta no ve las campañas de otra). O sea que el id de sus campañas ES el
+    suyo. Se toma el más frecuente por si alguna fila viniera incompleta.
+
+    Es un solo POST a propósito: `_traer_ventas` además resuelve el perfil de IG
+    de cada campaña, que son ~120 pedidos, y esto corre en el login.
+
+    Devuelve "" si no se pudo averiguar; nunca lanza.
+    """
+    try:
+        resp = _growi_request(
+            "POST", "/paginas/traer_campanas.php", account_id=account_id, timeout=30,
+            data={"antiguas": "0"},
+            headers={"referer": f"{_crm_base(account_id)}/paginas/trafico.php",
+                     "x-requested-with": "XMLHttpRequest"},
+        )
+        resp.raise_for_status()
+        ids = [v["idvendedor"] for v in _parse_ventas(resp.text) if v.get("idvendedor")]
+        if not ids:
+            print(f"[login] el CRM no devolvió idvendedor para la cuenta {account_id} "
+                  f"(¿sin campañas activas?)", flush=True)
+            return ""
+        from collections import Counter
+        return Counter(ids).most_common(1)[0][0]
+    except Exception as e:
+        print(f"[login] no pude averiguar el idvendedor de la cuenta {account_id}: {e!r}",
+              flush=True)
+        return ""
+
+
+def _refrescar_idvendedor(account_id):
+    """Guarda en la cuenta el idvendedor que dice el CRM. Silencioso ante
+    cualquier error: que falle esto no puede impedirle a nadie entrar."""
+    if _repo is None or not account_id:
+        return
+    try:
+        idv = _idvendedor_del_crm(account_id)
+        if idv:
+            _repo.guardar_idvendedor(account_id, idv)
+    except Exception as e:
+        print(f"[login] no pude guardar el idvendedor de {account_id}: {e!r}", flush=True)
+
+
 def _growi_validate_credentials(cfg):
     """Chequea las credenciales contra el CRM y distingue los dos "no" posibles:
 
@@ -788,6 +835,13 @@ def login():
                 session["account_id"] = user["account_id"]
                 session["username"] = user["username"]
                 session["is_admin"] = user["is_admin"]
+                # Al entrar, dejamos anotado en la cuenta el ID de vendedor que
+                # el CRM le reconoce. Así el envío de órdenes lo lee de la base y
+                # no depende de volver a parsear las campañas justo cuando el
+                # vendedor aprieta Publicar. Va acá y no en _authenticate para
+                # que valga por cualquier vía de login (Growi o usuario local).
+                if user["account_id"]:
+                    _refrescar_idvendedor(user["account_id"])
                 destino = (request.form.get("next") or "").strip()
                 if destino.startswith("/") and not destino.startswith("//"):
                     return redirect(destino)
@@ -1961,9 +2015,16 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
     else:
         env_venta, env_vendedor = "", ""
 
+    # El idvendedor de la CUENTA manda. Se guarda al loguearse (ver
+    # _refrescar_idvendedor) leyéndolo del propio CRM, así que es su valor real y
+    # no depende de que el parseo de campañas funcione justo en el envío. El de
+    # la campaña queda como respaldo: son el mismo número, porque el listado de
+    # campañas está acotado al vendedor logueado.
+    idvendedor_cuenta = (cfg.get("crm_idvendedor") or "").strip()
+
     default = {
         "idventa": cfg.get("crm_idventa") or env_venta,
-        "idvendedor": cfg.get("crm_idvendedor") or env_vendedor,
+        "idvendedor": idvendedor_cuenta or env_vendedor,
         "origen": "default",
         "detalle": "campaña por defecto de la cuenta",
         "saldo": None,
@@ -1986,7 +2047,7 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
         if v:
             return {
                 "idventa": v["idventa"],
-                "idvendedor": v["idvendedor"] or default["idvendedor"],
+                "idvendedor": idvendedor_cuenta or v["idvendedor"] or default["idvendedor"],
                 "origen": "elegida",
                 "detalle": f"campaña #{v['idventa']} ({v['nombre']}) elegida en el envío",
                 "saldo": _venta_saldo(v),
@@ -2005,7 +2066,8 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
             if v or not ventas:
                 return {
                     "idventa": manual,
-                    "idvendedor": (v or {}).get("idvendedor") or (cli or {}).get("crm_idvendedor") or default["idvendedor"],
+                    "idvendedor": (idvendedor_cuenta or (v or {}).get("idvendedor")
+                                   or (cli or {}).get("crm_idvendedor") or default["idvendedor"]),
                     "origen": "manual",
                     "detalle": f"campaña #{manual} asignada al cliente",
                     "saldo": _venta_saldo(v) if v else None,
@@ -2017,7 +2079,7 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
     if v:
         return {
             "idventa": v["idventa"],
-            "idvendedor": v["idvendedor"] or default["idvendedor"],
+            "idvendedor": idvendedor_cuenta or v["idvendedor"] or default["idvendedor"],
             "origen": "auto",
             "detalle": f"última campaña de @{ig} (#{v['idventa']}, {v['nombre']})",
             "saldo": _venta_saldo(v),
