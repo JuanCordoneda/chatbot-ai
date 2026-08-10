@@ -1067,9 +1067,9 @@ def publicar():
     cliente_ig  = data.get("client")
 
     if not post_url or not comentarios:
-        return jsonify({"error": "Faltan datos"}), 400
+        return jsonify({"error": "Falta el link del post o los comentarios a publicar."}), 400
     if not ordenes:
-        return jsonify({"error": "Sin órdenes"}), 400
+        return jsonify({"error": "No hay ninguna orden para enviar."}), 400
 
     # Cada orden de comentarios usa su propia lista (verificados / no verificados)
     # y se baraja respetando los encabezados de género; si no trae, cae a la
@@ -1092,16 +1092,7 @@ def publicar():
         )
     except Exception as e:
         print(f"[publicar] error: {e!r}", flush=True)
-        if isinstance(e, (CuentaSinCRM, GrowiAuthError)):
-            # Estos ya traen un mensaje escrito para el vendedor y explican qué
-            # hacer; pasarlos por _mensaje_amigable los convertiría en un
-            # "Ocurrió un error inesperado" que no ayuda a nadie.
-            error = str(e)
-        elif _es_error_de_red(e):
-            error = ("No se puede conectar con el CRM de Growi en este momento. "
-                     "Es un problema de conexión, no de tus datos.")
-        else:
-            error = _mensaje_amigable(e)
+        error = _mensaje_de_error_de_envio(e)
         # No llegó a salir: en vez de perder los comentarios ya generados, la
         # orden queda en cola y un worker la reintenta sola. Solo si el envío es
         # seguro de repetir (si pudo haber entrado, se informa y listo).
@@ -1673,6 +1664,34 @@ def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", idventa_elegida=
         return data, resp.text, resp.status_code
 
 
+def _mensaje_de_error_de_envio(e):
+    """Traduce una excepción del envío a un mensaje para el vendedor.
+
+    CuentaSinCRM y GrowiAuthError ya vienen escritos para él y dicen qué hacer.
+    Los de red se resumen sin volcarle el traceback con la IP y el puerto del
+    proxy, que es lo que se veía antes en pantalla.
+    """
+    if isinstance(e, CuentaSinCRM):
+        return str(e)
+    if isinstance(e, GrowiAuthError):
+        # El texto de GrowiAuthError está escrito para el admin (menciona la
+        # ruta del CRM y el proxy). Al vendedor se le dice lo que le sirve; el
+        # detalle técnico ya quedó en el log.
+        print(f"[envío] login rechazado por el CRM: {e}", flush=True)
+        return ("Growi no está aceptando tu sesión. Probá cerrar sesión y volver "
+                "a entrar; si sigue igual, avisale al administrador.")
+    if _envio_pudo_haber_entrado(e) and _es_error_de_red(e):
+        return ("Se cortó la conexión esperando la respuesta del CRM. "
+                "Revisá en Growi si la orden entró antes de volver a mandarla.")
+    if _es_error_de_red(e):
+        return ("No se puede conectar con el CRM de Growi en este momento. "
+                "Es un problema de conexión, no de tus datos: probá de nuevo "
+                "en unos minutos.")
+    print(f"[envío] error no contemplado: {e!r}", flush=True)
+    return ("No pudimos enviar la orden al CRM. Si vuelve a pasar, avisale al "
+            "administrador.")
+
+
 def _registrar_uso_de_ordenes(accion, ordenes, crm, *, post_url=None, cliente_ig=None):
     """Registra el consumo de una tanda YA ENVIADA.
 
@@ -1721,7 +1740,8 @@ def enviar_trafico():
             username=session.get("username"),
         )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[enviar_trafico] error: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_de_error_de_envio(e)}), 500
 
     # El consumo se registra RECIÉN ACÁ, con la orden ya aceptada. Antes se
     # grababa antes de mandar: si el CRM rechazaba o se caía la red, la cantidad

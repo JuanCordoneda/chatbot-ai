@@ -3922,11 +3922,16 @@ function renderResultado(data, nComentarios, nTrafico) {
   // Programadas: las que no salen ya. Es lo primero que pregunta el vendedor.
   const programadas = ordenes.filter(o => o.cuando !== "ahora").length;
 
-  const fallo = errores.length > 0;
+  // La orden no salió PERO quedó guardada y un worker la reintenta sola. No es
+  // un fallo: si se muestra en rojo, el vendedor la vuelve a cargar a mano y
+  // termina duplicada cuando la cola la manda.
+  const encolada = !!(rc && rc.encolada);
+  const fallo = errores.length > 0 && !encolada;
   // Que el CRM acepte MENOS órdenes de las que mandamos es el caso peligroso:
   // antes se perdía entre los mensajes y el vendedor creía que salió todo.
-  const faltan = !fallo && insertadas > 0 && insertadas < enviadas;
-  const estado = fallo ? { clase: "bad", ico: "✕", txt: "No se pudo enviar" }
+  const faltan = !fallo && !encolada && insertadas > 0 && insertadas < enviadas;
+  const estado = encolada ? { clase: "warn", ico: "⏳", txt: "En cola — se envía sola" }
+    : fallo ? { clase: "bad", ico: "✕", txt: "No se pudo enviar" }
     : faltan ? { clase: "warn", ico: "!", txt: `Se enviaron ${insertadas} de ${enviadas}` }
     : { clase: "ok", ico: "✓", txt: "Enviado correctamente" };
 
@@ -3950,8 +3955,8 @@ function renderResultado(data, nComentarios, nTrafico) {
     </div>
 
     ${errores.length ? `<div class="res-bloque res-bloque--err">
-      <div class="res-bloque-t">No se pudo completar</div>
-      ${errores.map(e => `<div class="res-msg res-msg--bad"><span class="res-msg-ico">❌</span><span class="res-msg-txt">${escapeHtml(e)}</span></div>`).join("")}
+      <div class="res-bloque-t">${encolada ? "Todavía no salió" : "No se pudo completar"}</div>
+      ${errores.map(e => `<div class="res-msg res-msg--bad"><span class="res-msg-ico">${encolada ? "⏳" : "❌"}</span><span class="res-msg-txt">${escapeHtml(e)}</span></div>`).join("")}
     </div>` : ""}
 
     ${faltan ? `<div class="res-bloque res-bloque--err">
