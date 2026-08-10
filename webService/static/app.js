@@ -1517,6 +1517,25 @@ function _marcarFinDeLista() {
 // Arma el bloque único: el link del post y después cada comentario con su
 // propio wa.me para reenviarlo. Es texto plano, así que se puede mandar por el
 // mismo deep link de siempre — sin bot, sin ventana de 24h, sin lista blanca.
+// Los emoji viajan bien DENTRO del link (van percent-encoded: %F0%9F%98%82) pero
+// se rompen en el texto plano del mensaje, que llega con el rombo de "carácter
+// desconocido". Pasa con todo lo que está fuera del plano básico de Unicode —
+// emoji y poco más— porque son pares suplentes; las tildes y la ñ son de 2 bytes
+// y sobreviven, así que NO se tocan.
+//
+// Se limpian solo en la línea de vista previa. El comentario que se reenvía sale
+// del link, o sea que llega completo, con emoji y todo.
+function _sinEmoji(t) {
+  const limpio = String(t || "")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{1F004}-\u{1F9FF}\u{10000}-\u{10FFFF}]/gu, "")
+    .replace(/[\u{FE0F}\u{200D}]/gu, "")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  // Un comentario que era SOLO emoji quedaría vacío: ahí conviene el rombo feo
+  // antes que una línea en blanco sin contexto.
+  return limpio || String(t || "");
+}
+
 function _textoTodoEnUno() {
   const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
   // El encabezado también lleva su link de reenvío: es el primer mensaje que va
@@ -1540,7 +1559,7 @@ function _textoTodoEnUno() {
     // aplica su propio formato y mete word-joiners invisibles en el medio. Con
     // el encabezado en su renglón aparte el texto llega tal cual se armó.
     partes.push(`${n + 1} de ${coms.length}\n` +
-                `${it.texto}\n\n` +
+                `${_sinEmoji(it.texto)}\n\n` +
                 `-> https://wa.me/?text=${encodeURIComponent(it.texto)}`);
   });
   return partes.join("\n\n");

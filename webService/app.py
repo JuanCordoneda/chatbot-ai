@@ -52,9 +52,12 @@ app.config.update(
     SESSION_REFRESH_EACH_REQUEST=False,
 )
 
-# Cookie aparte de la sesión: sólo guarda el nombre de usuario para precargar
-# el formulario de login. Nunca guarda la contraseña (esa la completa el
-# gestor del navegador); sobrevive al logout y al vencimiento de la sesión.
+# Cookie aparte de la sesión: guarda usuario Y contraseña para precargar el
+# formulario de login, así al vencer la sesión alcanza con apretar Enter.
+# Va cifrada con Fernet (misma DB_ENCRYPTION_KEY que el resto) y HttpOnly, de
+# modo que ni el JS de la página ni quien mire el disco del cliente ve la
+# credencial en claro; el descifrado pasa sólo en el servidor. Sobrevive al
+# logout y al vencimiento de la sesión.
 REMEMBER_USER_COOKIE = "GROWI_LAST_USER"
 REMEMBER_USER_DAYS = 365
 
@@ -951,16 +954,38 @@ def require_admin(fn):
     return wrapper
 
 
-def _recordar_usuario(resp, username):
-    """Deja el usuario anotado en una cookie propia para precargar el login."""
+def _recordar_usuario(resp, username, password):
+    """Deja usuario+contraseña cifrados en una cookie propia para precargar el
+    login. Si algo falla al cifrar (falta la clave), no rompe el login: se
+    sigue sin recordar."""
+    try:
+        from common.crypto import encrypt as _encrypt
+        blob = _encrypt(json.dumps({"u": username, "p": password}))
+    except Exception as e:
+        print(f"[login] no pude recordar credenciales ({e})", flush=True)
+        return resp
     resp.set_cookie(
-        REMEMBER_USER_COOKIE, username,
+        REMEMBER_USER_COOKIE, blob,
         max_age=REMEMBER_USER_DAYS * 24 * 3600,
-        httponly=False,          # el form lo lee del server, pero no es un secreto
+        httponly=True,           # el JS de la página no puede leerla
         samesite="Lax",
         secure=app.config["SESSION_COOKIE_SECURE"],
     )
     return resp
+
+
+def _credenciales_recordadas():
+    """(usuario, contraseña) de la cookie, o ('', '') si no hay/no descifra."""
+    blob = request.cookies.get(REMEMBER_USER_COOKIE, "")
+    if not blob:
+        return "", ""
+    try:
+        from common.crypto import decrypt as _decrypt
+        datos = json.loads(_decrypt(blob) or "{}")
+        return datos.get("u", ""), datos.get("p", "")
+    except Exception:
+        # Cookie vieja (formato anterior), corrupta o cifrada con otra clave.
+        return "", ""
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -969,9 +994,10 @@ def login():
         return redirect(url_for("index"))
     error = None
     error_kind = "error"
-    # Si venció la sesión, el campo ya viene con el último usuario: sólo falta
-    # la contraseña (que autocompleta el navegador) y Enter.
-    username = request.cookies.get(REMEMBER_USER_COOKIE, "")
+    # Si venció la sesión, los campos ya vienen con la credencial recordada:
+    # el usuario sólo aprieta Enter.
+    username, password_guardada = _credenciales_recordadas()
+    olvidar = False
     status = 200
     if request.method == "POST":
         rate_key = _login_rate_key()
@@ -1002,12 +1028,16 @@ def login():
                 destino = (request.form.get("next") or "").strip()
                 if not (destino.startswith("/") and not destino.startswith("//")):
                     destino = url_for("index")
-                return _recordar_usuario(redirect(destino), user["username"])
+                return _recordar_usuario(redirect(destino), username, password)
             # Solo cuenta como intento de fuerza bruta la credencial equivocada.
             # Pendiente / restringido / CRM caído son credenciales válidas o un
             # problema nuestro: no penalizan al usuario.
             if auth_error is None:
                 _login_register_fail(rate_key)
+                # La credencial guardada ya no sirve (la cambió en el CRM):
+                # borramos la cookie para no reintentar siempre la vieja.
+                olvidar = True
+                password_guardada = ""
             # auth_error explica el caso (pendiente de habilitación / acceso
             # restringido); sin él es un login fallido común.
             error = auth_error or MSG_CREDENCIALES
@@ -1015,9 +1045,12 @@ def login():
             error_kind = "info" if error == MSG_PENDIENTE else "error"
     resp = make_response(render_template("login.html", error=error, error_kind=error_kind,
                                          username=username,
+                                         password=password_guardada,
                                          next=(request.values.get("next") or "")), status)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
+    if olvidar:
+        resp.delete_cookie(REMEMBER_USER_COOKIE, samesite="Lax")
     return resp
 
 
