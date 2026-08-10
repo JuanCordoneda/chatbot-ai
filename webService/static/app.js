@@ -2518,23 +2518,86 @@ function onTandaUnicaChange() {
 
 
 
-function _fmtFechaCRM(d) {
-  const p = x => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+// Hora de Argentina, siempre. Antes se formateaba con getHours()/getDate(), o
+// sea con el huso del dispositivo: un celu configurado en otra zona programaba
+// la tanda a una hora que no era la del CRM. Argentina no tiene horario de
+// verano, así que UTC-3 es fijo.
+const _AR_TZ = "America/Argentina/Buenos_Aires";
+const _AR_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: _AR_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+});
+
+// Componentes del reloj de pared argentino para un instante dado.
+function _partesAR(instante) {
+  const p = {};
+  for (const parte of _AR_FMT.formatToParts(instante)) p[parte.type] = parte.value;
+  return { y: +p.year, mo: +p.month, d: +p.day, h: +p.hour % 24, mi: +p.minute };
 }
-function _labelFecha(d) {
-  return d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+
+// El instante correspondiente a una hora de pared argentina.
+function _instanteAR(y, mo, d, h, mi) {
+  const p = x => String(x).padStart(2, "0");
+  return new Date(Date.parse(`${y}-${p(mo)}-${p(d)}T${p(h)}:${p(mi)}:00-03:00`));
+}
+
+function _fmtFechaCRM(instante) {
+  const a = _partesAR(instante);
+  const p = x => String(x).padStart(2, "0");
+  return `${a.y}-${p(a.mo)}-${p(a.d)} ${p(a.h)}:${p(a.mi)}`;
+}
+function _labelFecha(instante) {
+  return instante.toLocaleString("es-AR", {
+    dateStyle: "short", timeStyle: "short", timeZone: _AR_TZ });
+}
+
+// Diferencia entre el reloj del servidor (hora AR) y el de este dispositivo.
+// Las tandas se programaban con `new Date()` a secas, o sea con la hora del
+// celular del vendedor: con el teléfono en otra zona horaria (o con la hora
+// corrida) la tanda quedaba programada a una hora que no era. El servidor es la
+// única referencia que comparten todos.
+let _offsetRelojMs = 0;
+
+async function _sincronizarReloj() {
+  try {
+    const r = await fetch("/api/server_time_ar");
+    const d = await r.json();
+    // "2026-08-09 21:40" en hora AR (UTC-3).
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(d.ymdhmAR || "");
+    if (!m) return;
+    const servidor = Date.parse(
+      `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00-03:00`);
+    if (!isNaN(servidor)) {
+      _offsetRelojMs = servidor - Date.now();
+      if (Math.abs(_offsetRelojMs) > 120000) {
+        console.warn(`[reloj] este dispositivo está ${Math.round(_offsetRelojMs / 60000)} ` +
+                     `min corrido respecto del servidor; las programadas usan la hora del servidor`);
+      }
+    }
+  } catch { /* sin servidor, seguimos con el reloj local */ }
+}
+
+// "Ahora" según el servidor. Devuelve un Date en la zona del dispositivo cuyo
+// instante es el correcto; _fmtFechaCRM lo formatea con getHours() local, así
+// que solo es exacto si el dispositivo está en hora AR. Para el caso real
+// (todos en Argentina, con la hora del celu corrida o el huso mal puesto) el
+// offset corrige la diferencia.
+function _ahoraServidor() {
+  return new Date(Date.now() + _offsetRelojMs);
 }
 // Devuelve [spec1, spec2] con {cuando, cuandoLabel, fechaProgramada}. spec1 es la
 // tanda que va primero (y recibe el comentario de más si la cantidad es impar).
 function _turnosPlan() {
-  const now = new Date();
-  const min = now.getHours() * 60 + now.getMinutes();
+  // Todo el razonamiento de turnos va en hora AR del SERVIDOR: es la que ve el
+  // CRM y la única que comparten todos los vendedores.
+  const now = _ahoraServidor();
+  const ar = _partesAR(now);
+  const min = ar.h * 60 + ar.mi;
   const MANANA = 9 * 60, TARDE = 15 * 60 + 30, NOCHE = 23 * 60;   // 09:00 / 15:30 / 23:00
-  const aHora = (h, m, addDay = 0) => {
-    const d = new Date(now); d.setHours(h, m, 0, 0); if (addDay) d.setDate(d.getDate() + addDay); return d;
-  };
-  const prox = (h) => { const d = aHora(h, 0); if (d <= now) d.setDate(d.getDate() + 1); return d; };
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const aHora = (h, m, addDay = 0) => new Date(
+    _instanteAR(ar.y, ar.mo, ar.d, h, m).getTime() + addDay * DIA_MS);
+  const prox = (h) => { const d = aHora(h, 0); return d <= now ? new Date(d.getTime() + DIA_MS) : d; };
   const ahora = { cuando: "ahora", cuandoLabel: "Ahora", fechaProgramada: "" };
   const prog = (d) => ({ cuando: "programar", cuandoLabel: _labelFecha(d), fechaProgramada: _fmtFechaCRM(d) });
 
@@ -2654,6 +2717,9 @@ async function irAOrdenes() {
   ovOrdenes?.classList.remove("hidden");
   try {
     if (ovTexto) ovTexto.textContent = "Cargando productos...";
+    // Resincronizar antes de calcular los turnos: si la pestaña quedó abierta
+    // horas, el offset puede haber quedado viejo.
+    await _sincronizarReloj();
     await actualizarProductos();
     // Órdenes de tráfico precreadas con los rangos configurados (del cliente si el
     // post es de uno, del genérico si no). Va después de actualizarProductos
@@ -3961,13 +4027,14 @@ async function solicitarOrdenes() {
   if (ordenes.length === 0) return;
 
   // Post sin cliente: no mandamos nada hasta saber de qué campaña se descuenta.
-  // Solo aplica si hay órdenes de tráfico (los comentarios no tocan el saldo).
-  const hayTrafico = ordenes.some(o => o.tipo !== "comentarios");
-  if (hayTrafico && !window._clienteAsignado && !window._ventaElegida) {
+  // Vale también para los comentarios: desde que salen por el CRM de la cuenta
+  // del vendedor necesitan una campaña igual que el tráfico. Antes se colaban
+  // sin elegir ninguna y terminaban descontándose de la campaña del .env.
+  if (!window._clienteAsignado && !window._ventaElegida) {
     const box = document.getElementById("venta-picker");
     box.classList.remove("hidden");
     box.classList.add("venta-picker--falta");
-    _ventaPickerMsg("Elegí una campaña para poder enviar el tráfico.", true);
+    _ventaPickerMsg("Elegí una campaña para poder enviar la orden.", true);
     box.scrollIntoView({ behavior: "smooth", block: "center" });
     document.getElementById("venta-picker-select").focus();
     return;
@@ -3991,6 +4058,11 @@ async function solicitarOrdenes() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: currentUrl,
+          // client/idventa: los comentarios salen por el mismo camino que el
+          // tráfico, así que necesitan lo mismo para resolver de qué campaña (y
+          // con qué idvendedor) se carga la orden.
+          client: window._clientIg || "",
+          idventa: window._ventaElegida || "",
           // top-level: unión de todas (para el informe / fallback)
           comentarios: comentariosParaPublicar,
           ordenes: ordenesComentarios.map(o => ({
@@ -4023,6 +4095,9 @@ async function solicitarOrdenes() {
         return {
           redsocial_id: o.redsocialId,
           redsocial:    o.redsocial,
+          // Para que el backend le pregunte el precio real al CRM en vez de
+          // creerle al navegador. No viaja al CRM: lo saca antes de enviar.
+          producto_id:  o.productoId,
           prod:         o.productoNombre,
           demora:       " - ",
           url:          o.link,
@@ -4339,6 +4414,10 @@ async function pegarLink() {
 
 // Enter key en el input
 document.addEventListener("DOMContentLoaded", () => {
+  // Reloj del servidor: hay que tenerlo antes de armar cualquier tanda
+  // programada. Es un pedido y no bloquea nada.
+  _sincronizarReloj();
+
   const linkInput = document.getElementById("ig-link");
   linkInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") generarComentarios();

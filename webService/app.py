@@ -109,6 +109,11 @@ try:
 except Exception:
     _repo = None
 
+# Armado de las órdenes (mezcla de comentarios, normalización, fecha AR). Es el
+# mismo módulo que usa el openAIService: una sola definición de "cómo se arma
+# una orden" para los dos servicios.
+from common import ordenes as _ordenes
+
 # Login del ADMIN. Los vendedores YA NO tienen login local: entran con su email y
 # password de Growi (ver _authenticate). Solo el admin conserva un login local
 # nuestro. Se acepta un admin de la DB (role=admin) y, como fallback anti-lockout
@@ -339,13 +344,35 @@ def _growi_validate_credentials(cfg):
         return "unreachable"
 
 
+# Un lock por cuenta para abrir sesión. Sin esto, dos vendedores de la misma
+# cuenta mandando a la vez disparan dos logins simultáneos contra el CRM y cada
+# uno pisa la sesión del otro (el CRM ata la sesión a la IP del login, así que
+# el segundo login puede invalidar el primero justo cuando el otro está por
+# postear su orden). Con el lock, el segundo espera y reusa la sesión abierta.
+_growi_sessions_lock = threading.Lock()
+_growi_login_locks = {}
+
+
+def _lock_de_cuenta(account_id):
+    with _growi_sessions_lock:
+        lock = _growi_login_locks.get(account_id)
+        if lock is None:
+            lock = _growi_login_locks[account_id] = threading.Lock()
+        return lock
+
+
 def _get_growi_session(account_id):
     entry = _growi_sessions.get(account_id)
-    if entry is None:
-        cfg = _account_crm_cfg(account_id)
-        entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
-        _growi_sessions[account_id] = entry
-    return entry
+    if entry is not None:
+        return entry
+    with _lock_de_cuenta(account_id):
+        # Otro hilo pudo haberla abierto mientras esperábamos el lock.
+        entry = _growi_sessions.get(account_id)
+        if entry is None:
+            cfg = _account_crm_cfg(account_id)
+            entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
+            _growi_sessions[account_id] = entry
+        return entry
 
 
 def _crm_base(account_id=None):
@@ -371,13 +398,33 @@ def _growi_sesion_caida(resp) -> bool:
     cuando se vence la sesión (su timeout de inactividad, ~20 min): redirige al
     login. Como seguimos el redirect, terminamos en login.php con status 200, y
     antes eso se colaba como si fuera contenido válido — y nadie re-logueaba.
-    Detectamos ambos casos: el 401 y el redirect/página de login."""
+    Detectamos ambos casos: el 401 y el redirect a la página de login.
+
+    El match es sobre el PATH y contra el login exacto, no un `"login" in url`.
+    Esa versión suelta daba positivo con cualquier URL que tuviera la palabra
+    (una query `?next=login`, un producto con "login" en el nombre), y un falso
+    positivo acá no es cosmético: dispara el reintento del POST a
+    enviar_trafico.php, que no es idempotente, y duplica la orden.
+    """
     if resp.status_code == 401:
         return True
-    # Tras seguir redirects, resp.url apunta a login.php si la sesión venció.
-    if "login" in (resp.url or "").lower():
-        return True
-    return False
+    from urllib.parse import urlparse
+    path = (urlparse(resp.url or "").path or "").lower()
+    return path.endswith("/cuenta/login.php") or path.endswith("/login.php")
+
+
+def _respuesta_de_orden_valida(resp) -> bool:
+    """True si el CRM ya nos contestó como CRM sobre una orden.
+
+    Si vino nuestro JSON con `success`/`insertadas`, el pedido LLEGÓ y se
+    procesó: pase lo que pase con la sesión, reintentarlo cargaría la orden dos
+    veces. Es el cinturón de seguridad del reintento.
+    """
+    try:
+        data = resp.json()
+    except Exception:
+        return False
+    return isinstance(data, dict) and ("success" in data or "insertadas" in data)
 
 
 # Solo se audita el ENVÍO DE ÓRDENES. El resto del tráfico al CRM (la hora del
@@ -415,9 +462,12 @@ def _growi_request(method, path, account_id=None, **kwargs):
     """
     if account_id is None:
         account_id = session.get("account_id") if has_request_context() else None
-    timeout = kwargs.pop("timeout", 15)
-    entry = _get_growi_session(account_id)
     es_envio = path.split("?")[0] == _PATH_ENVIO_ORDENES
+    # El envío de órdenes tiene su propio timeout: una tanda de 100+ comentarios
+    # tarda bastante más que una consulta, y con los 15s de las consultas se
+    # cortaba la lectura justo en el caso más caro — sin saber si la orden entró.
+    timeout = kwargs.pop("timeout", (10, 60) if es_envio else 15)
+    entry = _get_growi_session(account_id)
     traza = (
         trazar("enviar_trafico", method, f"{_crm_base(account_id)}{path}",
                payload=kwargs.get("json"), account_id=account_id,
@@ -437,6 +487,16 @@ def _growi_request(method, path, account_id=None, **kwargs):
                 method, f"{url}{path}", timeout=timeout, **kwargs
             )
             if not _growi_sesion_caida(resp):
+                tr.respuesta(resp)
+                return resp
+            # La sesión parece caída. Antes de reintentar un POST que NO es
+            # idempotente, comprobamos que el CRM no haya contestado ya sobre la
+            # orden: si mandó su JSON, el pedido se procesó y reintentarlo la
+            # duplicaría. Ese es el único caso en que preferimos devolver una
+            # respuesta "rara" antes que arriesgar un cobro doble.
+            if es_envio and _respuesta_de_orden_valida(resp):
+                print(f"[growi-web] la sesión parecía caída pero el CRM ya respondió "
+                      f"sobre la orden: NO reintento (cuenta {account_id})", flush=True)
                 tr.respuesta(resp)
                 return resp
             print(f"[growi-web] sesión caída ({resp.status_code}, url={resp.url}) en "
@@ -900,38 +960,147 @@ def cancelar(job_id):
         return jsonify({"cancelado": False}), 502
 
 
+def _es_error_de_red(e: Exception) -> bool:
+    """True si no llegamos al CRM (proxy caído, DNS, timeout), en vez de que el
+    CRM nos haya contestado que no. Solo esto se encola para reintentar."""
+    return isinstance(e, (requests.exceptions.ConnectionError,
+                          requests.exceptions.Timeout))
+
+
+def _envio_pudo_haber_entrado(e: Exception) -> bool:
+    """True si el POST llegó a salir y lo que falló fue esperar la respuesta.
+
+    enviar_trafico.php NO es idempotente: si la orden entró y la reintentamos,
+    se le cobra dos veces al cliente. En ese caso no se encola nada y lo mira un
+    humano. Un ConnectTimeout/ProxyError, en cambio, es "nunca salió".
+    """
+    if isinstance(e, requests.exceptions.ReadTimeout):
+        return True
+    return not isinstance(e, (requests.exceptions.ConnectTimeout,
+                              requests.exceptions.ProxyError,
+                              requests.exceptions.ConnectionError))
+
+
 @app.route("/api/publicar", methods=["POST"])
 @require_login
 def publicar():
+    """Órdenes de COMENTARIOS.
+
+    Salen por el mismo camino que el tráfico (`_enviar_ordenes_crm`): con las
+    credenciales de la cuenta del vendedor, su idvendedor/idventa resueltos y la
+    fecha en hora de Argentina. Antes esto se delegaba al openAIService, que
+    mandaba con las credenciales globales del .env: la orden entraba al CRM de
+    otra cuenta, así que el vendedor no la veía en su gestor y quedaba imputada
+    a otro. El openAIService sigue generando los comentarios; lo único que se
+    movió es el envío al CRM.
+    """
     data = request.get_json()
     post_url    = data.get("url", "").strip()
     comentarios = data.get("comentarios", [])
     ordenes     = data.get("ordenes", [])
-    disponible  = data.get("disponible", DISPONIBLE)
+    cliente_ig  = data.get("client")
 
     if not post_url or not comentarios:
         return jsonify({"error": "Faltan datos"}), 400
+    if not ordenes:
+        return jsonify({"error": "Sin órdenes"}), 400
 
-    _log_uso("publicar", post_url=post_url, client_ig_username=data.get("client"))
+    # Cada orden de comentarios usa su propia lista (verificados / no verificados)
+    # y se baraja respetando los encabezados de género; si no trae, cae a la
+    # lista global.
+    ordenes_crm = [_ordenes.normalizar_orden(o, 0, comentarios) for o in ordenes]
+    for o in ordenes_crm:
+        if o.get("comentarios"):
+            _ordenes.log_comentarios_debug(o.get("prod") or "comentarios", o["comentarios"])
 
+    encolada = None
     try:
-        resp = requests.post(
-            f"{OPENAI_SERVICE_URL}/publicar",
-            # account_id/user_id viajan para que, si la orden termina en la cola
-            # de reintentos, quede atribuida al vendedor que la mandó y se pueda
-            # ver desde el panel de su cuenta.
-            json={"url": post_url, "comentarios": comentarios, "ordenes": ordenes,
-                  "disponible": disponible,
-                  "account_id": session.get("account_id"),
-                  "user_id": session.get("user_id"),
-                  "client": data.get("client")},
-            timeout=60,
+        crm, _, _ = _enviar_ordenes_crm(
+            ordenes_crm,
+            post_url=post_url,
+            cliente_ig=cliente_ig,
+            idventa_elegida=data.get("idventa"),
+            account_id=session.get("account_id"),
+            user_id=session.get("user_id"),
+            username=session.get("username"),
         )
-        resp.raise_for_status()
-        return jsonify(resp.json())
     except Exception as e:
         print(f"[publicar] error: {e!r}", flush=True)
-        return jsonify({"error": _mensaje_amigable(e)}), 502
+        if isinstance(e, (CuentaSinCRM, GrowiAuthError)):
+            # Estos ya traen un mensaje escrito para el vendedor y explican qué
+            # hacer; pasarlos por _mensaje_amigable los convertiría en un
+            # "Ocurrió un error inesperado" que no ayuda a nadie.
+            error = str(e)
+        elif _es_error_de_red(e):
+            error = ("No se puede conectar con el CRM de Growi en este momento. "
+                     "Es un problema de conexión, no de tus datos.")
+        else:
+            error = _mensaje_amigable(e)
+        # No llegó a salir: en vez de perder los comentarios ya generados, la
+        # orden queda en cola y un worker la reintenta sola. Solo si el envío es
+        # seguro de repetir (si pudo haber entrado, se informa y listo).
+        if _es_error_de_red(e) and not _envio_pudo_haber_entrado(e):
+            encolada = _encolar_pendiente(post_url, comentarios, ordenes_crm,
+                                          cliente_ig, error)
+            if encolada:
+                error = ("No había conexión con el CRM, así que la orden quedó en "
+                         "cola y se va a enviar sola apenas vuelva. No hace falta "
+                         "que la cargues de nuevo.")
+        elif _envio_pudo_haber_entrado(e) and _es_error_de_red(e):
+            error = ("Se cortó la conexión esperando la respuesta del CRM. "
+                     "Revisá en Growi si la orden entró antes de volver a mandarla.")
+        return jsonify({
+            "informe": _ordenes.generar_informe(post_url, comentarios, error=error),
+            "resultado": {
+                "ok": False, "insertadas": 0, "messages": [], "warnings": [],
+                "errors": [error],
+                "encolada": bool(encolada),
+                "encolada_id": encolada.get("id") if encolada else None,
+            },
+        })
+
+    ok = bool(crm.get("success"))
+    errores = list(crm.get("errors") or [])
+    # Igual que en el tráfico: el consumo se anota con la orden ya aceptada.
+    _registrar_uso_de_ordenes("publicar", ordenes_crm, crm,
+                              post_url=post_url, cliente_ig=cliente_ig)
+    return jsonify({
+        "informe": _ordenes.generar_informe(
+            post_url, comentarios, insertadas=crm.get("insertadas", 0),
+            messages=crm.get("messages") or [], errors=errores, ok=ok),
+        "resultado": {
+            "ok": ok and not errores,
+            "insertadas": crm.get("insertadas", 0),
+            "messages": crm.get("messages") or [],
+            "warnings": crm.get("warnings") or [],
+            "errors": errores,
+            "encolada": False,
+            "encolada_id": None,
+        },
+    })
+
+
+def _encolar_pendiente(post_url, comentarios, ordenes_crm, cliente_ig, error):
+    """Guarda la orden en la cola de reintentos. Devuelve None si no hay DB, y
+    en ese caso el vendedor ve el error de siempre: sin persistencia no podemos
+    prometerle que se va a reenviar sola.
+
+    Se guarda el account_id porque el reintento tiene que salir con las
+    credenciales de ESA cuenta, no con las del .env."""
+    if _repo is None:
+        return None
+    try:
+        return _repo.encolar_orden(
+            post_url,
+            {"comentarios": comentarios, "ordenes": ordenes_crm, "disponible": None},
+            account_id=session.get("account_id"),
+            user_id=session.get("user_id"),
+            client_ig_username=cliente_ig or "",
+            error=error,
+        )
+    except Exception as e:
+        print(f"[cola] no pude encolar la orden: {e!r}", flush=True)
+        return None
 
 
 @app.route("/api/nombre_red", methods=["GET"])
@@ -1183,71 +1352,206 @@ def server_time_ar():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/enviar_trafico", methods=["POST"])
-@require_login
-def enviar_trafico():
-    data = request.get_json()
-    ordenes = data.get("ordenes", [])
-    if not ordenes:
-        return jsonify({"error": "Sin órdenes"}), 400
+def _fecha_ar_crm(account_id=None):
+    """La fecha del día EN ARGENTINA, que es la que tiene que llevar la orden.
 
-    # Registramos cada orden con su cantidad y tipo (likes/views/shares) para que
-    # la tirada automática no vuelva a proponer un número ya enviado a ese cliente.
-    cliente_ig = data.get("client")
-    for o in ordenes:
-        try:
-            qty = int(o.get("cantidad") or 0) or None
-        except (TypeError, ValueError):
-            qty = None
-        _log_uso("enviar_trafico", post_url=data.get("url"), client_ig_username=cliente_ig,
-                 qty=qty, product_type=_tipo_producto(o.get("prod") or ""))
+    Se le pregunta al CRM (es el reloj que después usa el gestor para filtrar) y
+    solo si no contesta se calcula localmente. Nunca `date.today()`: los
+    contenedores corren en UTC, así que a partir de las 21:00 AR devolvía la
+    fecha del día siguiente y la orden quedaba fuera del listado de hoy.
+    """
+    try:
+        import random
+        ts_resp = _growi_request(
+            "GET", "/paginas/server_time_ar.php", account_id=account_id,
+            params={"_": random.random()},
+            headers={"referer": f"{_crm_base(account_id)}/paginas/trafico.php"},
+        )
+        fecha = (ts_resp.json().get("ymdhmAR") or "")[:10]  # "2026-06-25"
+        if fecha:
+            return fecha
+        print("[fecha] el CRM no devolvió ymdhmAR; uso la hora AR local", flush=True)
+    except Exception as e:
+        print(f"[fecha] no pude pedirle la hora al CRM ({e!r}); uso la hora AR local", flush=True)
+    return _ordenes.fecha_ar_hoy()
+
+
+def _precio_real_de(o, account_id):
+    """Le pregunta al CRM cuánto cuesta REALMENTE esta orden.
+
+    El costo venía tal cual del navegador y se reenviaba al CRM sin mirarlo: con
+    las devtools abiertas, cualquiera podía mandar `costo: 0` y el backend lo
+    firmaba, incluido el `resto` de la campaña. Acá se recalcula contra
+    obtenercostotrafico.php, que es la misma fuente que usa la pantalla.
+
+    Devuelve None si no se puede averiguar (el CRM no contesta, la orden no trae
+    producto). En ese caso NO se bloquea el envío: dejar a un vendedor sin poder
+    trabajar porque una consulta auxiliar falló es peor que el riesgo que cubre,
+    y el CRM valida el costo de su lado igual.
+    """
+    producto = o.get("producto_id") or o.get("productoId")
+    redsocial = o.get("redsocial_id") or o.get("redsocialId")
+    if not producto or not redsocial:
+        return None
+    try:
+        cantidad = int(float(o.get("cantidad") or o.get("cant_inicial") or 0))
+    except (TypeError, ValueError):
+        return None
+    if cantidad <= 0:
+        return None
+    try:
+        resp = _growi_request(
+            "POST", "/paginas/obtenercostotrafico.php", account_id=account_id,
+            json={"redsocial": str(redsocial), "producto": str(producto),
+                  "cant_solicitada": cantidad},
+            headers={"referer": f"{_crm_base(account_id)}/paginas/trafico.php",
+                     "content-type": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        costo = (resp.json() or {}).get("costoTrafico")
+        return None if costo is None else float(costo)
+    except Exception as e:
+        print(f"[precio] no pude verificar el costo de '{o.get('prod')}' ({e!r}); "
+              f"uso el que mandó el front", flush=True)
+        return None
+
+
+# Diferencia que se tolera entre el costo del front y el del CRM. Los precios
+# vienen con 4 decimales, así que esto solo absorbe el ruido del float.
+_TOLERANCIA_COSTO = 0.0001
+
+
+def _corregir_costo(o, account_id):
+    """Pisa el costo de la orden con el del CRM cuando difieren."""
+    real = _precio_real_de(o, account_id)
+    if real is None:
+        return
+    try:
+        declarado = float(o.get("costo") or 0)
+    except (TypeError, ValueError):
+        declarado = 0.0
+    if abs(declarado - real) > _TOLERANCIA_COSTO:
+        print(f"[precio] '{o.get('prod')}' x{o.get('cantidad')}: el front dijo "
+              f"{declarado} y el CRM dice {real}. Mando el del CRM.", flush=True)
+        o["costo"] = real
+
+
+class CuentaSinCRM(RuntimeError):
+    """La cuenta no tiene su propio CRM configurado, así que no sabemos a nombre
+    de quién cargar la orden. Es un error a propósito: el fallback al .env
+    mandaba la orden al CRM del dueño de la agencia, donde el vendedor no la veía
+    y quedaba imputada a otro."""
+
+
+def _cuenta_tiene_crm_propio(account_id) -> bool:
+    """¿Esta cuenta tiene credenciales de CRM propias en la DB?
+
+    Sin DB (_repo None) no hay multi-tenant: el .env ES la configuración válida y
+    el sistema funciona como siempre. Con DB, en cambio, que una cuenta no tenga
+    email de CRM significa que está a medio dar de alta, y mandar por el .env es
+    justamente el bug que estamos arreglando.
+    """
+    if _repo is None:
+        return True
+    try:
+        cfg = _repo.get_account_crm_config(account_id)
+    except Exception as e:
+        print(f"[growi-web] no pude leer la config de la cuenta {account_id}: {e!r}", flush=True)
+        return False
+    return bool(cfg and cfg.get("crm_email"))
+
+
+def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", idventa_elegida="",
+                        disponible=None, account_id=None, user_id=None,
+                        username=None, origen="web"):
+    """Manda al CRM órdenes YA normalizadas (forma de enviar_trafico.php).
+
+    Es el ÚNICO camino de salida de órdenes del panel: lo usan tanto el tráfico
+    (followers, likes…) como los comentarios. Que sea uno solo es el punto: los
+    comentarios salían por un cliente aparte con las credenciales globales del
+    .env, y por eso aparecían cargados a nombre de otro vendedor y en otra
+    campaña.
+
+    Devuelve (data, texto, status) con la respuesta del CRM ya parseada. Las
+    excepciones suben tal cual para que quien llama decida (el envío del panel
+    las muestra; el de la cola las encola y reintenta).
+    """
+    # Antes de nada: ¿sabemos a nombre de quién va esta orden? Si la cuenta no
+    # tiene CRM propio, la config cae al .env y la orden termina cargada en el
+    # CRM del dueño de la agencia. Preferimos no mandar y decirlo.
+    if account_id is not None and not _cuenta_tiene_crm_propio(account_id):
+        raise CuentaSinCRM(
+            "Tu cuenta todavía no tiene el CRM de Growi configurado, así que la "
+            "orden no se puede cargar a tu nombre. Avisale al admin antes de "
+            "volver a mandarla."
+        )
+    if account_id is None:
+        # Admin operando sin cuenta elegida (o instalación sin DB): el .env es la
+        # configuración legítima acá. Se deja dicho en el log para que, si
+        # aparece una orden a nombre del dueño, se sepa de dónde salió.
+        print("[growi-web] envío SIN account_id: sale con las credenciales del "
+              ".env (admin o modo legacy)", flush=True)
 
     # De qué campaña salen los FONDOS: la asignada al cliente, si no la última
     # campaña de su propio perfil, y recién si no hay ninguna la de por defecto.
     # Antes iba fija la del .env y todo el tráfico se descontaba de la misma.
     # idventa: cuando el post no es de ningún cliente, el front deja elegir a
     # mano de cuál de las campañas propias sale la plata; esa elección manda.
-    cfg = _account_crm_cfg(session.get("account_id"))
-    fondos = resolver_venta(session.get("account_id"), cliente_ig,
-                            idventa_elegida=data.get("idventa"))
+    cfg = _account_crm_cfg(account_id)
+    fondos = resolver_venta(account_id, cliente_ig, idventa_elegida=idventa_elegida,
+                            refrescar=True)
     idventa, idvendedor = fondos["idventa"], fondos["idvendedor"]
     print(f"[fondos] @{cliente_ig or '—'} → idventa {idventa} "
           f"({fondos['origen']}: {fondos['detalle']}, saldo {fondos['saldo']})", flush=True)
+
+    # Si no se pudo resolver a nombre de quién va la orden, se corta. Antes acá
+    # había un fallback silencioso a los ids del .env: la orden salía por la
+    # sesión del vendedor pero cargada al dueño de la agencia y descontada de su
+    # campaña. Mejor no mandar y que alguien complete la ficha.
+    if account_id is not None and not (idvendedor and idventa):
+        falta = "el ID de vendedor" if not idvendedor else "la campaña"
+        raise CuentaSinCRM(
+            f"No pudimos determinar {falta} de tu cuenta en Growi, así que la "
+            "orden no se puede cargar a tu nombre. Avisale al admin para que "
+            "complete tu ficha (o elegí una campaña) antes de volver a mandarla."
+        )
+
     # El disponible que informamos al CRM es el saldo REAL de esa campaña; el
     # valor de config queda como respaldo si no se pudo leer.
-    if fondos["saldo"] is not None:
-        disponible_default = fondos["saldo"]
-    else:
-        try:
-            disponible_default = float(cfg.get("crm_disponible") or DISPONIBLE)
-        except (TypeError, ValueError):
-            disponible_default = DISPONIBLE
-    crm_base = _crm_base()
+    if disponible is None:
+        if fondos["saldo"] is not None:
+            disponible = fondos["saldo"]
+        else:
+            try:
+                disponible = float(cfg.get("crm_disponible") or DISPONIBLE)
+            except (TypeError, ValueError):
+                disponible = DISPONIBLE
+    disponible = float(disponible)
 
-    # Obtener fecha/hora del servidor en AR
-    try:
-        import random
-        ts_resp = _growi_request(
-            "GET", "/paginas/server_time_ar.php",
-            params={"_": random.random()},
-            headers={"referer": f"{crm_base}/paginas/trafico.php"},
-        )
-        ts_data = ts_resp.json()
-        fecha_ar = ts_data.get("ymdhmAR", "")[:10]  # "2026-06-25"
-    except Exception:
-        from datetime import date as _date
-        fecha_ar = _date.today().isoformat()
+    crm_base = _crm_base(account_id)
 
-    costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
-    disponible  = float(data.get("disponible", disponible_default))
-
+    # El precio lo dice el CRM, no el navegador (ver _precio_real_de). Y una
+    # orden programada sin fecha se programaría en la nada: se le pone la hora
+    # de Argentina del momento, igual que hace el front con el tráfico.
     for o in ordenes:
         o["disponible"] = disponible
+        _corregir_costo(o, account_id)
+        # producto_id es nuestro, para poder consultar el precio: al CRM no le
+        # va (enviar_trafico.php identifica el producto por nombre).
+        o.pop("producto_id", None)
+        o.pop("productoId", None)
+        if o.get("programado") and not o.get("fecha_programada"):
+            o["fecha_programada"] = _ordenes.ahora_ar_texto()
+            print(f"[orden] '{o.get('prod')}' venía programada sin fecha; "
+                  f"le pongo la hora AR de ahora ({o['fecha_programada']})", flush=True)
+
+    costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
 
     payload = {
         "idvendedor": idvendedor,
         "idventa":    idventa,
-        "fecha":      fecha_ar,
+        "fecha":      _fecha_ar_crm(account_id),
         "vendedor":   " ",
         "cant_enviada": 0,
         "aprobada":   "Aprobado",
@@ -1267,23 +1571,85 @@ def enviar_trafico():
     # El contexto le pone nombre y apellido a la traza: de qué post, de qué
     # cliente y de qué campaña salió la plata. Sin esto, la fila del envío es un
     # POST anónimo y no se puede reconstruir un reclamo días después.
-    with traza_contexto(origen="web", account_id=session.get("account_id"),
-                        user_id=session.get("user_id"),
-                        username=session.get("username"),
-                        post_url=data.get("url"), client_ig_username=cliente_ig,
+    with traza_contexto(origen=origen, account_id=account_id, user_id=user_id,
+                        username=username, post_url=post_url,
+                        client_ig_username=cliente_ig,
                         idventa=idventa, idvendedor=idvendedor,
                         costo=round(costo_total, 6)):
+        resp = _growi_request(
+            "POST", "/paginas/enviar_trafico.php", account_id=account_id,
+            json=payload, headers=req_headers,
+        )
+        print(f"[enviar_trafico] respuesta CRM ({resp.status_code}): {resp.text[:2000]}", flush=True)
+        resp.raise_for_status()
         try:
-            resp = _growi_request(
-                "POST", "/paginas/enviar_trafico.php",
-                json=payload,
-                headers=req_headers,
+            data = resp.json()
+        except ValueError:
+            # El CRM contestó algo que no es JSON (una página de error, por
+            # ejemplo). No lo damos por bueno en silencio.
+            raise RuntimeError(
+                f"El CRM respondió algo inesperado (no es JSON): {resp.text[:200]}"
             )
-            print(f"[enviar_trafico] respuesta CRM ({resp.status_code}): {resp.text[:2000]}", flush=True)
-            resp.raise_for_status()
-            return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")}
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        return data, resp.text, resp.status_code
+
+
+def _registrar_uso_de_ordenes(accion, ordenes, crm, *, post_url=None, cliente_ig=None):
+    """Registra el consumo de una tanda YA ENVIADA.
+
+    Solo si el CRM la aceptó: `used_quantities` no distingue envíos buenos de
+    fallidos, así que grabar antes de tiempo le quema al vendedor esa cantidad
+    para siempre. Si el CRM aceptó solo una parte, tampoco registramos: no
+    sabemos CUÁL entró, y marcar de más es peor que marcar de menos (con marcar
+    de menos, como mucho se repite un número).
+    """
+    if not crm or not crm.get("success"):
+        print(f"[uso] la tanda no entró completa; no registro consumo ({accion})", flush=True)
+        return
+    insertadas = crm.get("insertadas")
+    if insertadas is not None and insertadas < len(ordenes):
+        print(f"[uso] el CRM tomó {insertadas} de {len(ordenes)} órdenes; "
+              f"no registro consumo para no quemar cantidades que no salieron", flush=True)
+        return
+    for o in ordenes:
+        try:
+            qty = int(float(o.get("cantidad") or 0)) or None
+        except (TypeError, ValueError):
+            qty = None
+        _log_uso(accion, post_url=post_url, client_ig_username=cliente_ig,
+                 qty=qty, product_type=_tipo_producto(o.get("prod") or ""))
+
+
+@app.route("/api/enviar_trafico", methods=["POST"])
+@require_login
+def enviar_trafico():
+    data = request.get_json()
+    ordenes = data.get("ordenes", [])
+    if not ordenes:
+        return jsonify({"error": "Sin órdenes"}), 400
+
+    cliente_ig = data.get("client")
+
+    try:
+        crm, texto, status = _enviar_ordenes_crm(
+            ordenes,
+            post_url=data.get("url"),
+            cliente_ig=cliente_ig,
+            idventa_elegida=data.get("idventa"),
+            disponible=data.get("disponible"),
+            account_id=session.get("account_id"),
+            user_id=session.get("user_id"),
+            username=session.get("username"),
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # El consumo se registra RECIÉN ACÁ, con la orden ya aceptada. Antes se
+    # grababa antes de mandar: si el CRM rechazaba o se caía la red, la cantidad
+    # quedaba igual marcada como usada y la tirada automática no volvía a
+    # proponerla nunca más para ese cliente. Se quemaban números con cada fallo.
+    _registrar_uso_de_ordenes("enviar_trafico", ordenes, crm,
+                              post_url=data.get("url"), cliente_ig=cliente_ig)
+    return texto, status, {"Content-Type": "application/json"}
 
 
 # ── Menú de admin self-serve (TAREA 3) ──────────────────────────────────────────
@@ -1574,7 +1940,7 @@ def _ultima_campana(ventas, ig_username):
     return max(pool, key=lambda v: (v.get("fecha") or "", _venta_saldo(v)))
 
 
-def resolver_venta(account_id, ig_username, idventa_elegida=None):
+def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=False):
     """De dónde sale la plata para este cliente, en orden:
        0) la campaña elegida a mano en el envío (posts sin cliente),
        1) la campaña asignada a mano en Mis clientes,
@@ -1584,17 +1950,31 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None):
     se pudo leer la campaña)."""
     ig = (ig_username or "").strip().lstrip("@").lower()
     cfg = _account_crm_cfg(account_id)
+
+    # Los valores del .env son los del DUEÑO de la agencia. Para una cuenta de
+    # vendedor no son un "default razonable": son los datos de otra persona, y
+    # usarlos carga la orden a su nombre y la descuenta de SU campaña, aunque la
+    # sesión del CRM sea la correcta. Por eso solo se aceptan cuando no hay
+    # cuenta (admin operando sin vendedor elegido, o instalación sin DB).
+    if account_id is None:
+        env_venta, env_vendedor = GROWI_IDVENTA, GROWI_IDVENDEDOR
+    else:
+        env_venta, env_vendedor = "", ""
+
     default = {
-        "idventa": cfg.get("crm_idventa") or GROWI_IDVENTA,
-        "idvendedor": cfg.get("crm_idvendedor") or GROWI_IDVENDEDOR,
+        "idventa": cfg.get("crm_idventa") or env_venta,
+        "idvendedor": cfg.get("crm_idvendedor") or env_vendedor,
         "origen": "default",
         "detalle": "campaña por defecto de la cuenta",
         "saldo": None,
     }
 
+    # refrescar=True lo usa el ENVÍO: el saldo va cacheado 5 minutos, y mandarle
+    # al CRM un `disponible` viejo hace que el `resto` de la segunda orden de la
+    # tanda salga mal. Para las pantallas, el caché sigue estando bien.
     ventas = []
     try:
-        ventas = _traer_ventas(account_id)
+        ventas = _traer_ventas(account_id, usar_cache=not refrescar)
     except Exception as e:
         print(f"[fondos] no pude leer las campañas ({e!r}); uso la de por defecto", flush=True)
 
@@ -2206,6 +2586,80 @@ def cantidades_usadas():
 def me():
     """Info del usuario logueado (para que el front muestre nombre/rol)."""
     return jsonify(_current_user())
+
+
+class _ReintentoFallido(RuntimeError):
+    """Falló un reintento de la cola. `reintentable` le dice al worker si la
+    orden puede volver a la cola o si tiene que ir a revisión manual (porque el
+    POST pudo haber entrado y reintentarlo la duplicaría)."""
+
+    def __init__(self, mensaje, reintentable):
+        super().__init__(mensaje)
+        self.reintentable = reintentable
+
+
+def _reenviar_orden_de_cola(orden):
+    """Reintento de una orden encolada, con las credenciales de SU cuenta.
+
+    Corre fuera de un request de Flask, por eso todo va con account_id explícito
+    (`_growi_request` y `resolver_venta` ya están preparados para eso).
+    """
+    payload = orden.get("payload") or {}
+
+    # Sin cuenta no hay reintento automático. Un reenvío desatendido que no sabe
+    # de quién es la orden terminaría cargándola con las credenciales del .env,
+    # en el CRM equivocado. Va a revisión y la reenvía un humano desde el panel.
+    if orden.get("account_id") is None:
+        raise CuentaSinCRM(
+            f"La orden {orden.get('id')} no tiene cuenta asociada: no se puede "
+            "reenviar sola sin arriesgar cargarla en el CRM equivocado."
+        )
+
+    # Las órdenes encoladas por versiones viejas quedaron guardadas con la forma
+    # del frontend (link/productoNombre) en vez de la del CRM (url/prod).
+    # normalizar_orden respeta las que ya vienen en forma de CRM, así que se
+    # puede aplicar a todas sin miedo a tocar las nuevas.
+    ordenes = [_ordenes.normalizar_orden(o, 0, payload.get("comentarios") or [])
+               for o in (payload.get("ordenes") or [])]
+
+    crm, _, _ = _enviar_ordenes_crm(
+        ordenes,
+        post_url=orden.get("post_url") or "",
+        cliente_ig=orden.get("client_ig_username") or "",
+        disponible=payload.get("disponible"),
+        account_id=orden.get("account_id"),
+        user_id=orden.get("user_id"),
+        # origen="cola": en el panel de auditoría hay que poder distinguir un
+        # reintento automático de un vendedor apretando Publicar dos veces.
+        origen="cola",
+    )
+    return crm
+
+
+def _enviar_de_cola(orden):
+    try:
+        return _reenviar_orden_de_cola(orden)
+    except Exception as e:
+        if _es_error_de_red(e):
+            raise _ReintentoFallido(str(e), not _envio_pudo_haber_entrado(e)) from e
+        raise
+
+
+def _arrancar_cola():
+    """Worker de reintentos. Con el reloader de Flask el módulo se importa dos
+    veces: se arranca solo en el proceso hijo para no tener dos workers
+    haciendo polling (mandar la misma orden dos veces ya lo impide el claim
+    atómico en la DB, pero el ruido no suma)."""
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "false":
+        return
+    try:
+        from orden_cola import arrancar
+        arrancar(_enviar_de_cola)
+    except Exception as e:
+        print(f"[cola] no pude arrancar el worker: {e!r}", flush=True)
+
+
+_arrancar_cola()
 
 
 if __name__ == "__main__":

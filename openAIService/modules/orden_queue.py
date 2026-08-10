@@ -1,22 +1,21 @@
 """
-Worker de la cola de órdenes pendientes.
+Worker de mantenimiento de tablas (caché de posts y auditoría del CRM).
 
-Cuando el envío al CRM falla por red, la orden queda guardada en la tabla
-`pending_orders` y este worker la reintenta con backoff hasta que entra. El
-objetivo es que una caída del proxy sea un RETRASO y no trabajo perdido: antes,
-el vendedor tenía que regenerar los comentarios y recargar todo a mano.
+OJO: el reintento de las órdenes pendientes YA NO vive acá — se mudó a
+webService/orden_cola.py. El motivo es que el reenvío tiene que salir con las
+credenciales de la cuenta que cargó la orden, y las sesiones por cuenta contra
+el CRM están en el webService. Desde este servicio se reenviaba con las
+credenciales globales del .env, así que la orden entraba en el CRM de otra
+cuenta y el vendedor nunca la veía en su gestor.
 
-Reglas que no se negocian:
-  - Solo se reintenta lo que sabemos que nunca salió (fallo al conectar).
-    enviar_trafico.php no es idempotente; reintentar a ciegas duplica órdenes.
-  - El claim de cada orden es atómico en la DB, así dos workers no mandan la
-    misma dos veces.
+Lo que quedó acá es el mantenimiento periódico, que no toca el CRM y ya tenía
+su hilo corriendo.
 """
 import os
 import threading
 import time
 
-# Cada cuánto mira la cola. Corto: lo caro es el envío, no el SELECT.
+# Cada cuánto corre el mantenimiento.
 INTERVALO = float(os.environ.get("GROWI_QUEUE_INTERVAL", "60"))
 
 # Mantenimiento del caché de posts (tabla post_cache), de arrimo en este worker.
@@ -39,77 +38,9 @@ def _repo():
     return repository
 
 
-def procesar_una() -> bool:
-    """Toma una orden vencida y la intenta. True si procesó algo.
-
-    Devolver si hubo trabajo permite vaciar la cola de corrido cuando el CRM
-    vuelve, en vez de mandar una orden por minuto.
-    """
-    from modules.growi_client import ejecutar_campana, GrowiUnavailable
-
-    repo = _repo()
-    orden = repo.tomar_orden_para_reintentar()
-    if not orden:
-        return False
-
-    oid = orden["id"]
-    payload = orden.get("payload") or {}
-    intentos = orden.get("intentos", 0)
-    print(f"[cola] reintentando orden {oid} (intento {intentos}) "
-          f"de {orden.get('post_url')}", flush=True)
-
-    # La traza de este envío tiene que decir que salió del WORKER y no de un
-    # vendedor apretando Publicar: si no, en el panel parece que alguien mandó
-    # la misma orden dos veces.
-    from common.growi_trace import contexto as traza_contexto
-
-    try:
-        with traza_contexto(origen="cola", account_id=orden.get("account_id"),
-                            user_id=orden.get("user_id"),
-                            post_url=orden.get("post_url"),
-                            client_ig_username=orden.get("client_ig_username")):
-            resultado = ejecutar_campana(
-                orden["post_url"],
-                payload.get("comentarios") or [],
-                payload.get("ordenes") or [],
-                float(payload.get("disponible") or 0),
-            )
-    except GrowiUnavailable as e:
-        repo.reprogramar_orden(oid, str(e), reintentable=e.reintentable)
-        estado = "a revisar" if not e.reintentable else "reprogramada"
-        print(f"[cola] orden {oid} {estado}: {e}", flush=True)
-        return True
-    except Exception as e:
-        # Error que no es de red (credenciales, payload inválido). Reintentar no
-        # lo va a arreglar solo, pero tampoco lo tiramos: queda para revisión.
-        repo.reprogramar_orden(oid, f"{e.__class__.__name__}: {e}", reintentable=False)
-        print(f"[cola] orden {oid} a revisión por error no recuperable: {e!r}", flush=True)
-        return True
-
-    if resultado and resultado.success:
-        repo.marcar_orden_enviada(oid)
-        print(f"[cola] orden {oid} enviada OK ({resultado.insertadas} insertadas)", flush=True)
-    else:
-        # El CRM contestó pero rechazó. No es un problema de red: no tiene
-        # sentido reintentarlo en loop, lo mira un humano.
-        errores = "; ".join(resultado.errors) if resultado and resultado.errors else "el CRM rechazó la orden"
-        repo.reprogramar_orden(oid, errores, reintentable=False)
-        print(f"[cola] orden {oid} rechazada por el CRM: {errores}", flush=True)
-    return True
-
-
 def _loop() -> None:
     ultima_purga = 0.0
     while True:
-        try:
-            # Vacía todo lo que esté vencido, con tope por vuelta para no
-            # monopolizar el proceso si la cola quedó larga tras una caída.
-            for _ in range(20):
-                if not procesar_una():
-                    break
-        except Exception as e:
-            print(f"[cola] error en el loop: {e!r}", flush=True)
-
         # Mantenimiento del caché de posts. Va acá porque este worker ya corre
         # solo y ya tiene DB: no hace falta otro hilo para un DELETE por día.
         # Nunca en el camino de una generación, para no sumarle latencia.
@@ -118,34 +49,33 @@ def _loop() -> None:
             try:
                 _repo().post_cache_purgar(dias=_PURGA_DIAS)
             except Exception as e:
-                print(f"[cola] error purgando el caché de posts: {e!r}", flush=True)
+                print(f"[mantenimiento] error purgando el caché de posts: {e!r}", flush=True)
             # Misma idea para la auditoría del CRM: es un log, no un registro
             # contable. Sin purga la tabla crece para siempre con cuerpos de
             # respuesta (una página de login son varios KB).
             try:
                 _repo().growi_calls_purgar(dias=_TRAZAS_DIAS)
             except Exception as e:
-                print(f"[cola] error purgando las trazas del CRM: {e!r}", flush=True)
+                print(f"[mantenimiento] error purgando las trazas del CRM: {e!r}", flush=True)
 
         time.sleep(INTERVALO)
 
 
 def arrancar() -> None:
-    """Arranca el worker si hay DB. Sin DB no hay cola: el sistema se comporta
-    como antes (el error se le informa al vendedor en el momento)."""
+    """Arranca el mantenimiento si hay DB. Sin DB no hay nada que purgar."""
     global _arrancado
     try:
         from common.db import db_available
         if not db_available():
-            print("[cola] sin DATABASE_URL: no hay cola de reintentos", flush=True)
+            print("[mantenimiento] sin DATABASE_URL: no hay nada que purgar", flush=True)
             return
     except Exception as e:
-        print(f"[cola] no pude verificar la DB: {e!r}", flush=True)
+        print(f"[mantenimiento] no pude verificar la DB: {e!r}", flush=True)
         return
 
     with _lock:
         if _arrancado:
             return
         _arrancado = True
-    threading.Thread(target=_loop, daemon=True, name="growi-cola").start()
-    print(f"[cola] worker de reintentos activo (cada {INTERVALO:.0f}s)", flush=True)
+    threading.Thread(target=_loop, daemon=True, name="growi-mantenimiento").start()
+    print(f"[mantenimiento] worker de purgas activo (cada {INTERVALO:.0f}s)", flush=True)
