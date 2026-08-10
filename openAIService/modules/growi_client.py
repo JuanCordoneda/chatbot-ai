@@ -23,7 +23,7 @@ from common.proxy_pool import ProxyPool, proxies_de, _ofuscar
 # Auditoría: el ENVÍO de órdenes queda en la tabla growi_calls con su respuesta.
 # Solo el envío: es lo único que mueve plata y lo único que hay que poder
 # reconstruir cuando un vendedor dice que su orden no entró.
-from common.growi_trace import trazar
+from common.growi_trace import trazar, rechazo_local
 # El armado de las órdenes (mezclar comentarios y pasar del formato del frontend
 # al del CRM) vive en common/ porque lo usan los DOS servicios. Tener acá una
 # copia propia fue el bug de los comentarios imputados al vendedor equivocado:
@@ -277,6 +277,17 @@ class GrowiResult:
 
 def ejecutar_campana(post_url: str, comentarios: list[str],
                      ordenes: list[dict], disponible: float) -> GrowiResult:
+    """Igual que `_ejecutar_campana`, pero dejando fila de auditoría también
+    cuando la orden se rebota antes de salir (sin idvendedor, proxies agotados).
+    Ver `rechazo_local`."""
+    with rechazo_local("enviar_trafico",
+                       f"{CRM_URL}/paginas/enviar_trafico.php",
+                       post_url=post_url, idvendedor=IDVENDEDOR, idventa=IDVENTA):
+        return _ejecutar_campana(post_url, comentarios, ordenes, disponible)
+
+
+def _ejecutar_campana(post_url: str, comentarios: list[str],
+                      ordenes: list[dict], disponible: float) -> GrowiResult:
     """
     Envía las órdenes al CRM. post_url y comentarios se usan solo para el
     informe; las ordenes se normalizan a la forma que espera enviar_trafico.php.

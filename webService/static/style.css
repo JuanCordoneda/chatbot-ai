@@ -1813,7 +1813,7 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: var(--surface2);
+  background: rgba(37,211,102,0.1);
   color: var(--text);
   font-family: var(--font);
   font-size: 0.88rem;
@@ -1843,12 +1843,16 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
 /* El checkbox reemplaza al número: mismo lugar, misma medida, para que la fila
    no se mueva al tildar. */
+/* El control de la izquierda hace dos cosas a la vez: dice el orden y permite
+   sacar el comentario de la tanda. Tildado = círculo verde con su número;
+   destildado = círculo hueco. Mantiene SIEMPRE los mismos 26px para que la fila
+   no se mueva al tocarlo. */
 .repartir-check {
   flex: 0 0 26px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
+  width: 26px;
+  height: 26px;
   position: relative;
+  cursor: pointer;
 }
 
 .repartir-check input {
@@ -1857,12 +1861,25 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   opacity: 0;
   cursor: pointer;
   margin: 0;
+  z-index: 1;
+}
+
+.repartir-check .repartir-num {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1.5px dashed var(--border);
+  color: var(--muted);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .repartir-check input:checked + .repartir-num {
-  background: rgba(37,211,102,0.2);
+  background: rgba(37,211,102,0.16);
+  border: 1.5px solid rgba(37,211,102,0.5);
   color: #25d366;
 }
+
+.repartir-check:hover .repartir-num { border-color: #25d366; }
 
 /* Lo destildado se apaga pero sigue a la vista: sacarlo de la lista haría
    saltar todo lo de abajo con cada click. */
@@ -1877,7 +1894,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 /* El próximo sin mandar. Con 20 mensajes, sin esto se pierde el hilo. */
 .repartir-item--next {
   border-color: #25d366;
-  box-shadow: 0 0 0 1px rgba(37,211,102,0.35);
+  background: rgba(37,211,102,0.07);
+  box-shadow: 0 0 0 3px rgba(37,211,102,0.12);
 }
 
 /* El número propio del vendedor. Ocupa el lugar del botón de mandar hasta que
@@ -1994,6 +2012,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
 /* Con 20 mensajes la lista no entra en pantalla: scrollea sola y así el modal
    mantiene los botones de cerrar a la vista. */
+/* La lista scrollea sola. El degradado del final avisa que hay más abajo: sin
+   él, con la última fila cortada al ras, parecía que la lista terminaba ahí. */
 .repartir-lista {
   max-height: 46vh;
   overflow-y: auto;
@@ -2001,6 +2021,21 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   flex-direction: column;
   gap: 8px;
   margin-bottom: 14px;
+  padding-bottom: 2px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), rgba(0,0,0,0.15) 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), rgba(0,0,0,0.15) 100%);
+}
+
+/* Al llegar al final el degradado estorba: se saca cuando ya no hay más. */
+.repartir-lista--fin {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.repartir-lista::-webkit-scrollbar { width: 6px; }
+.repartir-lista::-webkit-scrollbar-thumb {
+  background: var(--surface3);
+  border-radius: 3px;
 }
 
 .repartir-item {
@@ -2010,26 +2045,35 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 11px 13px;
+  transition: border-color 0.15s, background 0.15s;
 }
+
+.repartir-item:hover { border-color: rgba(37,211,102,0.35); }
 
 /* Lo ya enviado se apaga en vez de desaparecer: el vendedor tiene que poder
    reenviar el que se le trabó a mitad de camino. */
 .repartir-item--ok {
-  opacity: 0.55;
-  border-color: rgba(37,211,102,0.4);
+  opacity: 0.5;
+  border-color: rgba(37,211,102,0.35);
+  background: rgba(37,211,102,0.05);
 }
+
+.repartir-item--ok .repartir-texto { text-decoration: line-through; }
 
 .repartir-num {
   flex: 0 0 26px;
+  width: 26px;
   height: 26px;
   display: grid;
   place-items: center;
   background: var(--surface3);
+  border: 1.5px solid transparent;
   border-radius: 50%;
   font-size: 0.75rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
 }
 
 .repartir-item--ok .repartir-num {
@@ -2063,20 +2107,34 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   white-space: pre-line;
 }
 
+/* Antes cada fila tenía un botón verde SÓLIDO: con 20 filas la pantalla era una
+   pared de verde y nada destacaba. Ahora el botón es de contorno y solo se
+   llena en hover y en la fila que toca mandar, así el ojo va directo ahí. */
 .repartir-enviar {
   flex: 0 0 auto;
-  background: #25d366;
-  color: #04310f;
+  background: transparent;
+  color: #25d366;
   font-family: var(--font);
   font-size: 0.78rem;
   font-weight: 800;
-  border: none;
+  border: 1.5px solid rgba(37,211,102,0.45);
   border-radius: 9px;
-  padding: 8px 14px;
+  padding: 7px 14px;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.repartir-enviar:hover { filter: brightness(1.06); }
+.repartir-enviar:hover:not(:disabled) {
+  background: #25d366;
+  border-color: #25d366;
+  color: #04310f;
+}
+
+.repartir-item--next .repartir-enviar {
+  background: #25d366;
+  border-color: #25d366;
+  color: #04310f;
+}
 
 .repartir-item--ok .repartir-enviar {
   background: var(--surface3);
@@ -2281,6 +2339,38 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   flex-shrink: 0; font-size: 0.76rem; font-weight: 700; color: var(--faint);
   background: var(--surface3); border-radius: 999px; padding: 2px 8px;
 }
+
+/* Reintentar con otra campaña, dentro del bloque de error del resultado.
+   Es la salida del caso "elegí una campaña sin crédito": sin esto había que
+   rehacer el post entero para cambiarla. */
+.res-retry {
+  margin-top: 10px; padding: 11px 12px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 10px;
+}
+.res-retry-t {
+  font-size: .82rem; font-weight: 700; color: var(--text);
+  margin-bottom: 8px;
+}
+.res-retry-sub { font-size: .78rem; color: var(--muted); margin-bottom: 9px; }
+.res-retry-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.res-retry-select {
+  flex: 1 1 260px; min-width: 0;
+  background: var(--surface); border: 1px solid var(--border2); color: var(--text);
+  border-radius: 10px; padding: 9px 11px;
+  font-family: var(--font); font-size: .86rem; cursor: pointer;
+}
+.res-retry-select:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-lo); }
+.res-retry-select:disabled { cursor: progress; opacity: .7; }
+.res-retry-btn {
+  background: var(--yellow); border: none; color: #1a1a1a;
+  border-radius: 10px; padding: 10px 16px;
+  font-family: var(--font); font-size: .84rem; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+}
+.res-retry-btn:hover { filter: brightness(1.06); }
+.res-retry-btn:disabled { cursor: progress; opacity: .6; }
+.res-retry-msg { margin-top: 7px; font-size: .8rem; font-weight: 600; color: #ff9d9d; }
 
 /* Una fila por orden mandada: producto, cantidad, cuándo, costo */
 .res-orden {
@@ -5574,3 +5664,105 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
 .azar-input:focus { outline: none; border-color: var(--yellow); }
 .azar-acciones { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
 .azar-acciones .btn-primary { padding: 10px 18px; font-size: 0.85rem; }
+
+/* ── Envíos que no entraron al CRM ── */
+/* El botón vive en el header junto a los demás, pero en rojo: no es una
+   sección más del panel, es un aviso de que hay plata que no se cargó. */
+.header-action-btn--alerta {
+  border-color: rgba(255,107,107,0.45);
+  background: rgba(255,107,107,0.10);
+  color: #ff8a8a;
+}
+.header-action-btn--alerta:hover {
+  background: rgba(255,107,107,0.18);
+  border-color: rgba(255,107,107,0.7);
+  color: #ff6b6b;
+}
+
+.header-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff6b6b;
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.fallidos-card {
+  padding: 32px 34px 26px;
+  text-align: left;
+  width: min(620px, 92vw);
+}
+
+.fallidos-lista {
+  margin: 18px 0 20px;
+  max-height: min(56vh, 460px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fallido-item {
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.fallido-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fallido-motivo {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #ff8a8a;
+}
+/* La campaña inactiva es el caso que el vendedor puede arreglar solo: va en
+   amarillo (acción) y no en rojo (avisale al admin). */
+.fallido-motivo--sin_campania { color: var(--yellow); }
+
+.fallido-fecha {
+  font-size: 0.72rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.fallido-meta {
+  margin: 5px 0 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.fallido-link {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--faint);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fallido-link:hover { color: var(--yellow); }
+
+.fallido-tecnico { margin-top: 8px; }
+.fallido-tecnico summary {
+  cursor: pointer;
+  font-size: 0.71rem;
+  color: var(--faint);
+}
+.fallido-tecnico p {
+  margin: 6px 0 0;
+  font-size: 0.71rem;
+  color: var(--muted);
+  word-break: break-word;
+}

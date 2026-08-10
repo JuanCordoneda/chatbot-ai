@@ -48,6 +48,11 @@ app.config.update(
         days=int(os.environ.get("SESSION_DAYS", "14"))),
 )
 
+# Sello de sesión: las cookies viejas no lo traen (o traen otro valor), así que
+# al subir este deploy todos quedan deslogueados una vez y vuelven a entrar.
+# Para forzar otro logout masivo más adelante, subir el número.
+SESSION_STAMP = 1
+
 # Recargar templates ante cambios sin reiniciar el proceso (dev / edición en caliente).
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.jinja_env.auto_reload = True
@@ -155,7 +160,8 @@ except Exception:
 from contextlib import contextmanager
 
 try:
-    from common.growi_trace import trazar, contexto as traza_contexto
+    from common.growi_trace import (trazar, contexto as traza_contexto,
+                                    rechazo_local as traza_rechazo_local)
 except Exception:
     # Mismo criterio que los imports de arriba: sin el paquete común el
     # webService tiene que seguir andando, solo que sin auditoría.
@@ -174,14 +180,22 @@ except Exception:
     def traza_contexto(*a, **kw):
         yield {}
 
+    @contextmanager
+    def traza_rechazo_local(*a, **kw):
+        yield
+
 _GROWI_PROXY_URL = os.environ.get("GROWI_HTTP_PROXY", "")
 _GROWI_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 )
-# Sesiones del CRM cacheadas POR CUENTA (account_id -> {"session", "cfg"}). Cada
-# vendedor opera Growi bajo su propio login. La clave None = sesión global del
-# .env (fallback para el admin / entornos sin DB).
+# Sesiones del CRM cacheadas POR CREDENCIAL ((crm_url, crm_email) -> {"session",
+# "cfg"}), NO por account_id. Dos cuentas distintas pueden apuntar al MISMO
+# usuario de Growi — pasa con la cuenta del admin y el fallback del .env, que
+# comparten email —, y si cada una abre su propia sesión, cada login invalida el
+# de la otra: la primera se encuentra deslogueada a mitad de un envío y el error
+# sale como "credenciales rechazadas" cuando la contraseña está perfecta.
+# Compartiendo la sesión por credencial, ese caso desaparece.
 _growi_sessions = {}
 
 
@@ -255,15 +269,72 @@ class GrowiAuthError(RuntimeError):
     enviar_trafico.php, que no dice nada de lo que realmente pasó."""
 
 
-def _growi_session_ok(s, url):
-    """True/False si la sesión quedó autenticada; None si no se pudo comprobar
-    (timeout, red). El None importa: un problema de red no es un login rechazado."""
+def _verificar_sesion(s, url):
+    """Comprueba si la sesión quedó autenticada, devolviendo TAMBIÉN el porqué.
+
+    Devuelve {"ok": True|False|None, "status": int|None, "location": str|None}.
+    ok=None significa "no se pudo comprobar" (timeout, red): un problema de red
+    no es un login rechazado.
+
+    El status y el Location son lo que faltaba para diagnosticar: sin ellos,
+    cualquier respuesta que no fuera 200 se reportaba como "usuario o contraseña
+    incorrectos", que es una conclusión que este chequeo NO puede sacar.
+    """
     try:
-        return s.get(f"{url}/paginas/trafico.php", allow_redirects=False,
-                     timeout=15).status_code == 200
+        r = s.get(f"{url}/paginas/trafico.php", allow_redirects=False, timeout=15)
+        return {"ok": r.status_code == 200, "status": r.status_code,
+                "location": r.headers.get("location")}
     except Exception as e:
         print(f"[growi-web] no pude verificar la sesión ({e!r})", flush=True)
+        return {"ok": None, "status": None, "location": None}
+
+
+def _destino_del_login(resp):
+    """A dónde mandó el CRM después del POST a login.php, o None si no redirigió.
+
+    El POST se sigue mandando con redirects habilitados (no cambiamos cómo se
+    abre la sesión), así que el 302 original está en resp.history y no en resp.
+    """
+    if resp is None:
         return None
+    if resp.history:
+        return resp.history[0].headers.get("location") or resp.url
+    return None
+
+
+def _login_parece_aceptado(resp):
+    """True si el POST a login.php parece un login ACEPTADO, None si no hay señal.
+
+    El CRM contesta con un redirect: a una página interna si entró, y de vuelta a
+    login.php si rebotó. No es una certeza, y por eso solo se usa para redactar el
+    error: si el login fue aceptado y aun así trafico.php nos manda al login, el
+    problema no es la contraseña. Sin redirect no hay señal confiable (un 200
+    puede ser el formulario de vuelta), y entonces no afirmamos nada.
+    """
+    destino = _destino_del_login(resp)
+    if not destino:
+        return None
+    return "login.php" not in destino.lower()
+
+
+def _detalle_login(cfg, login_resp, check):
+    """Arma la explicación del rechazo con los datos crudos, sin inventar causa."""
+    email = cfg.get("crm_email") or "(sin email)"
+    dest = _destino_del_login(login_resp)
+    crudo = (f"login.php → {login_resp.status_code if login_resp is not None else '—'}"
+             f"{' → ' + dest if dest else ''}; "
+             f"trafico.php → {check.get('status')}"
+             f"{' → ' + check['location'] if check.get('location') else ''}")
+    if _login_parece_aceptado(login_resp):
+        # El CRM aceptó las credenciales y ACÁ ABAJO igual no hay sesión: es la
+        # sesión, no la contraseña. Pasa cuando el CRM ata la sesión a la IP de
+        # salida (y la IP rota) o cuando dos sesiones del MISMO usuario de Growi
+        # se pisan entre sí.
+        return (f"El CRM aceptó el login de {email} pero la sesión no quedó abierta "
+                f"({crudo}). No es la contraseña: suele ser la IP de salida o dos "
+                f"sesiones del mismo usuario de Growi pisándose.")
+    return (f"El CRM no dejó entrar a {email} y rebotó al login ({crudo}). "
+            "Revisá el usuario y la contraseña de Growi en la ficha del vendedor.")
 
 
 def _growi_login_with(cfg, verify=True, account_id=None):
@@ -283,7 +354,7 @@ def _growi_login_with(cfg, verify=True, account_id=None):
         s.headers.update({"user-agent": _GROWI_USER_AGENT})
         s.proxies.update(proxies_de(proxy))
         try:
-            s.post(
+            login_resp = s.post(
                 f"{url}/cuenta/login.php",
                 data={"correo": cfg.get("crm_email", ""), "password": cfg.get("crm_password", "")},
                 headers={
@@ -300,18 +371,17 @@ def _growi_login_with(cfg, verify=True, account_id=None):
                   flush=True)
             continue
 
-        estado = _growi_session_ok(s, url)
-        if estado is None:
+        check = _verificar_sesion(s, url)
+        if check["ok"] is None:
             # No se pudo comprobar por un problema de red: puede ser este proxy.
             ultimo_error = ultimo_error or RuntimeError("sesión no verificable")
             pool.marcar_muerto(proxy)
             continue
-        if verify and estado is False:
-            # Credenciales rechazadas: cambiar de proxy no arregla nada.
-            raise GrowiAuthError(
-                f"El CRM rechazó el login de {cfg.get('crm_email') or '(sin email)'}. "
-                "Revisá el usuario y la contraseña de Growi en la ficha del vendedor."
-            )
+        if check["ok"] is False:
+            detalle = _detalle_login(cfg, login_resp, check)
+            print(f"[growi-web] sesión no autenticada tras el login: {detalle}", flush=True)
+            if verify:
+                raise GrowiAuthError(detalle)
         pool.marcar_vivo(proxy)
         return s
 
@@ -396,8 +466,15 @@ def _growi_validate_credentials(cfg):
         # verify=False: acá el chequeo lo hacemos nosotros y queremos un resultado,
         # no una excepción (esto valida credenciales que el usuario está cargando).
         s = _growi_login_with(cfg, verify=False)
-        check = s.get(f"{url}/paginas/trafico.php", allow_redirects=False, timeout=15)
-        return "ok" if check.status_code == 200 else "invalid"
+        check = _verificar_sesion(s, url)
+        if check["ok"] is None:
+            return "unreachable"
+        if check["ok"]:
+            return "ok"
+        print(f"[auth] credenciales rechazadas para {cfg.get('crm_email')}: "
+              f"trafico.php → {check['status']}"
+              f"{' → ' + check['location'] if check['location'] else ''}", flush=True)
+        return "invalid"
     except Exception as e:
         print(f"[auth] no pude hablar con el CRM al validar credenciales ({e!r})", flush=True)
         return "unreachable"
@@ -412,25 +489,55 @@ _growi_sessions_lock = threading.Lock()
 _growi_login_locks = {}
 
 
-def _lock_de_cuenta(account_id):
+def _clave_sesion(cfg):
+    """Identidad de una sesión del CRM: a qué CRM y con qué usuario. Dos cuentas
+    con el mismo usuario de Growi comparten sesión, que es justo lo que evita que
+    se pisen entre sí."""
+    return ((cfg.get("crm_url") or GROWI_CRM_URL).rstrip("/").lower(),
+            (cfg.get("crm_email") or "").strip().lower())
+
+
+def _lock_de_sesion(clave):
     with _growi_sessions_lock:
-        lock = _growi_login_locks.get(account_id)
+        lock = _growi_login_locks.get(clave)
         if lock is None:
-            lock = _growi_login_locks[account_id] = threading.Lock()
+            lock = _growi_login_locks[clave] = threading.Lock()
         return lock
 
 
+def _abrir_sesion(cfg, account_id=None):
+    """Loguea y guarda la sesión bajo su credencial. Devuelve la entrada."""
+    entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
+    _growi_sessions[_clave_sesion(cfg)] = entry
+    return entry
+
+
+def _olvidar_sesion(cfg):
+    _growi_sessions.pop(_clave_sesion(cfg), None)
+
+
+def _olvidar_sesion_de_cuenta(account_id):
+    """Tira la sesión cacheada de una cuenta. Se resuelve por credencial, así que
+    hay que llamarla ANTES de cambiarle el email/password a la cuenta: después ya
+    no se puede calcular la clave vieja."""
+    try:
+        _olvidar_sesion(_account_crm_cfg(account_id))
+    except Exception as e:
+        print(f"[growi-web] no pude invalidar la sesión de la cuenta {account_id} ({e})",
+              flush=True)
+
+
 def _get_growi_session(account_id):
-    entry = _growi_sessions.get(account_id)
+    cfg = _account_crm_cfg(account_id)
+    clave = _clave_sesion(cfg)
+    entry = _growi_sessions.get(clave)
     if entry is not None:
         return entry
-    with _lock_de_cuenta(account_id):
+    with _lock_de_sesion(clave):
         # Otro hilo pudo haberla abierto mientras esperábamos el lock.
-        entry = _growi_sessions.get(account_id)
+        entry = _growi_sessions.get(clave)
         if entry is None:
-            cfg = _account_crm_cfg(account_id)
-            entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
-            _growi_sessions[account_id] = entry
+            entry = _abrir_sesion(cfg, account_id=account_id)
         return entry
 
 
@@ -560,10 +667,8 @@ def _growi_request(method, path, account_id=None, **kwargs):
                 return resp
             print(f"[growi-web] sesión caída ({resp.status_code}, url={resp.url}) en "
                   f"intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
-            _growi_sessions.pop(account_id, None)
-            cfg = _account_crm_cfg(account_id)
-            entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
-            _growi_sessions[account_id] = entry
+            _olvidar_sesion(entry["cfg"])
+            entry = _abrir_sesion(_account_crm_cfg(account_id), account_id=account_id)
         # Cuatro logins frescos y la sesión sigue sin abrir: no es mala suerte de IP,
         # es que no estamos entrando. Lo decimos con todas las letras.
         raise GrowiAuthError(
@@ -578,11 +683,9 @@ def _growi_relogin(account_id=None):
     HTML/vacío en vez del JSON esperado."""
     if account_id is None:
         account_id = session.get("account_id")
-    _growi_sessions.pop(account_id, None)
     cfg = _account_crm_cfg(account_id)
-    entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
-    _growi_sessions[account_id] = entry
-    return entry
+    _olvidar_sesion(cfg)
+    return _abrir_sesion(cfg, account_id=account_id)
 
 
 def _authenticate_db_user(identifier, password):
@@ -727,7 +830,7 @@ def _authenticate_vendedor(email, password):
         _repo.update_account_crm_password(acc["id"], password)
     except Exception as e:
         print(f"[auth] no pude refrescar la password del CRM ({e})", flush=True)
-    _growi_sessions.pop(acc["id"], None)
+    _olvidar_sesion_de_cuenta(acc["id"])
     return {"user_id": None, "account_id": acc["id"],
             "username": acc.get("crm_email") or email, "is_admin": False}, None
 
@@ -799,6 +902,14 @@ def _log_uso(action, post_url=None, client_ig_username=None, qty=None, product_t
         print(f"[usage] no pude registrar '{action}' ({e})", flush=True)
 
 
+@app.before_request
+def _invalidar_sesiones_viejas():
+    """Si la cookie no trae el sello actual, la sesión es de un deploy anterior:
+    se limpia y el usuario vuelve a loguear (una sola vez por sello)."""
+    if session.get("logged_in") and session.get("stamp") != SESSION_STAMP:
+        session.clear()
+
+
 def require_login(fn):
     @wraps(fn)
     def wrapper(*a, **kw):
@@ -842,6 +953,7 @@ def login():
             if user:
                 _login_reset(rate_key)   # login OK: no arrastra intentos fallidos
                 session.permanent = True  # dura PERMANENT_SESSION_LIFETIME, no muere al cerrar
+                session["stamp"] = SESSION_STAMP
                 session["logged_in"] = True
                 session["user_id"] = user["user_id"]
                 session["account_id"] = user["account_id"]
@@ -1111,6 +1223,10 @@ def publicar():
             "resultado": {
                 "ok": False, "insertadas": 0, "messages": [], "warnings": [],
                 "errors": [error],
+                # Si el motivo es accionable, el front ofrece elegir otra
+                # campaña y reintentar SOLO los comentarios (que ya están
+                # generados) en vez de rehacer todo el flujo.
+                "motivo": None if encolada else _motivo_de_error_de_envio(e),
                 "encolada": bool(encolada),
                 "encolada_id": encolada.get("id") if encolada else None,
             },
@@ -1498,7 +1614,17 @@ class CuentaSinCRM(RuntimeError):
     """La cuenta no tiene su propio CRM configurado, así que no sabemos a nombre
     de quién cargar la orden. Es un error a propósito: el fallback al .env
     mandaba la orden al CRM del dueño de la agencia, donde el vendedor no la veía
-    y quedaba imputada a otro."""
+    y quedaba imputada a otro.
+
+    `motivo` es para el front: "sin_campania" es el único caso que el vendedor
+    puede resolver solo (eligiendo otra campaña y reintentando). El resto
+    necesita que el admin le complete la ficha, y ofrecerle un botón de
+    reintentar ahí sería mandarlo a chocar contra la misma pared.
+    """
+
+    def __init__(self, mensaje, motivo=None):
+        super().__init__(mensaje)
+        self.motivo = motivo
 
 
 def _cuenta_tiene_crm_propio(account_id) -> bool:
@@ -1519,9 +1645,37 @@ def _cuenta_tiene_crm_propio(account_id) -> bool:
     return bool(cfg and cfg.get("crm_email"))
 
 
-def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", idventa_elegida="",
-                        disponible=None, account_id=None, user_id=None,
-                        username=None, origen="web"):
+def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", **kw):
+    """Envía y, si la orden se rebota ANTES de salir, deja igual la fila de
+    auditoría.
+
+    `trazar` solo cubre el round-trip HTTP, así que los rebotes de acá — la
+    cuenta sin campaña activa, sin idvendedor, sin CRM propio, el proxy que ni
+    conecta — no quedaban registrados en ningún lado: no están en el CRM porque
+    nunca llegaron, y tampoco en `growi_calls`. El vendedor veía el error una
+    vez en pantalla y después no había forma de saber cuántas órdenes se habían
+    rebotado ni por qué.
+    """
+    with traza_rechazo_local(
+            "enviar_trafico", f"{_crm_base(kw.get('account_id'))}{_PATH_ENVIO_ORDENES}",
+            origen=kw.get("origen") or "web", account_id=kw.get("account_id"),
+            user_id=kw.get("user_id"), username=kw.get("username"),
+            post_url=post_url, client_ig_username=cliente_ig,
+            # QUÉ se rebotó, no solo que se rebotó. Sin las órdenes la fila dice
+            # "falló" y nada más, y reconstruir el reclamo obliga a que el
+            # vendedor se acuerde de lo que había cargado.
+            payload={
+                "idventa_elegida": kw.get("idventa_elegida") or None,
+                "cantidad_ordenes": len(ordenes),
+                "ordenes": ordenes,
+            }):
+        return _enviar_ordenes_crm_impl(ordenes, post_url=post_url,
+                                        cliente_ig=cliente_ig, **kw)
+
+
+def _enviar_ordenes_crm_impl(ordenes, *, post_url="", cliente_ig="", idventa_elegida="",
+                             disponible=None, account_id=None, user_id=None,
+                             username=None, origen="web"):
     """Manda al CRM órdenes YA normalizadas (forma de enviar_trafico.php).
 
     Es el ÚNICO camino de salida de órdenes del panel: lo usan tanto el tráfico
@@ -1584,8 +1738,11 @@ def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", idventa_elegida=
         falta = "el ID de vendedor" if not idvendedor else "la campaña"
         raise CuentaSinCRM(
             f"No pudimos determinar {falta} de tu cuenta en Growi, así que la "
-            "orden no se puede cargar a tu nombre. Avisale al admin para que "
-            "complete tu ficha (o elegí una campaña) antes de volver a mandarla."
+            "orden no se puede cargar a tu nombre. Elegí una campaña y reintentá; "
+            "si sigue igual, pedile al admin que complete tu ficha.",
+            # Elegir una campaña también resuelve el caso del idvendedor: el
+            # listado de campañas trae el `data-idvendedor` de cada una.
+            motivo="sin_campania",
         )
 
     # El disponible que informamos al CRM es el saldo REAL de esa campaña; el
@@ -1662,6 +1819,15 @@ def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", idventa_elegida=
                 f"El CRM respondió algo inesperado (no es JSON): {resp.text[:200]}"
             )
         return data, resp.text, resp.status_code
+
+
+def _motivo_de_error_de_envio(e):
+    """Código de motivo para el front (o None si no hay ninguno accionable).
+
+    Hoy el único es "sin_campania": el vendedor puede elegir otra campaña y
+    reintentar SOLO lo que falló, sin volver a generar los comentarios.
+    """
+    return getattr(e, "motivo", None)
 
 
 def _mensaje_de_error_de_envio(e):
@@ -1741,7 +1907,8 @@ def enviar_trafico():
         )
     except Exception as e:
         print(f"[enviar_trafico] error: {e!r}", flush=True)
-        return jsonify({"error": _mensaje_de_error_de_envio(e)}), 500
+        return jsonify({"error": _mensaje_de_error_de_envio(e),
+                        "motivo": _motivo_de_error_de_envio(e)}), 500
 
     # El consumo se registra RECIÉN ACÁ, con la orden ya aceptada. Antes se
     # grababa antes de mandar: si el CRM rechazaba o se caía la red, la cantidad
@@ -1845,9 +2012,12 @@ def admin_vendedores_update(account_id):
         "name", "active", "crm_email", "crm_password", "crm_url",
         "crm_idvendedor", "crm_idventa", "crm_proxy", "crm_disponible",
     ) if k in d}
+    # Si cambiaron credenciales, la sesión CRM cacheada quedó vieja. Se invalida
+    # ANTES (con el email viejo, que es la clave con la que está guardada) y
+    # DESPUÉS (por si el email no cambió y la entrada es la misma).
+    _olvidar_sesion_de_cuenta(account_id)
     v = _repo.update_vendedor(account_id, **kwargs)
-    # Si cambiaron credenciales, la sesión CRM cacheada de esa cuenta quedó vieja.
-    _growi_sessions.pop(account_id, None)
+    _olvidar_sesion_de_cuenta(account_id)
     return jsonify({"vendedor": v})
 
 
@@ -1859,7 +2029,7 @@ def admin_vendedores_estado(account_id):
     que el admin toca en el panel cuando le llega un vendedor nuevo."""
     d = request.get_json(silent=True) or {}
     v = _repo.set_vendedor_status(account_id, (d.get("status") or "").strip())
-    _growi_sessions.pop(account_id, None)
+    _olvidar_sesion_de_cuenta(account_id)
     return jsonify({"vendedor": v})
 
 
@@ -2369,6 +2539,82 @@ def growi_calls_list():
         ),
         "resumen": _repo.growi_calls_resumen(account_id),
     })
+
+
+# Motivos en criollo para la pantalla del vendedor. Se buscan como subcadena
+# sobre el error y el cuerpo que contestó el CRM, en orden: el primero que
+# engancha manda. Lo que no engancha con nada cae en "el CRM la rechazó", que es
+# honesto: preferimos eso antes que inventarle una causa.
+_MOTIVOS_ENVIO = (
+    ("sin_campania",  ("no pudimos determinar la campaña", "no pudimos determinar el id",
+                       "cuentasincrm", "elegí una campaña"),
+     "No había una campaña activa a la que cargarle la orden"),
+    ("sin_crm",       ("todavía no tiene el crm",),
+     "Tu cuenta no tiene el CRM configurado"),
+    ("saldo",         ("saldo", "disponible", "insuficiente"),
+     "No alcanzaba el saldo de la campaña"),
+    ("sesion",        ("401", "login", "growiautherror", "sesión"),
+     "El CRM cortó la sesión"),
+    ("red",           ("timeout", "connection", "proxy", "growiunavailable",
+                       "no se pudo conectar"),
+     "No había conexión con el CRM"),
+)
+
+
+def _motivo_envio_criollo(*textos) -> tuple:
+    """(codigo, texto) del motivo de un envío fallido, para mostrarle al vendedor."""
+    plano = " ".join(t for t in textos if t).lower()
+    for codigo, agujas, criollo in _MOTIVOS_ENVIO:
+        if any(a in plano for a in agujas):
+            return codigo, criollo
+    return "rechazado", "El CRM rechazó la orden"
+
+
+@app.route("/api/mis-envios-fallidos", methods=["GET"])
+@require_login
+@_repo_error_response
+def mis_envios_fallidos():
+    """Los envíos del vendedor que NO entraron, con el motivo en criollo.
+
+    Junta las dos fuentes porque para el vendedor son la misma cosa: la
+    auditoría de lo que el CRM rechazó (`growi_calls` con ok=false, que incluye
+    los rebotes que nunca llegaron a salir) y las órdenes que quedaron en la
+    cola esperando revisión (`pending_orders`). En el CRM de Growi ninguna de
+    las dos aparece — justamente porque no entraron — así que esta pantalla es
+    el único lugar donde el vendedor puede verlas.
+    """
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    items = []
+
+    for c in _repo.list_growi_calls(account_id, solo_errores=True, limite=50):
+        codigo, criollo = _motivo_envio_criollo(c.get("error"), c.get("response_snippet"))
+        items.append({
+            "id": c["id"], "tipo": "envio", "fecha": c.get("created_at"),
+            "motivo": codigo, "detalle": criollo,
+            "post_url": c.get("post_url"), "cliente": c.get("client_ig_username"),
+            "idventa": c.get("idventa"), "costo": c.get("costo"),
+            "tecnico": c.get("error") or f"HTTP {c.get('status_code') or '—'}",
+            # El worker manda solo: decirle "reintentá" al vendedor lo haría
+            # cargar dos veces la misma orden.
+            "reintentable": codigo == "sin_campania",
+        })
+
+    # "revisar" = pudo haber entrado, lo mira un humano; "fallida" = se agotaron
+    # los reintentos. Las "pendiente"/"enviando" no van: esas todavía van a salir
+    # solas y mostrarlas como fallo asusta al vendedor al pedo.
+    for o in _repo.list_pending_orders(account_id, estados=["revisar", "fallida"]):
+        codigo, criollo = _motivo_envio_criollo(o.get("ultimo_error"))
+        items.append({
+            "id": o["id"], "tipo": "cola", "fecha": o.get("created_at"),
+            "motivo": codigo, "detalle": criollo,
+            "post_url": o.get("post_url"), "cliente": o.get("client_ig_username"),
+            "idventa": None, "costo": None,
+            "tecnico": o.get("ultimo_error") or "",
+            "reintentable": False,
+        })
+
+    items.sort(key=lambda i: i.get("fecha") or "", reverse=True)
+    return jsonify({"envios": items, "total": len(items)})
 
 
 @app.route("/api/growi-calls/<int:call_id>", methods=["GET"])

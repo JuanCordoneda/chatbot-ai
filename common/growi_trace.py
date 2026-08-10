@@ -47,6 +47,10 @@ _SECRETAS = ("password", "passwd", "pass", "token", "authorization", "cookie",
 # conocen la sesión web, y pasarlo a mano por cada firma ensuciaría todo.
 _ctx: ContextVar[dict] = ContextVar("growi_trace_ctx", default={})
 
+# ¿Ya se guardó una traza en esta operación? Lo usa `rechazo_local` para no
+# duplicar la fila cuando el request SÍ salió y falló después.
+_trazado: ContextVar[bool] = ContextVar("growi_trace_trazado", default=False)
+
 
 def contexto_actual() -> dict:
     return dict(_ctx.get() or {})
@@ -245,6 +249,7 @@ class Traza:
 
     def guardar(self) -> None:
         fila = None
+        _trazado.set(True)
         try:
             fila = self._fila()
             from common import repository
@@ -257,6 +262,48 @@ class Traza:
             print(f"[growi-trace] {fila['operacion']} {fila['method']} "
                   f"{fila['status_code'] or fila['error'] or '—'} "
                   f"({fila['duracion_ms']}ms, {fila['intentos']} intento/s)", flush=True)
+
+
+def registrar_fallo(operacion, error, url="", method="POST", payload=None, **extra):
+    """Deja una fila de auditoría por un envío que NUNCA llegó a salir.
+
+    `trazar` solo registra lo que se le pide al CRM; un envío que se frena antes
+    (no sabemos la campaña, la cuenta no tiene CRM configurado, el saldo no da)
+    no generaba ninguna fila, y el panel de trazas mostraba exactamente nada
+    justo en el caso en que el vendedor jura que mandó la orden. Ahora todo
+    fallo queda registrado, haya habido request o no.
+
+    Como el resto de la auditoría: no puede romper el flujo (ver `guardar`).
+    """
+    tr = Traza(operacion, method, url, payload=payload, **extra)
+    tr.fallo(error)
+    tr.guardar()
+    return tr
+
+
+@contextmanager
+def rechazo_local(operacion, url, **extra):
+    """Deja fila cuando la orden se cae ANTES de que el request salga.
+
+    Existe por un agujero concreto: `trazar` solo envuelve el round-trip HTTP,
+    así que un envío frenado acá (la cuenta sin campaña activa, sin idvendedor,
+    sin CRM propio, el proxy que ni conecta) no quedaba en ningún lado. No está
+    en el CRM porque nunca llegó, y tampoco estaba en la auditoría: el vendedor
+    veía el error una vez en pantalla y después no había forma de saber cuántas
+    órdenes se habían rebotado ni por qué.
+
+    Si el request sí salió, la fila ya la escribió `trazar` y acá no se hace
+    nada: la operación se marca como trazada en `_trazado`.
+    """
+    token = _trazado.set(False)
+    try:
+        yield
+    except Exception as e:
+        if not _trazado.get():
+            registrar_fallo(operacion, e, url=url, **extra)
+        raise
+    finally:
+        _trazado.reset(token)
 
 
 @contextmanager

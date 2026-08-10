@@ -1367,6 +1367,9 @@ function abrirRepartirCon(textos) {
 
   renderRepartir();
   document.getElementById("repartir-overlay").classList.remove("hidden");
+  // Ya visible: recién ahora la lista tiene alto real y se puede saber si sobra
+  // contenido abajo.
+  _marcarFinDeLista();
 }
 
 // Un click: el bot manda los mensajes sueltos al WhatsApp configurado. De ahí
@@ -1464,10 +1467,13 @@ function renderRepartir() {
       : `<label class="repartir-check" title="Mandar este"><input type="checkbox"
            ${it.incluido ? "checked" : ""} onchange="toggleIncluido(${i})" /><span
            class="repartir-num">${enviado ? "✓" : (it.incluido ? n : "–")}</span></label>`;
+    // La etiqueta va SOLO en el link del post. Repetir "COMENTARIO" en cada
+    // fila era ruido: con 20 filas la palabra aparece 20 veces y no distingue
+    // nada, porque todo lo demás ya es un comentario.
     return `<div class="${clases}">
       ${izq}
       <div class="repartir-cuerpo">
-        <span class="repartir-tag">${etiqueta}</span>
+        ${it.tipo === "link" ? `<span class="repartir-tag">${etiqueta}</span>` : ""}
         <span class="repartir-texto">${escapeHtml(it.texto)}</span>
       </div>
       <button type="button" class="repartir-enviar" onclick="enviarWa(${i})"${it.incluido ? "" : " disabled"}>
@@ -1487,6 +1493,25 @@ function renderRepartir() {
   if (sub) sub.textContent = `El link del post y ${incluidos - 1} ` +
     `comentario${incluidos === 2 ? "" : "s"} elegido${incluidos === 2 ? "" : "s"}.`;
   _pintarTodoEnUno();
+  _marcarFinDeLista();
+}
+
+// El degradado del final solo tiene sentido si hay algo más abajo. Se recalcula
+// al renderizar y al scrollear, así no queda difuminada la última fila cuando
+// ya llegaste al fondo.
+function _marcarFinDeLista() {
+  const lista = document.getElementById("repartir-lista");
+  if (!lista) return;
+  // Con el modal todavía oculto (display:none) todas las medidas son 0 y la
+  // cuenta daba "estás al final", así que el degradado nunca aparecía. Sin
+  // altura medible no se decide nada: se recalcula cuando el modal ya se ve.
+  if (!lista.clientHeight) return;
+  const fin = lista.scrollTop + lista.clientHeight >= lista.scrollHeight - 4;
+  lista.classList.toggle("repartir-lista--fin", fin);
+  if (!lista.dataset.scrollBound) {
+    lista.dataset.scrollBound = "1";
+    lista.addEventListener("scroll", _marcarFinDeLista, { passive: true });
+  }
 }
 
 // Arma el bloque único: el link del post y después cada comentario con su
@@ -1499,11 +1524,12 @@ function _textoTodoEnUno() {
   // reparto que seguía siendo manual.
   const cabecera = repartoItems.find(it => it.tipo === "link");
   const textoCabecera = cabecera ? cabecera.texto : `Comentarios\n${currentUrl}`;
-  // Los símbolos van en EMOJI, no en caracteres tipográficos. "↪" (U+21AA) y
-  // "▸" (U+25B8) no son emoji: dependen de que la fuente del celular los tenga
-  // y en varios Android salen como el cuadradito de "no soportado". 👉 y 📌 son
-  // emoji de los primeros, están en todos lados.
-  const partes = [`${textoCabecera}\n👉 https://wa.me/?text=${encodeURIComponent(textoCabecera)}`];
+  // Los símbolos del ARMADO van en ASCII puro. Se probaron caracteres
+  // tipográficos ("↪", "▸") y emoji ("👉", "📌") y los dos llegaron como el
+  // cuadradito de "no soportado" al pasar por el deep link de WhatsApp — el
+  // archivo y la respuesta HTTP salen bien en UTF-8, así que se pierde del otro
+  // lado. Con "->" no hay nada que negociar: llega igual en todos lados.
+  const partes = [`${textoCabecera}\n\n-> https://wa.me/?text=${encodeURIComponent(textoCabecera)}`];
   coms.forEach((it, n) => {
     // WhatsApp no permite texto sobre un link (no hay markdown ni hipervínculos):
     // siempre muestra la URL cruda. Lo único que se puede acomodar es lo de
@@ -1513,9 +1539,9 @@ function _textoTodoEnUno() {
     // El número NO va como "1. ": WhatsApp lo toma como lista numerada, le
     // aplica su propio formato y mete word-joiners invisibles en el medio. Con
     // el encabezado en su renglón aparte el texto llega tal cual se armó.
-    partes.push(`📌 ${n + 1} de ${coms.length}\n` +
-                `${it.texto}\n` +
-                `👉 https://wa.me/?text=${encodeURIComponent(it.texto)}`);
+    partes.push(`${n + 1} de ${coms.length}\n` +
+                `${it.texto}\n\n` +
+                `-> https://wa.me/?text=${encodeURIComponent(it.texto)}`);
   });
   return partes.join("\n\n");
 }
@@ -1542,7 +1568,7 @@ function _pintarTodoEnUno() {
   if (hint) {
     hint.textContent = largo > 3500
       ? `El mensaje quedaría de ${largo} caracteres y WhatsApp corta en 4096: destildá algunos o mandalos de a uno.`
-      : "Llega un mensaje con todos los comentarios, cada uno con su link para reenviarlo.";
+      : "Un mensaje con todos, cada uno con su link para reenviarlo.";
     hint.classList.toggle("repartir-uno-hint--warn", largo > 3500);
   }
 }
@@ -2995,35 +3021,50 @@ function prepararVentaPicker() {
     owner.classList.toggle("hidden", !window._clientIg);
   }
   retry.classList.add("hidden");
-  sel.disabled = true;
-  sel.innerHTML = `<option value="">Cargando campañas…</option>`;
-  fetch("/api/ventas")
-    .then(r => r.json())
-    .then(d => {
-      const ventas = d.ventas || [];
-      sel.disabled = false;
-      _ventasSaldo = {};
-      ventas.forEach(v => { _ventasSaldo[String(v.idventa)] = parseFloat(v.disponible) || 0; });
+  _llenarSelectVentas(sel)
+    .then(ventas => {
       if (!ventas.length) {
-        sel.innerHTML = `<option value="">No hay campañas disponibles</option>`;
-        sel.disabled = true;
         retry.classList.remove("hidden");
         _ventaPickerMsg("No encontramos campañas en tu cuenta del CRM. Creá una o pedile al admin que te asigne el cliente.", true);
         return;
       }
+      // Si ya había una elegida en este post, la mantenemos.
+      if (window._ventaElegida) { sel.value = window._ventaElegida; _mostrarSaldoVenta(window._ventaElegida); }
+    })
+    .catch(() => {
+      retry.classList.remove("hidden");
+      _ventaPickerMsg("No pudimos leer tus campañas del CRM.", true);
+    });
+}
+
+// Llena un <select> con las campañas de la cuenta. Lo usan el picker del paso de
+// órdenes y el de "reintentar con otra campaña" de la pantalla de resultado:
+// son el mismo listado y el mismo formato, y duplicarlo ya nos había dejado dos
+// versiones distintas de la etiqueta.
+function _llenarSelectVentas(sel) {
+  sel.disabled = true;
+  sel.innerHTML = `<option value="">Cargando campañas…</option>`;
+  return fetch("/api/ventas")
+    .then(r => r.json())
+    .then(d => {
+      const ventas = d.ventas || [];
+      _ventasSaldo = {};
+      ventas.forEach(v => { _ventasSaldo[String(v.idventa)] = parseFloat(v.disponible) || 0; });
+      if (!ventas.length) {
+        sel.innerHTML = `<option value="">No hay campañas disponibles</option>`;
+        return ventas;
+      }
+      sel.disabled = false;
       const saldo = (v) => `$${(parseFloat(v.disponible) || 0).toFixed(2)}`;
       sel.innerHTML = `<option value="">— Elegí una campaña —</option>` +
         ventas.map(v => `<option value="${escapeHtml(v.idventa)}">` +
           `#${escapeHtml(v.idventa)} · ${saldo(v)} · ${escapeHtml(v.nombre)}` +
           `${v.activa ? "" : " (vieja)"}</option>`).join("");
-      // Si ya había una elegida en este post, la mantenemos.
-      if (window._ventaElegida) { sel.value = window._ventaElegida; _mostrarSaldoVenta(window._ventaElegida); }
+      return ventas;
     })
-    .catch(() => {
+    .catch(e => {
       sel.innerHTML = `<option value="">No pude leer las campañas</option>`;
-      sel.disabled = true;
-      retry.classList.remove("hidden");
-      _ventaPickerMsg("No pudimos leer tus campañas del CRM.", true);
+      throw e;
     });
 }
 
@@ -3905,6 +3946,7 @@ function renderResultado(data, nComentarios, nTrafico) {
     ${errores.length ? `<div class="res-bloque res-bloque--err">
       <div class="res-bloque-t">${encolada ? "Todavía no salió" : "No se pudo completar"}</div>
       ${errores.map(e => `<div class="res-msg res-msg--bad"><span class="res-msg-ico">${encolada ? "⏳" : "❌"}</span><span class="res-msg-txt">${escapeHtml(e)}</span></div>`).join("")}
+      ${_bloqueReintentoCampania()}
     </div>` : ""}
 
     ${faltan ? `<div class="res-bloque res-bloque--err">
@@ -3925,6 +3967,26 @@ function renderResultado(data, nComentarios, nTrafico) {
     </details>` : ""}
   `;
 
+  // El selector del reintento se puebla después del innerHTML (el <select>
+  // recién existe acá).
+  const selRetry = document.getElementById("res-retry-select");
+  if (selRetry) {
+    const exige = !!document.getElementById("res-retry-btn")?.dataset.exigeCampania;
+    _llenarSelectVentas(selRetry)
+      .then(ventas => {
+        if (!ventas.length) return;
+        // Cuando cambiar de campaña es opcional, la opción vacía tiene que decir
+        // qué pasa si la dejás así: "elegí una" haría pensar que es obligatoria.
+        if (!exige) {
+          const vacia = selRetry.querySelector('option[value=""]');
+          if (vacia) vacia.textContent = "— Con la misma campaña —";
+        } else if (window._ventaElegida) {
+          selRetry.value = window._ventaElegida;
+        }
+      })
+      .catch(() => {});
+  }
+
   const card = document.getElementById("resultado-comments-card");
   if (nComentarios && publicados.length) {
     card.classList.remove("hidden");
@@ -3935,6 +3997,94 @@ function renderResultado(data, nComentarios, nTrafico) {
     ).join("");
   } else if (card) {
     card.classList.add("hidden");
+  }
+}
+
+// Reintentar lo que falló con OTRA campaña, sin rehacer el post.
+//
+// El caso real: el vendedor eligió una campaña sin crédito (o el cliente no
+// tenía ninguna asignada), el CRM rebotó la orden y hasta ahora la única salida
+// era volver a generar todos los comentarios desde cero. Acá elige otra campaña
+// y se reenvía SOLO la mitad que no entró: si el tráfico ya salió, no se toca.
+function _bloqueReintentoCampania() {
+  const f = window._envioFallido;
+  if (!f) return "";
+  const pendientes = f.comentarios.length + f.trafico.length;
+  if (!pendientes) return "";
+
+  const que = f.comentarios.length && f.trafico.length ? "la orden"
+    : f.comentarios.length ? "los comentarios" : "el tráfico";
+  // Cambiar de campaña es OBLIGATORIO solo cuando el CRM no pudo resolver
+  // ninguna. En el resto de los fallos (saldo insuficiente, red caída, el CRM
+  // que rebota) reintentar con la misma campaña es una opción legítima, así que
+  // el selector queda como algo opcional y el botón anda sin tocarlo.
+  const hayQueElegir = f.motivo === "sin_campania";
+  const titulo = hayQueElegir
+    ? `Elegí otra campaña y reintentá ${que}`
+    : `Reintentá ${que} sin rehacer el post`;
+  const sub = hayQueElegir
+    ? "Se reenvía solo lo que no entró."
+    : "Se reenvía solo lo que no entró. Si el problema era el saldo, cambiá de campaña antes de reintentar.";
+  return `
+    <div class="res-retry">
+      <div class="res-retry-t">${escapeHtml(titulo)}</div>
+      <div class="res-retry-sub">${escapeHtml(sub)}</div>
+      <div class="res-retry-row">
+        <select id="res-retry-select" class="res-retry-select"></select>
+        <button id="res-retry-btn" class="res-retry-btn"
+                onclick="reintentarConOtraCampania()"
+                data-exige-campania="${hayQueElegir ? "1" : ""}">Reintentar</button>
+      </div>
+      <div id="res-retry-msg" class="res-retry-msg hidden"></div>
+    </div>`;
+}
+
+function _resRetryMsg(texto) {
+  const m = document.getElementById("res-retry-msg");
+  if (!m) return;
+  m.textContent = texto || "";
+  m.classList.toggle("hidden", !texto);
+}
+
+async function reintentarConOtraCampania() {
+  const f = window._envioFallido;
+  const sel = document.getElementById("res-retry-select");
+  const btn = document.getElementById("res-retry-btn");
+  if (!f || !sel || !btn) return;
+
+  const idventa = sel.value || "";
+  if (!idventa && btn.dataset.exigeCampania) {
+    _resRetryMsg("Elegí una campaña de la lista.");
+    return;
+  }
+  const saldo = _ventasSaldo[String(idventa)];
+  if (idventa && saldo !== undefined && saldo <= 0) {
+    // Es exactamente el error del que venimos: mandar a una campaña sin crédito
+    // vuelve a rebotar. Se avisa antes de gastar el viaje al CRM.
+    _resRetryMsg("Esa campaña tampoco tiene saldo: elegí otra.");
+    return;
+  }
+
+  // Sin elegir nada se reintenta con la misma campaña de antes (o con la que el
+  // backend resuelva sola si el post tiene cliente asignado).
+  if (idventa) window._ventaElegida = idventa;
+  btn.disabled = true;
+  sel.disabled = true;
+  btn.textContent = "Reintentando…";
+  _resRetryMsg("");
+
+  // Se reintenta solo lo pendiente. `_ejecutarEnvio` recalcula `_envioFallido`,
+  // así que si vuelve a fallar el bloque de reintento aparece de nuevo.
+  const comentarios = f.comentarios;
+  const trafico = f.trafico;
+  try {
+    const data = await _ejecutarEnvio(comentarios, trafico);
+    renderResultado(data, comentarios.length, trafico.length);
+  } catch (e) {
+    btn.disabled = false;
+    sel.disabled = false;
+    btn.textContent = "Reintentar";
+    _resRetryMsg("No pudimos reintentar: " + (e.message || String(e)));
   }
 }
 
@@ -3976,17 +4126,153 @@ function copiarInforme(btn) {
   }).catch(() => {});
 }
 
+// De qué post, de qué cliente y de qué campaña es CUALQUIER envío al CRM.
+//
+// Existe para que no se pueda volver a repetir el bug que dejó a Pedro sin
+// comentarios: el envío de tráfico mandaba `client` e `idventa` y el de
+// comentarios no, así que el backend no podía resolver la campaña y rebotaba
+// los comentarios mientras el tráfico del mismo post entraba sin problema.
+// Los dos envíos arrancan de acá: si mañana se agrega un tercero, hereda esto
+// gratis en vez de tener que acordarse.
+//
+// `idventa` solo va cuando el post no es de un cliente; el backend la valida
+// contra las campañas de la cuenta antes de usarla.
+function _contextoDeEnvio() {
+  return {
+    url: currentUrl,
+    client: window._clientIg || "",
+    idventa: window._ventaElegida || "",
+  };
+}
+
+// Comentarios: publicar en Instagram vía IA. Puede haber 2 órdenes
+// (verificados 94 + no verificados 95), cada una con su propia lista.
+async function _enviarComentariosAlCrm(ordenesComentarios) {
+  const resp = await fetch("/api/publicar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ..._contextoDeEnvio(),
+      // top-level: unión de todas (para el informe / fallback)
+      comentarios: comentariosParaPublicar,
+      ordenes: ordenesComentarios.map(o => ({
+        ...o,
+        // cantidad = comentarios reales (sin los encabezados hombres:/mujeres:)
+        cantidad: (o.comentarios || []).filter(c => !generoDeHeader(c)).length,
+      })),
+    }),
+  });
+  return await resp.json();
+}
+
+// Followers / likes / etc: enviar al CRM.
+async function _enviarTraficoAlCrm(ordenesNormales) {
+  const costoTotal = ordenesNormales.reduce((s, o) => s + (o.costo || 0), 0);
+
+  // Hora AR del servidor para programadas
+  let serverDateAR = "";
+  try {
+    const tsResp = await fetch("/api/server_time_ar");
+    const tsData = await tsResp.json();
+    serverDateAR = tsData.ymdhmAR || "";  // "2026-06-25 06:54"
+  } catch { /* silencioso */ }
+
+  const crmOrdenes = ordenesNormales.map(o => {
+    const programado = o.cuando !== "ahora" ? 1 : 0;
+    const fechaProg  = o.cuando === "programar" && o.fechaProgramada
+      ? o.fechaProgramada
+      : (programado ? serverDateAR : null);
+    return {
+      redsocial_id: o.redsocialId,
+      redsocial:    o.redsocial,
+      prod:         o.productoNombre,
+      demora:       " - ",
+      url:          o.link,
+      costo:        o.costo || 0,
+      obs:          o.obs || "",
+      cant_inicial: String(o.cantidad),
+      cantidad:     String(o.cantidad),
+      programado,
+      fecha_programada: fechaProg || null,
+      comentarios: [],
+    };
+  });
+
+  const traficoResp = await fetch("/api/enviar_trafico", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // client/url viajan para que el registro de uso quede atado al cliente
+    // (y así la tirada automática sepa qué cantidades ya se le enviaron).
+    body: JSON.stringify({
+      ..._contextoDeEnvio(),
+      ordenes: crmOrdenes,
+      costo_total: costoTotal,
+    }),
+  });
+  return await traficoResp.json().catch(() => ({}));
+}
+
+// Manda las dos mitades del envío y arma el `data` que lee renderResultado.
+// Está separado de solicitarOrdenes porque el botón de "reintentar con otra
+// campaña" lo vuelve a llamar con SOLO lo que falló: los comentarios ya
+// generados no se rehacen y el tráfico que ya entró no se duplica.
+async function _ejecutarEnvio(ordenesComentarios, ordenesNormales) {
+  let data = {};
+
+  if (ordenesComentarios.length > 0 && comentariosParaPublicar.length > 0) {
+    data = await _enviarComentariosAlCrm(ordenesComentarios);
+  }
+
+  if (ordenesNormales.length > 0) {
+    const traficoData = await _enviarTraficoAlCrm(ordenesNormales);
+    if (traficoData.error || traficoData.errors?.length) {
+      const err = traficoData.error || traficoData.errors.join(" | ");
+      data.error = (data.error ? data.error + " | " : "") + err;
+    } else {
+      const lineas = [
+        `Órdenes de tráfico insertadas: ${traficoData.insertadas ?? 0}`,
+        ...(traficoData.messages || []),
+        ...(traficoData.warnings || []),
+      ];
+      data.informe = (data.informe ? data.informe + "\n\n" : "") + lineas.join("\n");
+    }
+    data.trafico = traficoData;
+  }
+
+  // Qué mitad quedó sin entrar: es lo único que se reintenta después.
+  //
+  // Los comentarios pueden fallar de dos formas: con `resultado` (el CRM
+  // contestó y rebotó) o con un `error` pelado y sin `resultado` (el backend
+  // cortó antes, ej. faltan datos). Las dos cuentan como no entró.
+  //
+  // La orden ENCOLADA no es un fallo: un worker la reintenta sola, y ofrecer
+  // reintentar ahí la duplica.
+  const huboComentarios = ordenesComentarios.length > 0 && comentariosParaPublicar.length > 0;
+  const encolada = !!(data.resultado && data.resultado.encolada);
+  const falloComentarios = huboComentarios && !encolada && (
+    data.resultado ? !data.resultado.ok : !!data.error
+  );
+  const falloTrafico = !!(data.trafico && (data.trafico.error || data.trafico.errors?.length));
+  window._envioFallido = {
+    comentarios: falloComentarios ? ordenesComentarios : [],
+    trafico:     falloTrafico ? ordenesNormales : [],
+    motivo: (falloComentarios && data.resultado && data.resultado.motivo)
+         || (falloTrafico && data.trafico.motivo) || null,
+  };
+  return data;
+}
+
 async function solicitarOrdenes() {
   if (ordenes.length === 0) return;
 
-  // Post sin cliente: no mandamos nada hasta saber de qué campaña se descuenta.
-  // Solo aplica si hay órdenes de tráfico (los comentarios no tocan el saldo).
-  const hayTrafico = ordenes.some(o => o.tipo !== "comentarios");
-  if (hayTrafico && !window._clienteAsignado && !window._ventaElegida) {
+  // Post sin cliente: no mandamos nada hasta saber de qué campaña sale la orden.
+  // Vale también para los comentarios: aunque no toquen el saldo, el CRM los
+  // carga contra una campaña igual que al tráfico, y sin ella los rebota.
+  if (!window._clienteAsignado && !window._ventaElegida) {
     const box = document.getElementById("venta-picker");
     box.classList.remove("hidden");
     box.classList.add("venta-picker--falta");
-    _ventaPickerMsg("Elegí una campaña para poder enviar el tráfico.", true);
+    _ventaPickerMsg("Elegí una campaña para poder enviar la orden.", true);
     box.scrollIntoView({ behavior: "smooth", block: "center" });
     document.getElementById("venta-picker-select").focus();
     return;
@@ -4000,91 +4286,7 @@ async function solicitarOrdenes() {
   const ordenesNormales    = ordenes.filter(o => o.tipo !== "comentarios");
 
   try {
-    let data = {};
-
-    // Comentarios: publicar en Instagram vía IA. Puede haber 2 órdenes
-    // (verificados 94 + no verificados 95), cada una con su propia lista.
-    if (ordenesComentarios.length > 0 && comentariosParaPublicar.length > 0) {
-      const resp = await fetch("/api/publicar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: currentUrl,
-          // top-level: unión de todas (para el informe / fallback)
-          comentarios: comentariosParaPublicar,
-          ordenes: ordenesComentarios.map(o => ({
-            ...o,
-            // cantidad = comentarios reales (sin los encabezados hombres:/mujeres:)
-            cantidad: (o.comentarios || []).filter(c => !generoDeHeader(c)).length,
-          })),
-        }),
-      });
-      data = await resp.json();
-    }
-
-    // Followers / likes / etc: enviar al CRM
-    if (ordenesNormales.length > 0) {
-      const costoTotal = ordenesNormales.reduce((s, o) => s + (o.costo || 0), 0);
-
-      // Hora AR del servidor para programadas
-      let serverDateAR = "";
-      try {
-        const tsResp = await fetch("/api/server_time_ar");
-        const tsData = await tsResp.json();
-        serverDateAR = tsData.ymdhmAR || "";  // "2026-06-25 06:54"
-      } catch { /* silencioso */ }
-
-      const crmOrdenes = ordenesNormales.map(o => {
-        const programado = o.cuando !== "ahora" ? 1 : 0;
-        const fechaProg  = o.cuando === "programar" && o.fechaProgramada
-          ? o.fechaProgramada
-          : (programado ? serverDateAR : null);
-        return {
-          redsocial_id: o.redsocialId,
-          redsocial:    o.redsocial,
-          prod:         o.productoNombre,
-          demora:       " - ",
-          url:          o.link,
-          costo:        o.costo || 0,
-          obs:          o.obs || "",
-          cant_inicial: String(o.cantidad),
-          cantidad:     String(o.cantidad),
-          programado,
-          fecha_programada: fechaProg || null,
-          comentarios: [],
-        };
-      });
-
-      const traficoResp = await fetch("/api/enviar_trafico", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // client/url viajan para que el registro de uso quede atado al cliente
-        // (y así la tirada automática sepa qué cantidades ya se le enviaron).
-        body: JSON.stringify({
-          ordenes: crmOrdenes,
-          costo_total: costoTotal,
-          client: window._clientIg || "",
-          // Solo va cuando el post no es de un cliente: el backend la valida
-          // contra las campañas de la cuenta antes de usarla.
-          idventa: window._ventaElegida || "",
-          url: currentUrl,
-        }),
-      });
-      const traficoData = await traficoResp.json().catch(() => ({}));
-      if (traficoData.error || traficoData.errors?.length) {
-        const err = traficoData.error || traficoData.errors.join(" | ");
-        data.error = (data.error ? data.error + " | " : "") + err;
-      } else {
-        const lineas = [
-          `Órdenes de tráfico insertadas: ${traficoData.insertadas ?? 0}`,
-          ...(traficoData.messages || []),
-          ...(traficoData.warnings || []),
-        ];
-        data.informe = (data.informe ? data.informe + "\n\n" : "") + lineas.join("\n");
-      }
-      data.trafico = traficoData;
-    }
-
+    const data = await _ejecutarEnvio(ordenesComentarios, ordenesNormales);
     hide("step-ordenes");
     renderResultado(data, ordenesComentarios.length, ordenesNormales.length);
     show("step-resultado");
@@ -4428,4 +4630,98 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   actualizarConteo();
+  cargarEnviosFallidos();
 });
+
+
+// ── Órdenes que no entraron al CRM ───────────────────────────────────────────
+// En Growi estas órdenes no aparecen: o el CRM las rechazó, o ni llegaron a
+// salir (la cuenta sin campaña activa, sin idvendedor, el proxy caído). El
+// vendedor veía el error una sola vez, en el momento, y después no le quedaba
+// ningún lado donde mirarlas. Esto es ese lado.
+
+let _enviosFallidos = [];
+
+async function cargarEnviosFallidos() {
+  const btn = document.getElementById("btn-fallidos");
+  if (!btn) return;
+  try {
+    const r = await fetch("/api/mis-envios-fallidos");
+    if (!r.ok) return;                       // sin DB o sin login: el botón queda oculto
+    const d = await r.json();
+    _enviosFallidos = d.envios || [];
+  } catch (e) {
+    return;                                  // esto es informativo: nunca molesta al vendedor
+  }
+  btn.classList.toggle("hidden", _enviosFallidos.length === 0);
+  document.getElementById("btn-fallidos-count").textContent = _enviosFallidos.length;
+}
+
+function abrirEnviosFallidos() {
+  const cont = document.getElementById("fallidos-lista");
+  cont.innerHTML = "";
+
+  if (!_enviosFallidos.length) {
+    const p = document.createElement("p");
+    p.className = "intervalo-subtitle";
+    p.textContent = "No hay órdenes rebotadas. Todo lo que mandaste entró.";
+    cont.appendChild(p);
+  }
+
+  for (const e of _enviosFallidos) {
+    const item = document.createElement("div");
+    item.className = "fallido-item";
+
+    const head = document.createElement("div");
+    head.className = "fallido-head";
+    const motivo = document.createElement("span");
+    motivo.className = `fallido-motivo fallido-motivo--${e.motivo}`;
+    motivo.textContent = e.detalle;
+    head.appendChild(motivo);
+    const fecha = document.createElement("span");
+    fecha.className = "fallido-fecha";
+    fecha.textContent = e.fecha ? _labelFecha(new Date(e.fecha)) : "—";
+    head.appendChild(fecha);
+    item.appendChild(head);
+
+    const meta = document.createElement("p");
+    meta.className = "fallido-meta";
+    const partes = [];
+    if (e.cliente) partes.push(`@${e.cliente}`);
+    if (e.costo) partes.push(`$${e.costo}`);
+    if (e.tipo === "cola") partes.push("quedó en la cola");
+    meta.textContent = partes.join(" · ") || "—";
+    item.appendChild(meta);
+
+    if (e.post_url) {
+      const link = document.createElement("a");
+      link.className = "fallido-link";
+      link.href = e.post_url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = e.post_url;
+      item.appendChild(link);
+    }
+
+    // El texto crudo del error va escondido: al vendedor no le dice nada, pero
+    // es lo primero que pide el admin cuando le reenvían la captura.
+    if (e.tecnico) {
+      const det = document.createElement("details");
+      det.className = "fallido-tecnico";
+      const sum = document.createElement("summary");
+      sum.textContent = "Detalle técnico";
+      det.appendChild(sum);
+      const pre = document.createElement("p");
+      pre.textContent = e.tecnico;
+      det.appendChild(pre);
+      item.appendChild(det);
+    }
+
+    cont.appendChild(item);
+  }
+  show("fallidos-overlay");
+}
+
+function cerrarEnviosFallidos() {
+  hide("fallidos-overlay");
+}

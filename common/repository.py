@@ -1304,6 +1304,10 @@ def _growi_call_to_dict(c: GrowiCall, con_cuerpos: bool = False) -> dict:
         "costo": c.costo,
         "created_at": c.created_at.isoformat() if c.created_at else None,
     }
+    # El motivo de un rechazo (200 + success:false) vive en el cuerpo, así que
+    # el listado necesita una probadita: sin esto no hay con qué explicarle al
+    # vendedor por qué no entró la orden sin pedir el detalle fila por fila.
+    d["response_snippet"] = (c.response_body or "")[:300] or None
     if con_cuerpos:
         # Los cuerpos solo viajan en el detalle: en el listado serían cientos de
         # KB por pantalla para algo que casi nunca se mira fila por fila.
