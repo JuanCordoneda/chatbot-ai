@@ -3,7 +3,6 @@ Growi CRM client — envía las órdenes ya armadas por el frontend a enviar_tra
 """
 import os
 import json
-import random
 import threading
 import time
 import requests
@@ -25,6 +24,16 @@ from common.proxy_pool import ProxyPool, proxies_de, _ofuscar
 # Solo el envío: es lo único que mueve plata y lo único que hay que poder
 # reconstruir cuando un vendedor dice que su orden no entró.
 from common.growi_trace import trazar
+# El armado de las órdenes (mezclar comentarios y pasar del formato del frontend
+# al del CRM) vive en common/ porque lo usan los DOS servicios. Tener acá una
+# copia propia fue el bug de los comentarios imputados al vendedor equivocado:
+# las dos versiones se separaron sin que nadie lo notara. Ver common/ordenes.py.
+from common.ordenes import (
+    es_header_genero as _es_header_genero,
+    mezclar_comentarios as _mezclar_comentarios,
+    normalizar_orden as _normalizar_orden,
+    log_comentarios_debug as _log_comentarios_debug,
+)
 
 _POOL = ProxyPool(os.environ.get("GROWI_HTTP_PROXY", ""))
 
@@ -256,64 +265,6 @@ def verificar_disponible() -> None:
     raise fallo
 
 
-# Encabezados que el CRM usa para saber el género de cada bloque de comentarios.
-# La IA los emite como líneas sueltas dentro de la lista (ej: "mujeres:", "hombres:").
-_HEADERS_GENERO = {"mujeres:", "hombres:"}
-
-
-def _es_header_genero(linea: str) -> bool:
-    return linea.strip().lower() in _HEADERS_GENERO
-
-
-def _mezclar_comentarios(comentarios: list[str]) -> list[str]:
-    """
-    Mezcla los comentarios seleccionados antes de enviarlos para que no se
-    publiquen siempre en el orden en que la IA los generó.
-
-    Si vienen segmentados por género (líneas "mujeres:" / "hombres:"), respeta
-    esos encabezados en su lugar y solo baraja los comentarios dentro de cada
-    sección; así el CRM sigue percibiendo qué comentarios son de cada género.
-    Si no hay encabezados, baraja toda la lista como antes.
-    """
-    if not any(_es_header_genero(c) for c in comentarios):
-        mezclados = list(comentarios)
-        random.shuffle(mezclados)
-        return mezclados
-
-    resultado: list[str] = []
-    grupo: list[str] = []
-
-    def _volcar_grupo():
-        random.shuffle(grupo)
-        resultado.extend(grupo)
-        grupo.clear()
-
-    for c in comentarios:
-        if _es_header_genero(c):
-            _volcar_grupo()       # cerramos la sección anterior ya barajada
-            resultado.append(c)   # el encabezado queda fijo
-        else:
-            grupo.append(c)
-    _volcar_grupo()               # última sección
-
-    return resultado
-
-
-def _log_comentarios_debug(nombre: str, coms: list[str]) -> None:
-    """Log de debug: muestra cómo quedó la lista de una orden de comentarios."""
-    headers = [c for c in coms if _es_header_genero(c)]
-    if not headers:
-        caso = "sin genero (lista plana)"
-    elif len(headers) == 1:
-        caso = f"solo {headers[0].strip().lower().rstrip(':')}"
-    else:
-        caso = "mixto (" + " + ".join(h.strip().lower().rstrip(':') for h in headers) + ")"
-    print(f"[growi][debug] orden '{nombre}': caso {caso} | {len(coms)} lineas", flush=True)
-    for i, c in enumerate(coms):
-        marca = "  >>" if _es_header_genero(c) else f"  {i:>3}"
-        print(f"[growi][debug]{marca} {c}", flush=True)
-
-
 @dataclass
 class GrowiResult:
     success: bool
@@ -322,49 +273,6 @@ class GrowiResult:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
-
-
-def _normalizar_orden(o: dict, disponible: float, comentarios: list[str]) -> dict:
-    """
-    El frontend manda las órdenes con su forma "cruda" (redsocialId, productoNombre,
-    link, cuando, fechaProgramada, etc.). El CRM espera otra forma de campos
-    (redsocial_id, prod, url, cant_inicial, programado, fecha_programada, ...).
-    Si la orden ya viene en forma de CRM (tiene "url"), se respeta tal cual salvo
-    que le falten los textos de los comentarios generados por IA.
-
-    Cada orden de comentarios usa SU propia lista si la trae (caso verificados +
-    no verificados, que son dos órdenes con distintos textos); si no la trae, cae
-    a la lista global `comentarios`. En ambos casos se mezcla respetando los
-    encabezados de género.
-    """
-    def _coms_de(orden):
-        base = orden.get("comentarios") or comentarios
-        return _mezclar_comentarios(base)
-
-    if "url" in o:
-        if o.get("tipo") == "comentarios":
-            o = {**o, "comentarios": _coms_de(o)}
-        return o
-
-    cantidad = o.get("cantidad", 0)
-    cuando = o.get("cuando", "ahora")
-    programado = 1 if cuando not in ("ahora", None) else 0
-
-    return {
-        "redsocial_id": o.get("redsocialId") or o.get("redsocial_id"),
-        "redsocial":    o.get("redsocial"),
-        "prod":         o.get("productoNombre") or o.get("prod"),
-        "demora":       " - ",
-        "url":          o.get("link") or o.get("url") or "",
-        "costo":        o.get("costo") or 0,
-        "obs":          o.get("obs", ""),
-        "cant_inicial": str(cantidad),
-        "cantidad":     str(cantidad),
-        "programado":   programado,
-        "fecha_programada": o.get("fechaProgramada") or None,
-        "comentarios":  _coms_de(o) if o.get("tipo") == "comentarios" else [],
-        "disponible":   disponible,
-    }
 
 
 def ejecutar_campana(post_url: str, comentarios: list[str],
@@ -383,6 +291,13 @@ def ejecutar_campana(post_url: str, comentarios: list[str],
     # Cada orden de comentarios se mezcla por dentro (respetando headers de
     # género) dentro de _normalizar_orden, usando su propia lista o la global.
     ordenes = [_normalizar_orden(o, disponible, comentarios) for o in ordenes]
+
+    # producto_id es un campo NUESTRO (sirve para consultarle el precio real al
+    # CRM, ver webService); a enviar_trafico.php no le va, que identifica el
+    # producto por nombre. Se saca acá igual que del lado del webService.
+    for o in ordenes:
+        o.pop("producto_id", None)
+        o.pop("productoId", None)
 
     # --- DEBUG: cómo quedó la lista de cada orden de comentarios ---
     for o in ordenes:
