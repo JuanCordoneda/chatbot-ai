@@ -1275,6 +1275,33 @@ def cancelar_orden(orden_id: int, account_id=None) -> bool:
         return True
 
 
+def reencolar_orden(orden_id: int, account_id=None) -> bool:
+    """Devuelve a la cola una orden frenada, para que el worker la reintente ya.
+
+    Es el reintento manual del vendedor sobre una orden que no entró. Solo aplica
+    a 'revisar' y 'fallida', que son los dos estados donde el worker ya se dio
+    por vencido: las 'pendiente' van a salir solas y las 'enviando' tienen un
+    envío en vuelo, así que tocarlas duplicaría la orden.
+
+    Los intentos se resetean a propósito: el vendedor está diciendo que el
+    problema de fondo ya lo arregló, y arrancar con el backoff donde había
+    quedado lo dejaría esperando horas.
+    """
+    if not db_available():
+        return False
+    with session_scope() as s:
+        q = s.query(PendingOrder).filter(PendingOrder.id == orden_id)
+        if account_id is not None:
+            q = q.filter(PendingOrder.account_id == account_id)
+        p = q.first()
+        if not p or p.estado not in ("revisar", "fallida"):
+            return False
+        p.estado = "pendiente"
+        p.intentos = 0
+        p.proximo_intento = None      # que la tome en la vuelta que viene
+        return True
+
+
 # ── Trazabilidad de las llamadas al CRM de Growi ──────────────────────────────
 # El CRM es de un tercero y no deja auditar nada del lado nuestro. Estas
 # funciones guardan y consultan qué le mandamos y qué contestó, para poder

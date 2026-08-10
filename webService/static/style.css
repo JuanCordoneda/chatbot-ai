@@ -5766,3 +5766,38 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   color: var(--muted);
   word-break: break-word;
 }
+
+.fallido-acciones {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.fallido-btn {
+  height: 27px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--yellow-dk);
+  background: var(--yellow-lo);
+  color: var(--yellow);
+  font-family: var(--font);
+  font-size: 0.74rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.fallido-btn:hover:not(:disabled) { background: var(--yellow-md); }
+.fallido-btn:disabled { opacity: 0.6; cursor: default; }
+.fallido-btn--ok {
+  border-color: rgba(120,200,120,0.5);
+  background: rgba(120,200,120,0.12);
+  color: #86c98a;
+}
+
+.fallido-nota {
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+.fallido-nota--error { color: #ff8a8a; }

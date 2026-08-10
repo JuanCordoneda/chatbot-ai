@@ -4717,9 +4717,63 @@ function abrirEnviosFallidos() {
       item.appendChild(det);
     }
 
+    // Reintentar solo lo que la cola puede reenviar sola: de esas órdenes está
+    // guardado el payload entero. De un envío rebotado quedó la traza pero no
+    // los comentarios, así que ahí no hay nada que reenviar.
+    if (e.reintentable) {
+      const acciones = document.createElement("div");
+      acciones.className = "fallido-acciones";
+      const btn = document.createElement("button");
+      btn.className = "fallido-btn";
+      btn.textContent = "Reintentar";
+      btn.onclick = () => reintentarOrdenEncolada(e, btn);
+      acciones.appendChild(btn);
+      if (e.aviso_duplicado) {
+        const nota = document.createElement("span");
+        nota.className = "fallido-nota";
+        nota.textContent = "Pudo haber entrado: revisá en Growi antes";
+        acciones.appendChild(nota);
+      }
+      item.appendChild(acciones);
+    }
+
     cont.appendChild(item);
   }
   show("fallidos-overlay");
+}
+
+// El reintento no manda nada desde acá: devuelve la orden a la cola y la
+// despacha el worker, que es el único con el claim atómico contra el envío
+// duplicado. Por eso el mensaje dice "va a salir sola" y no "enviada".
+async function reintentarOrdenEncolada(envio, btn) {
+  if (envio.aviso_duplicado &&
+      !confirm("Esta orden pudo haber entrado al CRM: si entró y la reenviás, " +
+               "se le cobra dos veces al cliente.\n\n" +
+               "¿Ya revisaste en Growi que no esté cargada?")) return;
+
+  btn.disabled = true;
+  btn.textContent = "Reintentando…";
+  try {
+    const r = await fetch(`/api/ordenes-pendientes/${envio.id}/reintentar`,
+                          { method: "POST" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "No se pudo reintentar");
+    btn.textContent = "✓ Vuelve a la cola";
+    btn.classList.add("fallido-btn--ok");
+    // Sale del listado: ya no es un fallo, es una orden esperando salir.
+    _enviosFallidos = _enviosFallidos.filter(x => !(x.tipo === "cola" && x.id === envio.id));
+    const badge = document.getElementById("btn-fallidos-count");
+    if (badge) badge.textContent = _enviosFallidos.length;
+    document.getElementById("btn-fallidos")
+            .classList.toggle("hidden", _enviosFallidos.length === 0);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Reintentar";
+    const nota = document.createElement("span");
+    nota.className = "fallido-nota fallido-nota--error";
+    nota.textContent = err.message;
+    btn.parentElement.appendChild(nota);
+  }
 }
 
 function cerrarEnviosFallidos() {

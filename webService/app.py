@@ -321,7 +321,16 @@ def _detalle_login(cfg, login_resp, check):
     """Arma la explicación del rechazo con los datos crudos, sin inventar causa."""
     email = cfg.get("crm_email") or "(sin email)"
     dest = _destino_del_login(login_resp)
-    crudo = (f"login.php → {login_resp.status_code if login_resp is not None else '—'}"
+    # El POST sigue redirects, así que login_resp.status_code es el de la página
+    # FINAL. Para el log sirve el del redirect original (el 302), que es el que
+    # se corresponde con el destino que mostramos al lado.
+    if login_resp is None:
+        status_login = "—"
+    elif login_resp.history:
+        status_login = login_resp.history[0].status_code
+    else:
+        status_login = login_resp.status_code
+    crudo = (f"login.php → {status_login}"
              f"{' → ' + dest if dest else ''}; "
              f"trafico.php → {check.get('status')}"
              f"{' → ' + check['location'] if check.get('location') else ''}")
@@ -2541,6 +2550,29 @@ def growi_calls_list():
     })
 
 
+@app.route("/api/ordenes-pendientes/<int:orden_id>/reintentar", methods=["POST"])
+@require_login
+@_repo_error_response
+def ordenes_pendientes_reintentar(orden_id):
+    """Reintento manual de una orden que quedó frenada en la cola.
+
+    Solo la cola: `pending_orders` guarda el payload completo (comentarios
+    incluidos), así que reenviarla es reusar el envío original. Los envíos
+    rebotados que NO llegaron a encolarse tienen solo la traza de auditoría —
+    de esos no quedaron los comentarios, y por eso no se pueden reintentar desde
+    el historial.
+
+    No manda nada acá: devuelve la orden a la cola y la despacha el worker, que
+    es el único que tiene el claim atómico contra el envío duplicado.
+    """
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    ok = _repo.reencolar_orden(orden_id, account_id)
+    if not ok:
+        return jsonify({"error": "No se pudo reintentar (ya salió, o la está "
+                                 "enviando el worker)"}), 400
+    return jsonify({"ok": True})
+
+
 # Motivos en criollo para la pantalla del vendedor. Se buscan como subcadena
 # sobre el error y el cuerpo que contestó el CRM, en orden: el primero que
 # engancha manda. Lo que no engancha con nada cae en "el CRM la rechazó", que es
@@ -2556,7 +2588,7 @@ _MOTIVOS_ENVIO = (
     ("sesion",        ("401", "login", "growiautherror", "sesión"),
      "El CRM cortó la sesión"),
     ("red",           ("timeout", "connection", "proxy", "growiunavailable",
-                       "no se pudo conectar"),
+                       "no se pudo conectar", "conexión", "conexion"),
      "No había conexión con el CRM"),
 )
 
@@ -2594,9 +2626,11 @@ def mis_envios_fallidos():
             "post_url": c.get("post_url"), "cliente": c.get("client_ig_username"),
             "idventa": c.get("idventa"), "costo": c.get("costo"),
             "tecnico": c.get("error") or f"HTTP {c.get('status_code') or '—'}",
-            # El worker manda solo: decirle "reintentá" al vendedor lo haría
-            # cargar dos veces la misma orden.
-            "reintentable": codigo == "sin_campania",
+            # De un envío rebotado queda la traza, pero NO los comentarios: nunca
+            # se persistieron. Reintentar desde acá sería mandar una orden vacía,
+            # así que el único camino es rehacer el post.
+            "reintentable": False,
+            "aviso_duplicado": False,
         })
 
     # "revisar" = pudo haber entrado, lo mira un humano; "fallida" = se agotaron
@@ -2610,7 +2644,13 @@ def mis_envios_fallidos():
             "post_url": o.get("post_url"), "cliente": o.get("client_ig_username"),
             "idventa": None, "costo": None,
             "tecnico": o.get("ultimo_error") or "",
-            "reintentable": False,
+            # La cola sí guarda el payload completo, así que reintentar es
+            # reenviar el envío original sin regenerar nada.
+            "reintentable": True,
+            # 'revisar' es el estado en que el envío PUDO haber entrado (se cortó
+            # esperando la respuesta). Ahí el front pide confirmación antes de
+            # reenviar: la orden duplicada se la cobran al cliente.
+            "aviso_duplicado": o.get("estado") == "revisar",
         })
 
     items.sort(key=lambda i: i.get("fecha") or "", reverse=True)
