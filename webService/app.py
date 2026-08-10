@@ -42,11 +42,21 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").strip() in ("1", "true", "yes"),
-    # La sesión dura (login persistente): antes era cookie de sesión "a secas" y
-    # moría al cerrar/reciclar la pestaña, obligando a re-loguear seguido.
+    # La sesión vence a las 24 hs: pasado ese plazo hay que volver a loguear.
+    # El usuario no se pierde: queda recordado en la cookie GROWI_LAST_USER y
+    # el navegador completa la contraseña, así el re-login es apretar Enter.
     PERMANENT_SESSION_LIFETIME=timedelta(
-        days=int(os.environ.get("SESSION_DAYS", "14"))),
+        hours=int(os.environ.get("SESSION_HOURS", "24"))),
+    # Sin refresco en cada request: las 24 hs cuentan desde el login, no desde
+    # la última pantalla abierta. Si no, la sesión no vencería nunca.
+    SESSION_REFRESH_EACH_REQUEST=False,
 )
+
+# Cookie aparte de la sesión: sólo guarda el nombre de usuario para precargar
+# el formulario de login. Nunca guarda la contraseña (esa la completa el
+# gestor del navegador); sobrevive al logout y al vencimiento de la sesión.
+REMEMBER_USER_COOKIE = "GROWI_LAST_USER"
+REMEMBER_USER_DAYS = 365
 
 # Sello de sesión: las cookies viejas no lo traen (o traen otro valor), así que
 # al subir este deploy todos quedan deslogueados una vez y vuelven a entrar.
@@ -941,13 +951,27 @@ def require_admin(fn):
     return wrapper
 
 
+def _recordar_usuario(resp, username):
+    """Deja el usuario anotado en una cookie propia para precargar el login."""
+    resp.set_cookie(
+        REMEMBER_USER_COOKIE, username,
+        max_age=REMEMBER_USER_DAYS * 24 * 3600,
+        httponly=False,          # el form lo lee del server, pero no es un secreto
+        samesite="Lax",
+        secure=app.config["SESSION_COOKIE_SECURE"],
+    )
+    return resp
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if session.get("logged_in"):
         return redirect(url_for("index"))
     error = None
     error_kind = "error"
-    username = ""
+    # Si venció la sesión, el campo ya viene con el último usuario: sólo falta
+    # la contraseña (que autocompleta el navegador) y Enter.
+    username = request.cookies.get(REMEMBER_USER_COOKIE, "")
     status = 200
     if request.method == "POST":
         rate_key = _login_rate_key()
@@ -976,9 +1000,9 @@ def login():
                 if user["account_id"]:
                     _refrescar_idvendedor(user["account_id"])
                 destino = (request.form.get("next") or "").strip()
-                if destino.startswith("/") and not destino.startswith("//"):
-                    return redirect(destino)
-                return redirect(url_for("index"))
+                if not (destino.startswith("/") and not destino.startswith("//")):
+                    destino = url_for("index")
+                return _recordar_usuario(redirect(destino), user["username"])
             # Solo cuenta como intento de fuerza bruta la credencial equivocada.
             # Pendiente / restringido / CRM caído son credenciales válidas o un
             # problema nuestro: no penalizan al usuario.

@@ -69,7 +69,7 @@
               <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
               <path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            <input type="text" id="username" name="username" value="{{ username|default('') }}" placeholder="tu@email.com" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required />
+            <input type="text" id="username" name="username" value="{{ username|default('') }}" placeholder="tu@email.com" autocomplete="username" autocapitalize="none" spellcheck="false" {% if not username %}autofocus{% endif %} required />
           </div>
         </div>
 
@@ -80,7 +80,7 @@
               <rect x="3" y="7" width="10" height="7" rx="2" stroke="currentColor" stroke-width="1.5"/>
               <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            <input type="password" id="password" name="password" placeholder="Tu contraseña" autocomplete="current-password" required />
+            <input type="password" id="password" name="password" placeholder="Tu contraseña" autocomplete="current-password" {% if username %}autofocus{% endif %} required />
             <button type="button" class="login-eye" id="togglePwd" tabindex="-1" aria-label="Mostrar contraseña">
               <svg id="eyeIcon" width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <ellipse cx="8" cy="8" rx="6" ry="4" stroke="currentColor" stroke-width="1.5"/>
