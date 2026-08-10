@@ -2432,11 +2432,14 @@ function _syncSaltar(sel) {
     ? (avanzar ? "Seguir con los elegidos al PASO 3: WhatsApp →" : "Saltar, ir al PASO 3: WhatsApp →")
     : (avanzar ? "📲 Enviar los elegidos por WhatsApp →" : "Saltar, ir a las órdenes →");
 
+  // Con selección, el botón principal de la barra ("Listo, ir al PASO 3…") ya
+  // hace exactamente lo mismo: dejar los dos deja dos botones idénticos pegados.
   const nav = document.getElementById("btn-etapa-saltar");
-  if (nav && !nav.classList.contains("hidden")) {
+  if (nav && etapa >= 2) {
+    nav.classList.toggle("hidden", avanzar);
     nav.textContent = txtNav;
-    nav.classList.toggle("btn-publish", avanzar);
-    nav.classList.toggle("btn-ghost", !avanzar);
+    nav.classList.remove("btn-publish");
+    nav.classList.add("btn-ghost");
   }
   const cartel = document.getElementById("btn-cartel-saltar");
   if (cartel && etapa >= 2) cartel.textContent = txtCartel;
