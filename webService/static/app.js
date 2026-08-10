@@ -1494,14 +1494,28 @@ function renderRepartir() {
 // mismo deep link de siempre — sin bot, sin ventana de 24h, sin lista blanca.
 function _textoTodoEnUno() {
   const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
-  const partes = [`Comentarios\n${currentUrl}`];
+  // El encabezado también lleva su link de reenvío: es el primer mensaje que va
+  // al grupo y sin esto había que copiarlo a mano, que era el único paso del
+  // reparto que seguía siendo manual.
+  const cabecera = repartoItems.find(it => it.tipo === "link");
+  const textoCabecera = cabecera ? cabecera.texto : `Comentarios\n${currentUrl}`;
+  // Los símbolos van en EMOJI, no en caracteres tipográficos. "↪" (U+21AA) y
+  // "▸" (U+25B8) no son emoji: dependen de que la fuente del celular los tenga
+  // y en varios Android salen como el cuadradito de "no soportado". 👉 y 📌 son
+  // emoji de los primeros, están en todos lados.
+  const partes = [`${textoCabecera}\n👉 https://wa.me/?text=${encodeURIComponent(textoCabecera)}`];
   coms.forEach((it, n) => {
     // WhatsApp no permite texto sobre un link (no hay markdown ni hipervínculos):
     // siempre muestra la URL cruda. Lo único que se puede acomodar es lo de
-    // alrededor, así que el comentario va primero —que es lo que se lee— y el
-    // link debajo con una flecha que lo ata visualmente a ese comentario.
-    partes.push(`${n + 1}. ${it.texto}\n` +
-                `↪ https://wa.me/?text=${encodeURIComponent(it.texto)}`);
+    // alrededor, así que cada comentario lleva su propio encabezado y el link
+    // va debajo, pegado al texto que le corresponde.
+    //
+    // El número NO va como "1. ": WhatsApp lo toma como lista numerada, le
+    // aplica su propio formato y mete word-joiners invisibles en el medio. Con
+    // el encabezado en su renglón aparte el texto llega tal cual se armó.
+    partes.push(`📌 ${n + 1} de ${coms.length}\n` +
+                `${it.texto}\n` +
+                `👉 https://wa.me/?text=${encodeURIComponent(it.texto)}`);
   });
   return partes.join("\n\n");
 }
