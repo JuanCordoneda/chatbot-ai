@@ -532,7 +532,8 @@ def procesar_post_web():
     def run():
         from modules.post_processor import scrape_post
         from modules.ai_generator import generar_comentarios_stream, GENERIC_CLIENT_ID
-        from modules.engagement_flow import detectar_cliente, alias_owner
+        from modules.engagement_flow import (detectar_cliente, alias_owner,
+                                             resolver_cliente_del_post)
 
         job = _jobs[job_id]
         try:
@@ -550,7 +551,12 @@ def procesar_post_web():
                         # Mismo alias de collab que abajo: el preview también
                         # alimenta el _clientIg del front.
                         preview_owner = alias_owner(fast_preview.get("owner_username", "")) or ""
-                        preview_client_id = detectar_cliente(preview_owner) if preview_owner else None
+                        # El camino rápido es anónimo y no trae colaboradores:
+                        # el preview resuelve solo por dueño y, si el post es de
+                        # un collab, se corrige unos segundos después con el
+                        # resultado del scrape completo.
+                        preview_client_id = (detectar_cliente(preview_owner, account_id)
+                                             if preview_owner else None)
                         preview_ranges, preview_gender, _ = _datos_cliente(
                             preview_owner, bool(preview_client_id))
                         preview_meta = {
@@ -606,15 +612,17 @@ def procesar_post_web():
                 job["progreso"].append("Imagen analizada.")
 
             # Collabs: un post publicado desde la cuenta partner es del cliente
-            # principal. Resolvemos el alias UNA vez, acá, y de ahí en adelante
-            # todo (prompt, rangos, género y la CAMPAÑA de la que sale la plata)
-            # usa el @usuario del cliente real. Antes el alias solo lo aplicaba
-            # detectar_cliente por dentro: el resto del flujo veía la cuenta de
-            # la collab, no encontraba campaña y el tráfico se le descontaba a
-            # la venta por defecto del .env.
-            owner_ig = alias_owner(post_data.owner_username) if post_data.owner_username else None
-            client_id = detectar_cliente(owner_ig) if owner_ig else None
-            print(f"[client] owner_username={post_data.owner_username!r} → owner_ig={owner_ig!r} "
+            # principal. Se resuelve UNA vez, acá, mirando el dueño y los
+            # colaboradores del post; de ahí en adelante todo (prompt, rangos,
+            # género y la CAMPAÑA de la que sale la plata) usa el @usuario del
+            # cliente real. Antes el alias solo lo aplicaba detectar_cliente por
+            # dentro: el resto del flujo veía la cuenta de la collab, no
+            # encontraba campaña y el tráfico se le descontaba a la venta por
+            # defecto del .env.
+            owner_ig, client_id = resolver_cliente_del_post(
+                post_data.owner_username, post_data.collaborators, account_id)
+            print(f"[client] owner_username={post_data.owner_username!r} "
+                  f"collabs={post_data.collaborators or '-'} → owner_ig={owner_ig!r} "
                   f"→ client_id={client_id!r}", flush=True)
             if client_id:
                 job["progreso"].append(f"Cliente detectado: {client_id}")

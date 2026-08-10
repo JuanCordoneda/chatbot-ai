@@ -1723,6 +1723,7 @@ def _post_cache_to_dict(p: PostCache) -> dict:
         "caption": p.caption or "",
         "owner_username": p.owner_username or "",
         "owner_full_name": p.owner_full_name or "",
+        "collaborators": list(p.collaborators or []),
         "transcription": p.transcription or "",
         "photo_description": p.photo_description or "",
         "is_video": bool(p.is_video),
@@ -1768,6 +1769,7 @@ def post_cache_put(datos: dict) -> bool:
     campos = {k: datos.get(k) for k in (
         "url", "caption", "owner_username", "owner_full_name", "transcription",
         "photo_description", "image_b64", "image_media_type")}
+    campos["collaborators"] = list(datos.get("collaborators") or [])
     campos["is_video"] = bool(datos.get("is_video"))
     campos["n_imagenes"] = int(datos.get("n_imagenes") or 1)
     try:

@@ -153,6 +153,13 @@ class PostCache(Base):
     caption = Column(Text, nullable=False, default="", server_default="")
     owner_username = Column(String(100), nullable=True)
     owner_full_name = Column(String(200), nullable=True)
+    # Colaboradores del post (`coauthor_producers` de Instagram): lista de
+    # @usuarios en minúsculas. Se guarda porque la asignación del cliente los
+    # mira: un post que publica una cuenta partner con el cliente como collab es
+    # del cliente. Si no viviera en el caché, un hit resolvería otro cliente que
+    # el scrape original — la asignación cambiaría según si el post estaba
+    # cacheado o no.
+    collaborators = Column(JSON, nullable=True)
     transcription = Column(Text, nullable=False, default="", server_default="")
     photo_description = Column(Text, nullable=False, default="", server_default="")
     is_video = Column(Boolean, nullable=False, default=False, server_default="false")

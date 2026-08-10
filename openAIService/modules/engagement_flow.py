@@ -81,6 +81,56 @@ def detectar_cliente(owner_username: str, account_id: int | None = None) -> str 
     return clients_map.get(owner_username)
 
 
+def resolver_cliente_del_post(owner_username: str | None,
+                              collaborators: list | None = None,
+                              account_id: int | None = None) -> tuple[str | None, str | None]:
+    """Decide de qué cliente es un post, mirando el dueño Y los colaboradores.
+
+    Devuelve (ig_username_del_cliente, nombre_para_mostrar). El primer valor es
+    el @usuario con el que el resto del flujo pide prompt, rangos, género y
+    CAMPAÑA: por eso tiene que ser el del cliente real, no el de quien publicó.
+
+    Un post en colaboración lo publica una sola cuenta, pero es de las dos. Si el
+    dueño no es cliente nuestro y un colaborador sí, el post es de ese cliente.
+    Esto reemplaza al viejo `_CLIENT_ALIASES` hardcodeado, que solo servía para
+    el caso que alguien se acordó de agregar a mano.
+
+    Prioridad: el dueño primero, después los colaboradores en el orden en que
+    los manda Instagram. `account_id` acota la búsqueda a TU cuenta: sin eso, el
+    colaborador que es cliente de otro tenant se te asignaría a vos.
+
+    Si no hay ningún cliente, devuelve (dueño, None) — el flujo sigue con el
+    prompt genérico, igual que antes.
+    """
+    owner_ig = alias_owner(owner_username) if owner_username else None
+
+    candidatos = []
+    for u in [owner_username] + list(collaborators or []):
+        c = alias_owner(u)
+        if c and c.lower() not in [x.lower() for x in candidatos]:
+            candidatos.append(c)
+
+    encontrados = []
+    for cand in candidatos:
+        nombre = detectar_cliente(cand, account_id)
+        if nombre:
+            encontrados.append((cand, nombre))
+
+    if not encontrados:
+        return owner_ig, None
+
+    # Más de un cliente nuestro en el mismo post (dueño y colaborador, o dos
+    # colaboradores). Gana el dueño por orden, pero queda registrado: si la
+    # elección no era la que el vendedor esperaba, el log dice contra qué otras
+    # opciones se decidió.
+    if len(encontrados) > 1:
+        print(f"[client] post con varios clientes {[e[0] for e in encontrados]} — "
+              f"me quedo con '{encontrados[0][0]}' (el dueño manda, después los collabs)",
+              flush=True)
+
+    return encontrados[0]
+
+
 def es_link_instagram(text: str) -> bool:
     return bool(INSTAGRAM_URL_RE.search(text))
 
@@ -108,14 +158,19 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
     except Exception as e:
         return f"No pude acceder al post. Asegurate de que el link sea público. ({e})"
 
-    if client_id is None and post_data.owner_username:
-        client_id = detectar_cliente(post_data.owner_username)
+    # Mismo criterio que el panel: el post puede ser de un colaborador. El
+    # @usuario que sale de acá es el del cliente real, y es el que se usa después
+    # para el género/calidad y para la traza.
+    owner_ig, cliente_detectado = resolver_cliente_del_post(
+        post_data.owner_username, post_data.collaborators)
+    if client_id is None:
+        client_id = cliente_detectado
 
     client_gender = None
     client_quality = None
-    if _repo is not None and post_data.owner_username:
+    if _repo is not None and owner_ig:
         try:
-            row = _repo.get_client_by_ig_username(post_data.owner_username)
+            row = _repo.get_client_by_ig_username(owner_ig)
             if row:
                 client_gender = row.get("gender")
                 client_quality = row.get("quality")
@@ -147,7 +202,7 @@ def procesar_post(post_url: str, client_id: str | None = None) -> str:
             # origen="whatsapp": este flujo lo dispara el bot, no un vendedor
             # desde el panel. En la auditoría hay que poder distinguirlos.
             with traza_contexto(origen="whatsapp", post_url=post_url,
-                                client_ig_username=post_data.owner_username or None):
+                                client_ig_username=owner_ig or post_data.owner_username or None):
                 resultado = ejecutar_campana(post_url, comentarios)
         except GrowiUnavailable as e:
             error_growi = str(e)

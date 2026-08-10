@@ -8,7 +8,7 @@ import time
 import threading
 import concurrent.futures
 import requests as req
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -20,6 +20,10 @@ class PostData:
     comments: list[str]
     owner_username: str = ""
     owner_full_name: str = ""
+    # @usuarios (minúsculas) de los colaboradores del post. Instagram los manda
+    # en `coauthor_producers`. Los usa la detección de cliente: si el dueño no es
+    # cliente nuestro pero un colaborador sí, el post es de ese cliente.
+    collaborators: list[str] = field(default_factory=list)
     transcription: str = ""
     photo_description: str = ""
     is_video: bool = False
@@ -498,6 +502,25 @@ def _armar_mosaico(imagenes: list[bytes]) -> tuple[str, str]:
         return "", ""
 
 
+def _coautores(media: dict) -> list[str]:
+    """@usuarios de los colaboradores del post, en minúsculas y sin repetir.
+
+    Instagram los devuelve en `coauthor_producers` (los "colaboradores" de un
+    post publicado en conjunto). El dueño NO va en esta lista. Es tolerante con
+    la forma del payload: si el campo no viene, o viene con otra estructura,
+    devuelve vacío en vez de romper el scrape entero.
+    """
+    salida, vistos = [], set()
+    for c in (media.get("coauthor_producers") or []):
+        if not isinstance(c, dict):
+            continue
+        u = (c.get("username") or "").strip().lower()
+        if u and u not in vistos:
+            vistos.add(u)
+            salida.append(u)
+    return salida
+
+
 def _fetch_instagram_api(shortcode: str) -> dict:
     """
     Fetch via GraphQL doc_id de Instagram (la misma API que usa el navegador).
@@ -568,13 +591,15 @@ def _fetch_instagram_api(shortcode: str) -> dict:
             "caption": (media.get("edge_media_to_caption", {}).get("edges") or [{}])[0].get("node", {}).get("text", "") or "",
             "owner_username": media.get("owner", {}).get("username", "") or "",
             "owner_full_name": media.get("owner", {}).get("full_name", "") or "",
+            "collaborators": _coautores(media),
             "photo_description": media.get("accessibility_caption", "") or "",
             "is_video": media.get("is_video", False),
             "video_url": media.get("video_url", "") or "",
             "display_url": display_url,
             "display_urls": display_urls,
         }
-        print(f"[ig_api] ok — owner={result['owner_username']} is_video={result['is_video']}", flush=True)
+        print(f"[ig_api] ok — owner={result['owner_username']} "
+              f"collabs={result['collaborators'] or '-'} is_video={result['is_video']}", flush=True)
         return result
 
     except Exception as e:
@@ -662,6 +687,7 @@ def _cache_put(shortcode: str, data: "PostData"):
             "caption": data.caption,
             "owner_username": data.owner_username,
             "owner_full_name": data.owner_full_name,
+            "collaborators": data.collaborators,
             "transcription": data.transcription,
             "photo_description": data.photo_description,
             "is_video": data.is_video,
@@ -724,6 +750,8 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
     caption = slow.get("caption") or fast.get("caption") or ""
     owner_username = slow.get("owner_username") or fast.get("owner_username") or ""
     owner_full_name = slow.get("owner_full_name") or ""
+    # Solo la API los trae; el camino rápido/anónimo no expone colaboradores.
+    collaborators = list(slow.get("collaborators") or [])
     if not owner_full_name and owner_username:
         owner_full_name = _fetch_full_name(owner_username)
     photo_description = slow.get("photo_description") or ""
@@ -746,6 +774,7 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
                 video_url = retry["video_url"]
                 caption = caption or retry.get("caption") or ""
                 owner_username = owner_username or retry.get("owner_username") or ""
+                collaborators = collaborators or list(retry.get("collaborators") or [])
                 display_url_retry = retry.get("display_url") or ""
                 if display_url_retry:
                     slow["display_url"] = display_url_retry
@@ -910,6 +939,7 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
         comments=[],
         owner_username=owner_username,
         owner_full_name=owner_full_name,
+        collaborators=collaborators,
         transcription=transcription,
         photo_description=photo_description,
         is_video=bool(is_video),
