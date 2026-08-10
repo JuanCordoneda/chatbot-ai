@@ -1517,22 +1517,23 @@ function _marcarFinDeLista() {
 // Arma el bloque único: el link del post y después cada comentario con su
 // propio wa.me para reenviarlo. Es texto plano, así que se puede mandar por el
 // mismo deep link de siempre — sin bot, sin ventana de 24h, sin lista blanca.
-// Los emoji viajan bien DENTRO del link (van percent-encoded: %F0%9F%98%82) pero
-// se rompen en el texto plano del mensaje, que llega con el rombo de "carácter
-// desconocido". Pasa con todo lo que está fuera del plano básico de Unicode —
-// emoji y poco más— porque son pares suplentes; las tildes y la ñ son de 2 bytes
-// y sobreviven, así que NO se tocan.
+// Saca los emoji del renglón de LECTURA. No es cosmética porque sí: el camino
+// Growi -> WhatsApp (el deep link que abre el botón) rompe los emoji del texto
+// plano y llegan como el rombo de "carácter desconocido". Verificado: por el
+// camino WhatsApp -> WhatsApp (los links de adentro) llegan bien, así que el
+// comentario que se REENVÍA sale completo, con emoji. Acá solo se limpia lo que
+// se lee para identificar cuál es cuál, donde un rombo parece un error.
 //
-// Se limpian solo en la línea de vista previa. El comentario que se reenvía sale
-// del link, o sea que llega completo, con emoji y todo.
+// Se limpia únicamente lo que está fuera del plano básico de Unicode (emoji y
+// poco más). Las tildes y la ñ son de 2 bytes, viajan bien y NO se tocan.
 function _sinEmoji(t) {
   const limpio = String(t || "")
-    .replace(/[\u{1F000}-\u{1FAFF}\u{1F004}-\u{1F9FF}\u{10000}-\u{10FFFF}]/gu, "")
-    .replace(/[\u{FE0F}\u{200D}]/gu, "")
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, "")
+    .replace(/[\u{FE0F}\u{20E3}\u{200D}]/gu, "")
     .replace(/ {2,}/g, " ")
     .trim();
-  // Un comentario que era SOLO emoji quedaría vacío: ahí conviene el rombo feo
-  // antes que una línea en blanco sin contexto.
+  // Un comentario que era SOLO emoji quedaría en blanco: ahí el rombo, feo y
+  // todo, dice más que un renglón vacío.
   return limpio || String(t || "");
 }
 
@@ -1549,6 +1550,12 @@ function _textoTodoEnUno() {
   // archivo y la respuesta HTTP salen bien en UTF-8, así que se pierde del otro
   // lado. Con "->" no hay nada que negociar: llega igual en todos lados.
   const partes = [`${textoCabecera}\n\n-> https://wa.me/?text=${encodeURIComponent(textoCabecera)}`];
+  // Los emoji van TAL CUAL. Se probó limpiarlos del preview porque en WhatsApp
+  // Desktop llegan como el rombo de "carácter desconocido", pero eso deja los
+  // comentarios sin sus emoji, que es peor. En el celular puede que se vean
+  // bien: el rombo se vio en Desktop, que es otro cliente. El link igual los
+  // lleva codificados (%F0%9F%94%A5), así que el comentario que se reenvía
+  // llega completo pase lo que pase.
   coms.forEach((it, n) => {
     // WhatsApp no permite texto sobre un link (no hay markdown ni hipervínculos):
     // siempre muestra la URL cruda. Lo único que se puede acomodar es lo de
@@ -1595,11 +1602,6 @@ function _pintarTodoEnUno() {
 function toggleIncluido(i) {
   if (!repartoItems[i]) return;
   repartoItems[i].incluido = !repartoItems[i].incluido;
-  renderRepartir();
-}
-
-function marcarTodosReparto(incluir) {
-  repartoItems.forEach(it => { if (it.tipo !== "link") it.incluido = incluir; });
   renderRepartir();
 }
 

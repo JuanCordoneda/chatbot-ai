@@ -1792,20 +1792,6 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 .repartir-toggle-chev { float: right; transition: transform 0.15s; }
 .repartir-toggle--abierto .repartir-toggle-chev { transform: rotate(180deg); }
 
-.repartir-sel {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
-.repartir-sel-tip {
-  font-size: 0.72rem;
-  color: var(--muted);
-  opacity: 0.85;
-}
-
 /* Todo en un mensaje. Va arriba de la lista porque es un toque contra N. */
 .repartir-uno {
   width: 100%;
