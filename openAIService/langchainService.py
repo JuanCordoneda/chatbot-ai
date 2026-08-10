@@ -850,20 +850,94 @@ def procesar_post_stream(job_id):
 
 @app.route("/publicar", methods=["POST"])
 def publicar_web():
-    """DESACTIVADO. El panel manda las órdenes de comentarios por
-    webService /api/publicar, que usa las credenciales de la cuenta del
-    vendedor.
+    data = request.get_json(silent=True) or {}
+    post_url    = data.get("url", "").strip()
+    comentarios = data.get("comentarios", [])
+    ordenes     = data.get("ordenes", [])
+    disponible  = float(data.get("disponible", 150))
 
-    Este endpoint mandaba con las credenciales globales del .env: la orden
-    entraba en el CRM de otra cuenta, no aparecía en el gestor del vendedor y
-    quedaba imputada a otro. Se deja cortado en vez de borrado para que, si
-    quedó algo apuntando acá, falle a la vista en lugar de volver a cargar
-    órdenes en la cuenta equivocada.
-    """
-    return jsonify({
-        "error": "Este camino de envío está desactivado. Las órdenes de "
-                 "comentarios salen por el panel (webService /api/publicar)."
-    }), 410
+    if not post_url or not comentarios:
+        return jsonify({"error": "Faltan datos (url o comentarios)"}), 400
+
+    # Traza: todo lo que este publicar mande al CRM queda atado al post, al
+    # cliente y al vendedor que lo disparó (ver common/growi_trace.py).
+    try:
+        from common.growi_trace import contexto as traza_contexto
+        _ctx = traza_contexto(origen="openai", post_url=post_url,
+                              client_ig_username=data.get("client") or None,
+                              account_id=data.get("account_id"),
+                              user_id=data.get("user_id"))
+    except Exception:
+        from contextlib import nullcontext
+        _ctx = nullcontext()
+
+    with _ctx:
+        try:
+            from modules.reporter import generar_informe
+            resultado = None
+            error = None
+            encolada = None
+            try:
+                from modules.growi_client import ejecutar_campana, GrowiUnavailable
+                resultado = ejecutar_campana(post_url, comentarios, ordenes, disponible)
+                informe = generar_informe(post_url, comentarios, resultado)
+            except GrowiUnavailable as e:
+                # Ya viene con un mensaje para el vendedor; sin el "Error en Growi:"
+                # adelante ni el volcado con la IP y el puerto del proxy.
+                error = str(e)
+                # No llegó a salir: en vez de perder los comentarios ya generados, la
+                # orden queda en cola y un worker la reintenta sola. Solo si el envío
+                # es seguro de repetir (si pudo haber entrado, se informa y listo).
+                if e.reintentable:
+                    encolada = _encolar_pendiente(data, post_url, comentarios,
+                                                  ordenes, disponible, error)
+                    if encolada:
+                        error = ("No había conexión con el CRM, así que la orden quedó "
+                                 "en cola y se va a enviar sola apenas vuelva. "
+                                 "No hace falta que la cargues de nuevo.")
+                informe = generar_informe(post_url, comentarios, None, error=error)
+            except NotImplementedError as e:
+                error = str(e)
+                informe = generar_informe(post_url, comentarios, None, error=error)
+            except Exception as e:
+                error = f"Error en Growi: {e}"
+                informe = generar_informe(post_url, comentarios, None, error=error)
+
+            # `informe` es el texto plano de siempre (queda como detalle técnico);
+            # `resultado` es lo mismo pero en campos, para que el front arme la
+            # pantalla de resultado en vez de imprimir un bloque de texto.
+            return jsonify({"informe": informe, "resultado": {
+                "ok": bool(resultado and resultado.success) and not error,
+                "insertadas": resultado.insertadas if resultado else 0,
+                "messages": (resultado.messages if resultado else []) or [],
+                "warnings": (resultado.warnings if resultado else []) or [],
+                "errors": ([error] if error else []) + ((resultado.errors if resultado else []) or []),
+                # El front usa esto para mostrar "en cola" en vez de un error rojo:
+                # la orden no se perdió, solo todavía no salió.
+                "encolada": bool(encolada),
+                "encolada_id": encolada.get("id") if encolada else None,
+            }})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+
+def _encolar_pendiente(data, post_url, comentarios, ordenes, disponible, error):
+    """Guarda la orden en la cola de reintentos. Devuelve None si no hay DB, y
+    en ese caso el vendedor ve el error de siempre: sin persistencia no podemos
+    prometerle que se va a reenviar sola."""
+    try:
+        from common import repository as repo
+        return repo.encolar_orden(
+            post_url,
+            {"comentarios": comentarios, "ordenes": ordenes, "disponible": disponible},
+            account_id=data.get("account_id"),
+            user_id=data.get("user_id"),
+            client_ig_username=data.get("client") or "",
+            error=error,
+        )
+    except Exception as e:
+        print(f"[cola] no pude encolar la orden: {e!r}", flush=True)
+        return None
 
 
 if __name__ == "__main__":
@@ -883,12 +957,10 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[growi-health] no se pudo arrancar el monitor: {e}", flush=True)
 
-    # Mantenimiento de tablas (purga del caché de posts y de las trazas del CRM).
-    # El reintento de órdenes NO está acá: vive en webService/orden_cola.py, que
-    # es el único que tiene las credenciales por cuenta contra el CRM.
+    # Worker de la cola: reenvía solo las órdenes que quedaron sin salir por red.
     try:
-        from modules.orden_queue import arrancar as arrancar_mantenimiento
-        arrancar_mantenimiento()
+        from modules.orden_queue import arrancar as arrancar_cola
+        arrancar_cola()
     except Exception as e:
-        print(f"[mantenimiento] no se pudo arrancar el worker: {e}", flush=True)
+        print(f"[cola] no se pudo arrancar el worker: {e}", flush=True)
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)

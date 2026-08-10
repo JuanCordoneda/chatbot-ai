@@ -6,7 +6,6 @@ fallback de archivos sin romperse.
 Devuelven dicts desacoplados de la sesión (no objetos ORM vivos) para evitar
 problemas de lazy-loading fuera del `session_scope`.
 """
-import os
 import re
 from typing import Optional
 
@@ -1063,11 +1062,6 @@ def usage_counts_all_accounts() -> list[dict]:
 BACKOFF_MIN = [1, 2, 5, 10, 20, 30, 60]
 MAX_INTENTOS = 24          # con el backoff de arriba, ~20 horas de reintentos
 
-# Cuánto puede durar como mucho un envío en vuelo antes de considerarlo colgado.
-# El timeout del POST al CRM es de un minuto, así que 10 es holgadísimo: si pasó
-# eso, el proceso se murió en el medio y la fila hay que rescatarla.
-TIMEOUT_ENVIANDO_MIN = int(os.environ.get("GROWI_TIMEOUT_ENVIANDO_MIN", "10"))
-
 
 def _pending_order_to_dict(p: PendingOrder) -> dict:
     return {
@@ -1149,47 +1143,8 @@ def tomar_orden_para_reintentar() -> Optional[dict]:
             return None
         p.estado = "enviando"
         p.intentos = (p.intentos or 0) + 1
-        # Fecha límite del envío en vuelo. Si el proceso se muere en el medio
-        # (deploy, OOM, reinicio), la fila quedaba en 'enviando' para siempre:
-        # nadie la volvía a tomar y no aparecía en ningún lado. Con esto queda
-        # marcada y `revisar_ordenes_colgadas` la rescata.
-        from datetime import timedelta
-        p.proximo_intento = ahora + timedelta(minutes=TIMEOUT_ENVIANDO_MIN)
         s.flush()
         return _pending_order_to_dict(p)
-
-
-def revisar_ordenes_colgadas(minutos: int = TIMEOUT_ENVIANDO_MIN) -> int:
-    """Rescata las órdenes que quedaron colgadas en 'enviando'.
-
-    Van a 'revisar' y NO se reintentan solas: el proceso murió con el envío en
-    vuelo, así que no sabemos si el CRM llegó a cargar la orden. Reintentarla
-    automáticamente podría cobrarle dos veces al cliente; que la mire un humano.
-
-    Devuelve cuántas rescató.
-    """
-    if not db_available():
-        return 0
-    from datetime import timedelta
-    limite = _utcnow_naive() - timedelta(minutes=0)   # el margen ya está en proximo_intento
-    with session_scope() as s:
-        colgadas = (s.query(PendingOrder)
-                      .filter(PendingOrder.estado == "enviando")
-                      .filter(PendingOrder.proximo_intento != None)   # noqa: E711
-                      .filter(PendingOrder.proximo_intento <= limite)
-                      .all())
-        for p in colgadas:
-            p.estado = "revisar"
-            p.proximo_intento = None
-            p.ultimo_error = (
-                f"El envío quedó colgado más de {minutos} min (probablemente se "
-                "reinició el servicio). No se reintenta solo: revisá en Growi si "
-                "la orden entró antes de volver a mandarla."
-            )
-        if colgadas:
-            print(f"[cola] {len(colgadas)} orden(es) colgadas en 'enviando' pasaron "
-                  f"a revisión manual", flush=True)
-        return len(colgadas)
 
 
 def marcar_orden_enviada(orden_id: int) -> None:

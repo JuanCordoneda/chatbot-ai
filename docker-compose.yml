@@ -61,12 +61,10 @@ services:
       openai-service:
         condition: service_started
     volumes:
-      # Directorio completo, NO archivo por archivo: en macOS el bind-mount de un
-      # archivo suelto queda apuntando al inode viejo cuando el editor lo
-      # reescribe, y el contenedor llega a servir una copia parcial (SyntaxError
-      # a mitad del archivo) o directamente el código anterior. Con el directorio
-      # montado, los cambios se ven siempre.
-      - ./webService:/app
+      - ./webService/app.py:/app/app.py
+      - ./webService/anthropic_costs.py:/app/anthropic_costs.py
+      - ./webService/templates:/app/templates
+      - ./webService/static:/app/static
       - ./common:/app/common
 
 volumes:
