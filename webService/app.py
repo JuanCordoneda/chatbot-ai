@@ -334,24 +334,36 @@ def _idvendedor_del_crm(account_id):
 
     Devuelve "" si no se pudo averiguar; nunca lanza.
     """
-    try:
+    from collections import Counter
+
+    def _pedir(antiguas):
         resp = _growi_request(
             "POST", "/paginas/traer_campanas.php", account_id=account_id, timeout=30,
-            data={"antiguas": "0"},
+            data={"antiguas": antiguas},
             headers={"referer": f"{_crm_base(account_id)}/paginas/trafico.php",
                      "x-requested-with": "XMLHttpRequest"},
         )
         resp.raise_for_status()
-        ids = [v["idvendedor"] for v in _parse_ventas(resp.text) if v.get("idvendedor")]
+        return [v["idvendedor"] for v in _parse_ventas(resp.text) if v.get("idvendedor")]
+
+    try:
+        # Primero las activas, que es el pedido barato y el caso normal. Si la
+        # cuenta no tiene ninguna abierta (recién dada de alta, o todo cerrado),
+        # se buscan también las viejas: el idvendedor es el mismo y sirve igual
+        # para saber a nombre de quién carga esta cuenta.
+        ids = _pedir("0")
         if not ids:
-            print(f"[login] el CRM no devolvió idvendedor para la cuenta {account_id} "
-                  f"(¿sin campañas activas?)", flush=True)
+            ids = _pedir("1")
+            if ids:
+                print(f"[cuenta {account_id}] sin campañas activas; el idvendedor "
+                      f"salió de las viejas", flush=True)
+        if not ids:
+            print(f"[cuenta {account_id}] el CRM no devolvió ningún idvendedor "
+                  f"(no tiene campañas)", flush=True)
             return ""
-        from collections import Counter
         return Counter(ids).most_common(1)[0][0]
     except Exception as e:
-        print(f"[login] no pude averiguar el idvendedor de la cuenta {account_id}: {e!r}",
-              flush=True)
+        print(f"[cuenta {account_id}] no pude averiguar el idvendedor: {e!r}", flush=True)
         return ""
 
 
@@ -1559,7 +1571,21 @@ def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", idventa_elegida=
     print(f"[fondos] @{cliente_ig or '—'} → idventa {idventa} "
           f"({fondos['origen']}: {fondos['detalle']}, saldo {fondos['saldo']})", flush=True)
 
-    # Si no se pudo resolver a nombre de quién va la orden, se corta. Antes acá
+    # Último recurso antes de frenar al vendedor: si el idvendedor no estaba
+    # guardado (cuenta vieja que no volvió a loguearse) ni vino en la campaña,
+    # se le pregunta al CRM en el momento y se guarda para la próxima. Cuesta un
+    # request y solo pasa una vez por cuenta.
+    if account_id is not None and idventa and not idvendedor:
+        print(f"[fondos] sin idvendedor para la cuenta {account_id}; se lo pregunto "
+              f"al CRM antes de cortar", flush=True)
+        idvendedor = _idvendedor_del_crm(account_id)
+        if idvendedor and _repo is not None:
+            try:
+                _repo.guardar_idvendedor(account_id, idvendedor)
+            except Exception as e:
+                print(f"[fondos] no pude guardar el idvendedor: {e!r}", flush=True)
+
+    # Si aun así no se sabe a nombre de quién va la orden, se corta. Antes acá
     # había un fallback silencioso a los ids del .env: la orden salía por la
     # sesión del vendedor pero cargada al dueño de la agencia y descontada de su
     # campaña. Mejor no mandar y que alguien complete la ficha.

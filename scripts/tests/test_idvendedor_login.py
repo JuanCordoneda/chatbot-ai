@@ -189,5 +189,84 @@ src = inspect.getsource(web.login)
 check("la ruta /login llama a _refrescar_idvendedor", "_refrescar_idvendedor" in src)
 check("solo cuando hay cuenta (el admin no tiene)", 'user["account_id"]' in src)
 
+print("\n== 8. Sin campañas activas, lo busca en las viejas ==")
+GUARDADOS.clear()
+CUENTA["guardado"] = ""
+VIEJAS = {"usadas": []}
+
+
+def con_viejas(method, path, account_id=None, **kw):
+    if "traer_campanas" in path:
+        antiguas = (kw.get("data") or {}).get("antiguas")
+        VIEJAS["usadas"].append(antiguas)
+        if antiguas == "0":
+            return FakeResp(texto=_html([]))          # ninguna activa
+        return FakeResp(texto=_html([("7000", "702", "0.00")]))   # sí hay viejas
+    return fake_request(method, path, account_id=account_id, **kw)
+
+
+web._growi_request = con_viejas
+idv = web._idvendedor_del_crm(CUENTA["id"])
+check("pide primero las activas y después las viejas",
+      VIEJAS["usadas"] == ["0", "1"], VIEJAS["usadas"])
+check("y lo encuentra igual", idv == "702", idv)
+
+print("\n== 9. En el envío, si falta, lo busca antes de cortar ==")
+ENVIOS.clear()
+GUARDADOS.clear()
+CUENTA["guardado"] = ""                      # nada en la base
+CUENTA["campanas"] = [("9911", "", "500.00")]   # la campaña NO informa idvendedor
+web._VENTAS_CACHE.clear()
+web._VENTA_IG_CACHE.clear()
+PEDIDOS_ENVIO = []
+
+
+def sin_idv_en_campana(method, path, account_id=None, **kw):
+    PEDIDOS_ENVIO.append(path)
+    if "traer_campanas" in path:
+        antiguas = (kw.get("data") or {}).get("antiguas")
+        # En el listado normal la campaña viene sin idvendedor; el pedido
+        # puntual del rescate devuelve una que sí lo trae.
+        if len(PEDIDOS_ENVIO) > 3 and antiguas == "0":
+            return FakeResp(texto=_html([("9911", "702", "500.00")]))
+        return FakeResp(texto=_html([("9911", "", "500.00")]))
+    return fake_request(method, path, account_id=account_id, **kw)
+
+
+web._growi_request = sin_idv_en_campana
+r = c.post("/api/enviar_trafico", json={
+    "ordenes": [{"redsocial_id": "1", "prod": "Followers", "url": "u", "costo": 1.0,
+                 "cant_inicial": "10", "cantidad": "10", "programado": 0,
+                 "fecha_programada": None, "comentarios": [], "producto_id": "77"}],
+    "url": "u", "client": "nadia"})
+check("la orden sale con el idvendedor rescatado",
+      bool(ENVIOS) and ENVIOS[-1]["payload"]["idvendedor"] == "702",
+      ENVIOS[-1]["payload"]["idvendedor"] if ENVIOS else (r.status_code, r.get_json()))
+check("y queda guardado para la próxima", GUARDADOS == [(5, "702")], GUARDADOS)
+
+print("\n== 10. Si de verdad no hay dato, corta (no usa el del dueño) ==")
+ENVIOS.clear()
+GUARDADOS.clear()
+CUENTA["guardado"] = ""
+web._VENTAS_CACHE.clear()
+
+
+def nunca_hay(method, path, account_id=None, **kw):
+    if "traer_campanas" in path:
+        return FakeResp(texto=_html([("9911", "", "500.00")]))
+    return fake_request(method, path, account_id=account_id, **kw)
+
+
+web._growi_request = nunca_hay
+r = c.post("/api/enviar_trafico", json={
+    "ordenes": [{"redsocial_id": "1", "prod": "Followers", "url": "u", "costo": 1.0,
+                 "cant_inicial": "10", "cantidad": "10", "programado": 0,
+                 "fecha_programada": None, "comentarios": [], "producto_id": "77"}],
+    "url": "u", "client": "nadia"})
+check("no manda nada", not ENVIOS, ENVIOS)
+check("y el mensaje no menciona los ids del dueño",
+      FACU not in json.dumps(r.get_json() or {}), r.get_json())
+web._growi_request = fake_request
+
 print("\n" + ("TODO OK" if not FALLOS else f"FALLARON {len(FALLOS)}:\n  - " + "\n  - ".join(FALLOS)))
 sys.exit(1 if FALLOS else 0)
