@@ -4742,16 +4742,17 @@ function abrirEnviosFallidos() {
       item.appendChild(det);
     }
 
-    // Reintentar solo lo que la cola puede reenviar sola: de esas órdenes está
-    // guardado el payload entero. De un envío rebotado quedó la traza pero no
-    // los comentarios, así que ahí no hay nada que reenviar.
+    // Se reintenta tanto lo que quedó en la cola como lo que rebotó: en los dos
+    // casos están guardadas las órdenes completas, con sus comentarios. El único
+    // que no trae botón es el envío donde el CRM llegó a insertar algo, porque
+    // remandarlo se lo cobraría dos veces al cliente.
     if (e.reintentable) {
       const acciones = document.createElement("div");
       acciones.className = "fallido-acciones";
       const btn = document.createElement("button");
       btn.className = "fallido-btn";
-      btn.textContent = "Reintentar";
-      btn.onclick = () => reintentarOrdenEncolada(e, btn);
+      btn.textContent = e.ordenes > 1 ? `Reintentar (${e.ordenes} órdenes)` : "Reintentar";
+      btn.onclick = () => reintentarEnvio(e, btn);
       acciones.appendChild(btn);
       if (e.aviso_duplicado) {
         const nota = document.createElement("span");
@@ -4771,23 +4772,28 @@ function abrirEnviosFallidos() {
 // claim atómico que usaba el worker (contra el envío duplicado) y la postea
 // dentro de este request. Por eso acá se espera el resultado real y se dice
 // "enviada", no "va a salir sola".
-async function reintentarOrdenEncolada(envio, btn) {
+async function reintentarEnvio(envio, btn) {
   if (envio.aviso_duplicado &&
       !confirm("Esta orden pudo haber entrado al CRM: si entró y la reenviás, " +
                "se le cobra dos veces al cliente.\n\n" +
                "¿Ya revisaste en Growi que no esté cargada?")) return;
 
+  // Dos orígenes, dos endpoints: "cola" es una orden guardada esperando; "envio"
+  // es un rebote del que reusamos las órdenes de su traza de auditoría.
+  const url = envio.tipo === "cola"
+    ? `/api/ordenes-pendientes/${envio.id}/reintentar`
+    : `/api/growi-calls/${envio.id}/reintentar`;
+
   btn.disabled = true;
   btn.textContent = "Reintentando…";
   try {
-    const r = await fetch(`/api/ordenes-pendientes/${envio.id}/reintentar`,
-                          { method: "POST" });
+    const r = await fetch(url, { method: "POST" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "No se pudo reintentar");
     btn.textContent = d.insertadas ? `✓ Enviada (${d.insertadas})` : "✓ Enviada";
     btn.classList.add("fallido-btn--ok");
     // Sale del listado: entró al CRM, ya no es una orden que no entró.
-    _enviosFallidos = _enviosFallidos.filter(x => !(x.tipo === "cola" && x.id === envio.id));
+    _enviosFallidos = _enviosFallidos.filter(x => !(x.tipo === envio.tipo && x.id === envio.id));
     const badge = document.getElementById("btn-fallidos-count");
     if (badge) badge.textContent = _enviosFallidos.length;
     document.getElementById("btn-fallidos")

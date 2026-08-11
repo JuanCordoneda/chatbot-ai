@@ -2982,6 +2982,62 @@ def _motivo_envio_criollo(*textos) -> tuple:
     return "rechazado", "El CRM rechazó la orden"
 
 
+# Errores que se levantan ANTES de que el POST salga. Se buscan como subcadena
+# sobre el error guardado en la traza: cuando el envío se frenó por uno de estos,
+# a enviar_trafico.php no llegó nada y reenviarlo no puede duplicar la orden.
+_ERRORES_PRE_ENVIO = (
+    "growiautherror", "credencialausente", "cuentasincrm",
+    "connecttimeout", "proxyerror", "connectionerror",
+)
+
+
+def _insertadas_de_traza(call) -> int:
+    """Cuántas órdenes dijo el CRM que insertó en esa llamada. -1 si no se sabe.
+
+    Es el dato que decide si un rebote se puede remandar: si el CRM llegó a
+    insertar aunque sea una, reenviar la tanda la carga de nuevo y se le cobra
+    dos veces al cliente.
+    """
+    cuerpo = call.get("response_snippet") or ""
+    if not cuerpo:
+        return -1
+    try:
+        data = json.loads(cuerpo)
+    except Exception:
+        # El snippet son los primeros 300 caracteres: si el JSON venía más
+        # largo, no parsea y no podemos afirmar nada.
+        m = re.search(r'"insertadas"\s*:\s*(\d+)', cuerpo)
+        return int(m.group(1)) if m else -1
+    return int(data.get("insertadas") or 0) if isinstance(data, dict) else -1
+
+
+def _reintento_de_traza(call):
+    """(se_puede_reintentar, hay_que_avisar_de_duplicado) para un envío rebotado.
+
+    Tres situaciones:
+      - El CRM contestó y dijo que insertó 0  → seguro: rechazó la tanda entera.
+      - El fallo fue antes de mandar          → seguro: nunca salió.
+      - Cualquier otra cosa                   → pudo haber entrado. Se deja
+        reintentar, pero avisando: el vendedor es el único que puede mirar en
+        Growi si la orden está o no.
+
+    Y un caso donde NO se ofrece el botón: si el CRM insertó al menos una. Ahí
+    reenviar duplica seguro, y no hay forma de mandar "solo las que faltaron"
+    porque el CRM no dice cuáles entraron.
+    """
+    if not call.get("ordenes_guardadas"):
+        return False, False          # sin órdenes guardadas no hay qué reenviar
+    insertadas = _insertadas_de_traza(call)
+    if insertadas > 0:
+        return False, False
+    if insertadas == 0:
+        return True, False
+    error = (call.get("error") or "").lower()
+    if any(p in error for p in _ERRORES_PRE_ENVIO):
+        return True, False
+    return True, True
+
+
 @app.route("/api/mis-envios-fallidos", methods=["GET"])
 @require_login
 @_repo_error_response
@@ -3010,17 +3066,20 @@ def mis_envios_fallidos():
         if c.get("trace_id") and c["trace_id"] in ya_listados:
             continue
         codigo, criollo = _motivo_envio_criollo(c.get("error"), c.get("response_snippet"))
+        # La traza del envío guarda las órdenes COMPLETAS, con sus comentarios
+        # adentro, así que un rebote se puede remandar tal cual sin regenerar
+        # nada. (Acá decía que los comentarios "nunca se persistieron" y por eso
+        # no había botón: es falso, están en request_payload.ordenes.)
+        reintentable, aviso = _reintento_de_traza(c)
         items.append({
             "id": c["id"], "tipo": "envio", "fecha": c.get("created_at"),
             "motivo": codigo, "detalle": criollo,
             "post_url": c.get("post_url"), "cliente": c.get("client_ig_username"),
             "idventa": c.get("idventa"), "costo": c.get("costo"),
             "tecnico": c.get("error") or f"HTTP {c.get('status_code') or '—'}",
-            # De un envío rebotado queda la traza, pero NO los comentarios: nunca
-            # se persistieron. Reintentar desde acá sería mandar una orden vacía,
-            # así que el único camino es rehacer el post.
-            "reintentable": False,
-            "aviso_duplicado": False,
+            "ordenes": c.get("ordenes_guardadas") or 0,
+            "reintentable": reintentable,
+            "aviso_duplicado": aviso,
         })
 
     # "revisar" = el envío pudo haber entrado, ojo con reintentar; "fallida" = no
@@ -3045,6 +3104,75 @@ def mis_envios_fallidos():
 
     items.sort(key=lambda i: i.get("fecha") or "", reverse=True)
     return jsonify({"envios": items, "total": len(items)})
+
+
+@app.route("/api/growi-calls/<int:call_id>/reintentar", methods=["POST"])
+@require_login
+@_repo_error_response
+def growi_call_reintentar(call_id):
+    """Vuelve a mandar un envío que rebotó, reusando las órdenes de su traza.
+
+    Antes esto no existía: de un rebote quedaba la traza y el vendedor tenía que
+    rehacer el post entero. Pero la traza guarda las órdenes COMPLETAS (con sus
+    comentarios), así que reenviar es mandar exactamente lo mismo.
+
+    Sale con las credenciales del que está logueado y por el camino normal, así
+    que resuelve campaña y precio como cualquier envío. El único caso que no se
+    ofrece es aquel en que el CRM ya insertó algo: ahí reenviar duplica y no hay
+    forma de mandar "solo lo que faltó".
+    """
+    account_id = None if session.get("is_admin") else session.get("account_id")
+    call = _repo.get_growi_call(call_id, account_id)
+    if not call:
+        return jsonify({"error": "No existe ese envío"}), 404
+
+    # Mismo criterio que pinta el botón: si acá no da, es que el listado se
+    # desactualizó (o alguien llamó al endpoint a mano).
+    reintentable, _ = _reintento_de_traza(call)
+    if not reintentable:
+        insertadas = _insertadas_de_traza(call)
+        if insertadas > 0:
+            return jsonify({"error": f"Ese envío ya cargó {insertadas} orden/es en "
+                                     "el CRM. Reenviarlo se las cobraría dos veces "
+                                     "al cliente."}), 409
+        return jsonify({"error": "De ese envío no quedaron las órdenes guardadas, "
+                                 "así que no hay nada que reenviar."}), 400
+
+    payload = call.get("request_payload") or {}
+    ordenes = [_ordenes.normalizar_orden(o, 0, o.get("comentarios") or [])
+               for o in (payload.get("ordenes") or [])]
+    if not ordenes:
+        return jsonify({"error": "Ese envío no tiene órdenes que reenviar"}), 400
+
+    # La cuenta es la del envío original, no la del que aprieta el botón: si el
+    # admin reintenta el rebote de un vendedor, la orden tiene que seguir siendo
+    # de ese vendedor. Pero la contraseña que se usa es la del que está logueado,
+    # así que un admin no puede reintentar por otro (no tenemos su credencial).
+    dueño = call.get("account_id")
+    if account_id is None and dueño != session.get("account_id"):
+        return jsonify({"error": "Este envío lo tiene que reintentar el vendedor: "
+                                 "sale con su usuario de Growi."}), 403
+
+    try:
+        crm, _, _ = _enviar_ordenes_crm(
+            ordenes,
+            post_url=call.get("post_url") or "",
+            cliente_ig=call.get("client_ig_username") or "",
+            idventa_elegida=payload.get("idventa_elegida") or call.get("idventa"),
+            account_id=dueño,
+            user_id=call.get("user_id"),
+            username=call.get("username"),
+            origen="reintento",
+        )
+    except Exception as e:
+        print(f"[reintento-traza] envío {call_id} falló: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_de_error_de_envio(e)}), 502
+
+    if crm and crm.get("success"):
+        return jsonify({"ok": True, "insertadas": crm.get("insertadas", 0)})
+    errores = "; ".join((crm or {}).get("errors") or [])
+    return jsonify({"error": errores or "El CRM rechazó la orden otra vez, sin "
+                                        "decir el motivo."}), 502
 
 
 @app.route("/api/growi-calls/<int:call_id>", methods=["GET"])

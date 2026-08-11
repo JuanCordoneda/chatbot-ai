@@ -1357,6 +1357,13 @@ def _growi_call_to_dict(c: GrowiCall, con_cuerpos: bool = False) -> dict:
     # el listado necesita una probadita: sin esto no hay con qué explicarle al
     # vendedor por qué no entró la orden sin pedir el detalle fila por fila.
     d["response_snippet"] = (c.response_body or "")[:300] or None
+    # Con qué se podría reenviar esta llamada, sin mandar el payload entero al
+    # listado. El payload de un envío guarda las órdenes CON sus comentarios,
+    # así que un rebote se puede reintentar tal cual; salvo que la traza lo haya
+    # truncado por tamaño (ver _acotar_payload), y ahí ya no está completo.
+    p = c.request_payload if isinstance(c.request_payload, dict) else {}
+    d["payload_truncado"] = bool(p.get("_truncado"))
+    d["ordenes_guardadas"] = len(p.get("ordenes") or []) if not d["payload_truncado"] else 0
     if con_cuerpos:
         # Los cuerpos solo viajan en el detalle: en el listado serían cientos de
         # KB por pantalla para algo que casi nunca se mira fila por fila.
