@@ -734,10 +734,72 @@ def _lock_de_sesion(clave):
 
 
 def _abrir_sesion(cfg, account_id=None):
-    """Loguea y guarda la sesión bajo su credencial. Devuelve la entrada."""
-    entry = {"session": _growi_login_with(cfg, account_id=account_id), "cfg": cfg}
+    """Loguea y guarda la sesión bajo su credencial. Devuelve la entrada.
+
+    `token` arranca vacío a propósito: es el x-growi-token de ESTA sesión y se
+    pide recién cuando hace falta (ver _growi_token). Al reloguear se arma una
+    entrada nueva, así que el token viejo se descarta solo.
+    """
+    entry = {"session": _growi_login_with(cfg, account_id=account_id),
+             "cfg": cfg, "token": None}
     _growi_sessions[_clave_sesion(cfg)] = entry
     return entry
+
+
+# El CRM incorporó un token anti-anomalía por sesión: viaja en el header
+# x-growi-token y sale de <meta name="growi-token"> del HTML. Sin él,
+# enviar_trafico.php NO inserta y —lo peor— contesta 200 con
+# {"success":false,"insertadas":0,"errors":[]}, sin decir que falta el token.
+# Eso es exactamente lo que dejó a los vendedores sin poder publicar: para
+# nosotros era un fallo mudo. El navegador lo manda solo (guard-api.js); acá hay
+# que ir a buscarlo.
+_TOKEN_RE = re.compile(r"""<meta\s+name=["']growi-token["']\s+content=["']([^"']+)["']""", re.I)
+# Cualquier página del gestor sirve; se usa trafico.php porque es la que ya
+# consultamos para las campañas y está garantizado que existe.
+_PATH_TOKEN = "/paginas/trafico.php"
+
+
+def _growi_token(entry, account_id=None, refrescar=False):
+    """El x-growi-token de esta sesión, cacheado en la entrada de sesión.
+
+    Devuelve None si no se pudo leer: en ese caso el request sale sin el header
+    y se comporta como antes. Preferimos eso a bloquear todo el tráfico al CRM
+    por una página que no cargó; el envío igual detecta el rebote mudo y avisa.
+    """
+    if entry.get("token") and not refrescar:
+        return entry["token"]
+    try:
+        url = entry["cfg"].get("crm_url") or GROWI_CRM_URL
+        # OJO: con entry["session"] directo, no con _growi_request, que llamaría
+        # de vuelta a esta función y entraría en recursión infinita.
+        resp = entry["session"].get(f"{url}{_PATH_TOKEN}", timeout=15)
+        m = _TOKEN_RE.search(resp.text or "")
+        if not m:
+            print(f"[growi-web] no encontré el growi-token en {_PATH_TOKEN} "
+                  f"(cuenta {account_id}); mando sin él", flush=True)
+            return None
+        entry["token"] = m.group(1)
+        return entry["token"]
+    except Exception as e:
+        print(f"[growi-web] no pude leer el growi-token (cuenta {account_id}): {e!r}",
+              flush=True)
+        return None
+
+
+def _rebote_mudo_de_envio(resp):
+    """¿El CRM aceptó el POST del envío pero no insertó nada y no dijo por qué?
+
+    Es la firma del token vencido/faltante. Se distingue de un rechazo legítimo
+    (saldo, validación) en que NO trae ni errors ni warnings ni messages: el CRM
+    cuando rechaza de verdad los completa.
+    """
+    try:
+        d = resp.json()
+    except Exception:
+        return False
+    return (isinstance(d, dict) and d.get("success") is False
+            and not d.get("insertadas")
+            and not d.get("errors") and not d.get("warnings") and not d.get("messages"))
 
 
 def _olvidar_sesion(cfg):
@@ -873,14 +935,35 @@ def _growi_request(method, path, account_id=None, **kwargs):
         # Igual que en growi_client: si el request no llega a salir, la traza
         # igual tiene que poder mostrar con qué headers se intentó.
         tr.headers(kwargs.get("headers"))
+        token_reintentado = False
         for intento in range(1, 5):
             tr.intento(intento)
             url = entry["cfg"].get("crm_url") or GROWI_CRM_URL
             tr.via(entry["cfg"].get("crm_proxy"))
+            # El token va en TODAS las llamadas, no solo en el envío: el CRM lo
+            # valida en cada endpoint del gestor y el navegador también lo manda
+            # siempre. Se arma acá adentro del loop porque después de un relogin
+            # la entrada (y con ella el token) cambia.
+            tok = _growi_token(entry, account_id)
+            if tok:
+                kwargs["headers"] = {**(kwargs.get("headers") or {}),
+                                     "x-growi-token": tok}
+                tr.headers(kwargs["headers"])
             resp = entry["session"].request(
                 method, f"{url}{path}", timeout=timeout, **kwargs
             )
             if not _growi_sesion_caida(resp):
+                # Envío que vuelve sin insertar y sin explicación: lo más probable
+                # es que el token haya vencido (el CRM no lo dice). Se pide uno
+                # nuevo y se reintenta UNA sola vez. Es seguro: no insertó nada,
+                # así que no hay riesgo de duplicar el cobro.
+                if es_envio and not token_reintentado and _rebote_mudo_de_envio(resp):
+                    token_reintentado = True
+                    print(f"[growi-web] el CRM no insertó nada y no dijo por qué "
+                          f"(cuenta {account_id}): renuevo el growi-token y reintento",
+                          flush=True)
+                    if _growi_token(entry, account_id, refrescar=True):
+                        continue
                 tr.respuesta(resp)
                 return resp
             # La sesión parece caída. Antes de reintentar un POST que NO es

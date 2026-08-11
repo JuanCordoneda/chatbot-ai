@@ -3,6 +3,7 @@ Growi CRM client — envía las órdenes ya armadas por el frontend a enviar_tra
 """
 import os
 import json
+import re
 import threading
 import time
 import requests
@@ -187,6 +188,32 @@ def _get_session() -> requests.Session:
         return _session
 
 
+# El CRM valida un token por sesión que viaja en x-growi-token y sale del
+# <meta name="growi-token"> del HTML del gestor. Se cachea COMO ATRIBUTO de la
+# Session, no en un dict por id(): los ids de objetos liberados se reusan, y una
+# sesión nueva podría quedarse con el token de la vieja (ya inválido).
+_TOKEN_RE = re.compile(r"""<meta\s+name=["']growi-token["']\s+content=["']([^"']+)["']""", re.I)
+
+
+def _growi_token(session: requests.Session) -> str | None:
+    """Token de esta sesión, o None si no se pudo leer (se manda sin él)."""
+    cacheado = getattr(session, "_growi_token", None)
+    if cacheado:
+        return cacheado
+    try:
+        resp = session.get(f"{CRM_URL}/paginas/trafico.php", timeout=_TIMEOUT)
+        m = _TOKEN_RE.search(resp.text or "")
+        if not m:
+            print("[growi] no encontré el growi-token en trafico.php; mando sin él",
+                  flush=True)
+            return None
+        session._growi_token = m.group(1)
+        return m.group(1)
+    except Exception as e:
+        print(f"[growi] no pude leer el growi-token: {e!r}", flush=True)
+        return None
+
+
 def _descartar_sesion(por_proxy_caido: bool = False) -> None:
     """Tira la sesión cacheada. Con por_proxy_caido marcamos además el proxy para
     que el próximo login arranque directamente por otro."""
@@ -339,6 +366,11 @@ def _ejecutar_campana(post_url: str, comentarios: list[str],
         "content-type":     "application/json; charset=UTF-8",
         "x-requested-with": "XMLHttpRequest",
     }
+    # Token anti-anomalía por sesión (ver _growi_token). Sin él el CRM contesta
+    # 200 con insertadas:0 y sin errores, o sea que el envío falla en silencio.
+    _tok = _growi_token(session)
+    if _tok:
+        request_headers["x-growi-token"] = _tok
 
     # El CRM ata la sesión a la IP que se loguea y Railway rota la IP de salida
     # entre requests, asi que un 401 puede ser solo mala suerte de que el login
