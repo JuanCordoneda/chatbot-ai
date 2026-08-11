@@ -4032,6 +4032,16 @@ function _bloqueMensajes(titulo, insertadas, msgs) {
     </div>`;
 }
 
+// Cuántas órdenes descartó el CRM por duplicadas, leyendo sus warnings.
+// Se matchea por el código (DUP_20M), que es estable, y se cae al texto por si
+// en algún envío viene sin código; el texto puede cambiar, el código no.
+function _contarDuplicadas(warnings) {
+  return (warnings || []).filter(w => {
+    const t = String(w || "");
+    return t.includes("DUP_20M") || /duplicad/i.test(t);
+  }).length;
+}
+
 function renderResultado(data, nComentarios, nTrafico) {
   const box = document.getElementById("resultado-content");
   const rc = data.resultado || null;                 // órdenes de comentarios
@@ -4047,6 +4057,14 @@ function renderResultado(data, nComentarios, nTrafico) {
 
   const enviadas = nComentarios + nTrafico;
   const insertadas = insCom + insTra;
+  // Órdenes que el CRM descartó A PROPÓSITO por duplicadas (mismo link +
+  // producto + RRSS dentro de 20 minutos, cód. DUP_20M). NO son órdenes
+  // perdidas: es la protección del CRM contra el doble clic, haciendo su
+  // trabajo. Contarlas como faltantes mandaba al vendedor a buscar en el CRM
+  // una orden que nunca tuvo que existir, y —peor— a rearmarla a mano, que es
+  // exactamente el duplicado que el CRM acababa de evitar.
+  const duplicadas = _contarDuplicadas([...((rc && rc.warnings) || []),
+                                        ...((rt && rt.warnings) || [])]);
   const gastado = ordenes.reduce((s, o) => s + (o.costo || 0), 0);
   // Programadas: las que no salen ya. Es lo primero que pregunta el vendedor.
   const programadas = ordenes.filter(o => o.cuando !== "ahora").length;
@@ -4059,10 +4077,14 @@ function renderResultado(data, nComentarios, nTrafico) {
   const fallo = errores.length > 0 && !encolada;
   // Que el CRM acepte MENOS órdenes de las que mandamos es el caso peligroso:
   // antes se perdía entre los mensajes y el vendedor creía que salió todo.
-  const faltan = !fallo && !encolada && insertadas > 0 && insertadas < enviadas;
+  // Las duplicadas ya están "resueltas": suman como rendidas para decidir si
+  // falta algo de verdad.
+  const rendidas = insertadas + duplicadas;
+  const faltan = !fallo && !encolada && insertadas > 0 && rendidas < enviadas;
   const estado = encolada ? { clase: "warn", ico: "⏳", txt: "Guardada — reintentala cuando vuelva el CRM" }
     : fallo ? { clase: "bad", ico: "✕", txt: "No se pudo enviar" }
     : faltan ? { clase: "warn", ico: "!", txt: `Se enviaron ${insertadas} de ${enviadas}` }
+    : duplicadas ? { clase: "ok", ico: "✓", txt: `Enviado — ${duplicadas} duplicada${duplicadas === 1 ? "" : "s"} que el CRM evitó` }
     : { clase: "ok", ico: "✓", txt: "Enviado correctamente" };
 
   box.innerHTML = `
@@ -4093,7 +4115,14 @@ function renderResultado(data, nComentarios, nTrafico) {
     ${faltan ? `<div class="res-bloque res-bloque--err">
       <div class="res-bloque-t">Revisá en el CRM</div>
       <div class="res-msg res-msg--bad"><span class="res-msg-ico">⚠️</span><span class="res-msg-txt">
-        Mandamos ${enviadas} órdenes y el CRM registró ${insertadas}. Fijate cuál falta antes de rearmarla.
+        Mandamos ${enviadas} órdenes y el CRM registró ${insertadas}${duplicadas ? ` (más ${duplicadas} que descartó por duplicada${duplicadas === 1 ? "" : "s"})` : ""}. Fijate cuál falta antes de rearmarla.
+      </span></div>
+    </div>` : ""}
+
+    ${!faltan && duplicadas ? `<div class="res-bloque">
+      <div class="res-bloque-t">No hace falta que hagas nada</div>
+      <div class="res-msg res-msg--warn"><span class="res-msg-ico">♻️</span><span class="res-msg-txt">
+        El CRM descartó ${duplicadas} orden${duplicadas === 1 ? "" : "es"} por estar repetida${duplicadas === 1 ? "" : "s"} sobre este mismo post (mismo producto, dentro de 20 minutos). Es su protección contra el doble envío: no se perdió nada y no hay que rearmarla.
       </span></div>
     </div>` : ""}
 
