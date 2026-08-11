@@ -288,6 +288,10 @@ class CredencialAusente(RuntimeError):
     rechazo del CRM: es que el vendedor no está logueado (o se reinició el
     servicio) y hay que pedírsela de nuevo."""
 
+    # Se levanta antes de mandar nada: la orden se puede guardar y reintentar
+    # sin riesgo de duplicarla. Ver _seguro_de_reintentar.
+    pre_envio = True
+
 
 def _cred_ttl():
     return app.config["PERMANENT_SESSION_LIFETIME"].total_seconds()
@@ -380,7 +384,16 @@ def _account_crm_cfg(account_id):
 class GrowiAuthError(RuntimeError):
     """El CRM no nos dejó entrar. Existe para que el front muestre el motivo:
     antes un login rechazado se veía como un `401 Unauthorized` pelado sobre
-    enviar_trafico.php, que no dice nada de lo que realmente pasó."""
+    enviar_trafico.php, que no dice nada de lo que realmente pasó.
+
+    `pre_envio` dice si esto pasó ANTES de mandar la orden. Importa mucho: si el
+    login falló, a enviar_trafico.php no llegó nada y la orden se puede guardar
+    para reintentarla sin riesgo. Si en cambio la sesión se cayó DESPUÉS de que
+    el POST saliera, no sabemos si el CRM lo procesó, y ahí reintentar puede
+    cobrarle dos veces al cliente. Por defecto False: el que sabe que es seguro
+    tiene que decirlo explícitamente."""
+
+    pre_envio = False
 
 
 def _verificar_sesion(s, url):
@@ -593,7 +606,11 @@ def _growi_login_with(cfg, verify=True, account_id=None):
             print(f"[growi-web] respuesta cruda del login: {_huella_respuesta(login_resp)}",
                   flush=True)
             if verify:
-                raise GrowiAuthError(detalle)
+                # Falla en el login: a enviar_trafico.php no salió nada todavía,
+                # así que la orden es segura de guardar y reintentar.
+                err = GrowiAuthError(detalle)
+                err.pre_envio = True
+                raise err
         pool.marcar_vivo(proxy)
         return s
 
@@ -1418,7 +1435,7 @@ def cancelar(job_id):
 
 def _es_error_de_red(e: Exception) -> bool:
     """True si no llegamos al CRM (proxy caído, DNS, timeout), en vez de que el
-    CRM nos haya contestado que no. Solo esto se encola para reintentar."""
+    CRM nos haya contestado que no."""
     return isinstance(e, (requests.exceptions.ConnectionError,
                           requests.exceptions.Timeout))
 
@@ -1435,6 +1452,33 @@ def _envio_pudo_haber_entrado(e: Exception) -> bool:
     return not isinstance(e, (requests.exceptions.ConnectTimeout,
                               requests.exceptions.ProxyError,
                               requests.exceptions.ConnectionError))
+
+
+def _seguro_de_reintentar(e: Exception) -> bool:
+    """True si la orden se puede guardar para reintentarla sin riesgo de que se
+    cargue dos veces.
+
+    Dos familias, y hasta ahora solo se contemplaba la primera:
+
+      1. No llegamos al CRM (proxy caído, DNS, connect timeout). El POST nunca
+         salió.
+      2. El CRM está bien pero NO ABRIMOS SESIÓN: el login falló, o no teníamos
+         la contraseña en memoria. Acá tampoco salió nada — se frena antes de
+         llegar a enviar_trafico.php.
+
+    Faltaba la segunda, y es justo la que más se ve: un vendedor al que el CRM
+    le rechaza la sesión perdía los comentarios ya generados y tenía que rehacer
+    el post entero, aunque no se hubiera mandado absolutamente nada. En la
+    pantalla de "Órdenes que no entraron" esas órdenes aparecían sin botón de
+    reintentar, porque nunca se habían guardado.
+
+    Lo que NO entra: que el POST haya salido y no sepamos si el CRM lo procesó
+    (ReadTimeout, o la sesión cayéndose después de mandar). enviar_trafico.php no
+    es idempotente y ahí reintentar le cobra dos veces al cliente.
+    """
+    if getattr(e, "pre_envio", False):
+        return True
+    return _es_error_de_red(e) and not _envio_pudo_haber_entrado(e)
 
 
 @app.route("/api/publicar", methods=["POST"])
@@ -1485,16 +1529,15 @@ def publicar():
         error = _mensaje_de_error_de_envio(e)
         # No llegó a salir: en vez de perder los comentarios ya generados, la
         # orden queda guardada con su payload completo para que el vendedor la
-        # reintente de un click. Solo si el envío es seguro de repetir (si pudo
-        # haber entrado, se informa y listo).
-        if _es_error_de_red(e) and not _envio_pudo_haber_entrado(e):
+        # reintente de un click.
+        if _seguro_de_reintentar(e):
             encolada = _encolar_pendiente(post_url, comentarios, ordenes_crm,
-                                          cliente_ig, error)
+                                          cliente_ig, error,
+                                          trace_id=getattr(e, "growi_trace_id", None))
             if encolada:
-                error = ("No había conexión con el CRM, así que la orden quedó "
-                         "guardada con los comentarios ya generados. Reintentala "
-                         "desde 'Órdenes que no entraron' cuando el CRM vuelva; "
-                         "no hace falta que la cargues de nuevo.")
+                error = (f"{error}\n\nLa orden quedó guardada con los comentarios "
+                         "ya generados: reintentala desde 'Órdenes que no "
+                         "entraron'. No hace falta que la cargues de nuevo.")
         elif _envio_pudo_haber_entrado(e) and _es_error_de_red(e):
             error = ("Se cortó la conexión esperando la respuesta del CRM. "
                      "Revisá en Growi si la orden entró antes de volver a mandarla.")
@@ -1533,7 +1576,8 @@ def publicar():
     })
 
 
-def _encolar_pendiente(post_url, comentarios, ordenes_crm, cliente_ig, error):
+def _encolar_pendiente(post_url, comentarios, ordenes_crm, cliente_ig, error,
+                       disponible=None, trace_id=None):
     """Guarda la orden en la cola de reintentos. Devuelve None si no hay DB, y
     en ese caso el vendedor ve el error de siempre: sin persistencia no podemos
     prometerle que se va a reenviar sola.
@@ -1545,7 +1589,12 @@ def _encolar_pendiente(post_url, comentarios, ordenes_crm, cliente_ig, error):
     try:
         return _repo.encolar_orden(
             post_url,
-            {"comentarios": comentarios, "ordenes": ordenes_crm, "disponible": None},
+            {"comentarios": comentarios, "ordenes": ordenes_crm,
+             "disponible": disponible,
+             # Con qué fila de auditoría se corresponde esta orden. Sin esto, el
+             # mismo fallo se le muestra al vendedor dos veces: la fila de
+             # `growi_calls` (sin botón) y la orden guardada (con botón).
+             "trace_id": trace_id},
             account_id=session.get("account_id"),
             user_id=session.get("user_id"),
             client_ig_username=cliente_ig or "",
@@ -2191,8 +2240,24 @@ def enviar_trafico():
         )
     except Exception as e:
         print(f"[enviar_trafico] error: {e!r}", flush=True)
-        return jsonify({"error": _mensaje_de_error_de_envio(e),
-                        "motivo": _motivo_de_error_de_envio(e)}), 500
+        error = _mensaje_de_error_de_envio(e)
+        # Igual que en /api/publicar: si el envío no llegó a salir, la orden se
+        # guarda en vez de perderse. Acá no hay comentarios generados por IA de
+        # por medio, pero el vendedor igual armó la orden a mano, y hasta ahora
+        # un login rebotado se la borraba y lo dejaba sin nada que reintentar.
+        encolada = None
+        if _seguro_de_reintentar(e):
+            encolada = _encolar_pendiente(data.get("url"), [], ordenes,
+                                          cliente_ig, error,
+                                          disponible=data.get("disponible"),
+                                          trace_id=getattr(e, "growi_trace_id", None))
+            if encolada:
+                error = (f"{error}\n\nLa orden quedó guardada: reintentala desde "
+                         "'Órdenes que no entraron'.")
+        return jsonify({"error": error,
+                        "motivo": None if encolada else _motivo_de_error_de_envio(e),
+                        "encolada": bool(encolada),
+                        "encolada_id": encolada.get("id") if encolada else None}), 500
 
     # El consumo se registra RECIÉN ACÁ, con la orden ya aceptada. Antes se
     # grababa antes de mandar: si el CRM rechazaba o se caía la red, la cantidad
@@ -2933,7 +2998,17 @@ def mis_envios_fallidos():
     account_id = None if session.get("is_admin") else session.get("account_id")
     items = []
 
+    # Las órdenes que quedaron guardadas van primero: de paso se juntan los
+    # trace_id que ya están representados por una orden reintentable, para no
+    # listar además su fila de auditoría. Son el MISMO fallo, y mostrarlo dos
+    # veces —una con botón y otra sin— hace parecer que rebotó dos órdenes.
+    pendientes = _repo.list_pending_orders(account_id, estados=["revisar", "fallida"])
+    ya_listados = {(o.get("payload") or {}).get("trace_id")
+                   for o in pendientes} - {None}
+
     for c in _repo.list_growi_calls(account_id, solo_errores=True, limite=50):
+        if c.get("trace_id") and c["trace_id"] in ya_listados:
+            continue
         codigo, criollo = _motivo_envio_criollo(c.get("error"), c.get("response_snippet"))
         items.append({
             "id": c["id"], "tipo": "envio", "fecha": c.get("created_at"),
@@ -2948,10 +3023,10 @@ def mis_envios_fallidos():
             "aviso_duplicado": False,
         })
 
-    # "revisar" = pudo haber entrado, lo mira un humano; "fallida" = se agotaron
-    # los reintentos. Las "pendiente"/"enviando" no van: esas todavía van a salir
-    # solas y mostrarlas como fallo asusta al vendedor al pedo.
-    for o in _repo.list_pending_orders(account_id, estados=["revisar", "fallida"]):
+    # "revisar" = el envío pudo haber entrado, ojo con reintentar; "fallida" = no
+    # salió. Las "pendiente"/"enviando" no van: hay un envío en curso o recién
+    # reclamado, y mostrarlo como fallo asusta al vendedor al pedo.
+    for o in pendientes:
         codigo, criollo = _motivo_envio_criollo(o.get("ultimo_error"))
         items.append({
             "id": o["id"], "tipo": "cola", "fecha": o.get("created_at"),

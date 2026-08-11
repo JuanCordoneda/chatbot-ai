@@ -4767,9 +4767,10 @@ function abrirEnviosFallidos() {
   show("fallidos-overlay");
 }
 
-// El reintento no manda nada desde acá: devuelve la orden a la cola y la
-// despacha el worker, que es el único con el claim atómico contra el envío
-// duplicado. Por eso el mensaje dice "va a salir sola" y no "enviada".
+// El reintento manda la orden EN EL MOMENTO: el backend la reclama con el mismo
+// claim atómico que usaba el worker (contra el envío duplicado) y la postea
+// dentro de este request. Por eso acá se espera el resultado real y se dice
+// "enviada", no "va a salir sola".
 async function reintentarOrdenEncolada(envio, btn) {
   if (envio.aviso_duplicado &&
       !confirm("Esta orden pudo haber entrado al CRM: si entró y la reenviás, " +
@@ -4783,9 +4784,9 @@ async function reintentarOrdenEncolada(envio, btn) {
                           { method: "POST" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || "No se pudo reintentar");
-    btn.textContent = "✓ Vuelve a la cola";
+    btn.textContent = d.insertadas ? `✓ Enviada (${d.insertadas})` : "✓ Enviada";
     btn.classList.add("fallido-btn--ok");
-    // Sale del listado: ya no es un fallo, es una orden esperando salir.
+    // Sale del listado: entró al CRM, ya no es una orden que no entró.
     _enviosFallidos = _enviosFallidos.filter(x => !(x.tipo === "cola" && x.id === envio.id));
     const badge = document.getElementById("btn-fallidos-count");
     if (badge) badge.textContent = _enviosFallidos.length;

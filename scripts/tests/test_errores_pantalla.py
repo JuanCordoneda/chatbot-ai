@@ -246,7 +246,9 @@ CATALOGO.append(("Resultado", "orden encolada", (res.get("errors") or [""])[0]))
 check("el backend marca encolada=True", res.get("encolada") is True, res)
 check("con el id de la cola", res.get("encolada_id") == 77, res)
 check("y el mensaje dice cómo reintentarla",
-      "Reintentala" in (res.get("errors") or [""])[0], res.get("errors"))
+      "reintentala desde" in (res.get("errors") or [""])[0].lower(), res.get("errors"))
+check("y explica antes por qué falló",
+      "no se puede conectar" in (res.get("errors") or [""])[0].lower(), res.get("errors"))
 
 # Ruta del contenedor con fallback al repo, para poder correrlo también local.
 _js_path = "/app/static/app.js"

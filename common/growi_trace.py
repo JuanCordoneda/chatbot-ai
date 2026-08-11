@@ -300,7 +300,23 @@ def rechazo_local(operacion, url, **extra):
         yield
     except Exception as e:
         if not _trazado.get():
+            # El trace_id se fija ACÁ y se mete en `extra` (de donde `_fila` lo
+            # toma) en vez de dejar que lo resuelva la fila: hace falta conocerlo
+            # para colgárselo a la excepción, y si no hay un `contexto()` activo
+            # la fila lo guardaría en None y no habría con qué correlacionar.
+            tid = (contexto_actual().get("trace_id") or extra.get("trace_id")
+                   or uuid.uuid4().hex[:32])
+            extra["trace_id"] = tid
             registrar_fallo(operacion, e, url=url, **extra)
+            # Se le cuelga a la excepción QUÉ fila de auditoría la representa. Lo
+            # usa la pantalla de "órdenes que no entraron": cuando además
+            # guardamos la orden para reintentarla, hay que mostrar UNA sola cosa
+            # (la que tiene botón) y no la orden y su fila por separado, que se
+            # ve como si hubiera fallado dos veces.
+            try:
+                e.growi_trace_id = tid
+            except Exception:
+                pass    # excepciones raras que no aceptan atributos
         raise
     finally:
         _trazado.reset(token)
