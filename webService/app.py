@@ -43,14 +43,13 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").strip() in ("1", "true", "yes"),
-    # La sesión vence a las 24 hs: pasado ese plazo hay que volver a loguear.
-    # El usuario no se pierde: queda recordado en la cookie GROWI_LAST_USER y
-    # el navegador completa la contraseña, así el re-login es apretar Enter.
+    # La sesión dura 30 días de INACTIVIDAD, no 30 días desde el login. Cortarla
+    # a las 24 hs echaba a todo el mundo en medio del día de trabajo.
     PERMANENT_SESSION_LIFETIME=timedelta(
-        hours=int(os.environ.get("SESSION_HOURS", "24"))),
-    # Sin refresco en cada request: las 24 hs cuentan desde el login, no desde
-    # la última pantalla abierta. Si no, la sesión no vencería nunca.
-    SESSION_REFRESH_EACH_REQUEST=False,
+        hours=int(os.environ.get("SESSION_HOURS", "720"))),
+    # Refresco en cada request: el plazo cuenta desde la última pantalla abierta,
+    # así el que usa el sistema todos los días no vuelve a ver el login nunca.
+    SESSION_REFRESH_EACH_REQUEST=True,
 )
 
 # Cookie aparte de la sesión: guarda SOLO el usuario para precargar el campo del
@@ -1221,6 +1220,14 @@ def login():
     username = _usuario_recordado()
     olvidar = False
     status = 200
+    # Llegó redirigido porque se quedó sin la contraseña del CRM en memoria. Sin
+    # este aviso, el login aparece de la nada en medio de una carga de órdenes y
+    # parece que se rompió algo.
+    if request.method == "GET" and request.args.get("motivo") == "sesion_crm":
+        error = ("Tu sesión venció y hay que abrirla de nuevo contra Growi. "
+                 "Si estabas cargando una orden, quedó guardada: la vas a "
+                 "encontrar en 'Órdenes que no entraron'.")
+        error_kind = "info"
     if request.method == "POST":
         rate_key = _login_rate_key()
         if _login_throttled(rate_key):
@@ -1524,6 +1531,22 @@ def publicar():
             user_id=session.get("user_id"),
             username=session.get("username"),
         )
+    except CredencialAusente as e:
+        # Primero se guarda la orden (los comentarios ya están generados y no se
+        # pueden perder por una sesión vencida), y recién después se manda al
+        # login. Al volver, la reintenta de un click desde "Órdenes que no
+        # entraron" en vez de rehacer el post.
+        print(f"[publicar] sin credencial del CRM: {e}", flush=True)
+        guardada = _encolar_pendiente(post_url, comentarios, ordenes_crm,
+                                      cliente_ig, str(e),
+                                      trace_id=getattr(e, "growi_trace_id", None))
+        return _respuesta_relogin(
+            "Tu sesión venció. Guardamos la orden con los comentarios ya "
+            "generados: volvé a entrar y reintentala desde 'Órdenes que no "
+            "entraron'." if guardada else None,
+            encolada=bool(guardada),
+            encolada_id=guardada.get("id") if guardada else None,
+        )
     except Exception as e:
         print(f"[publicar] error: {e!r}", flush=True)
         error = _mensaje_de_error_de_envio(e)
@@ -1617,6 +1640,8 @@ def nombre_red():
         )
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
+    except CredencialAusente:
+        raise    # que llegue al errorhandler y lo mande al login
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1790,6 +1815,8 @@ def costo_trafico():
         )
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
+    except CredencialAusente:
+        raise    # que llegue al errorhandler y lo mande al login
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1807,6 +1834,8 @@ def demora():
         )
         resp.raise_for_status()
         return resp.text, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "text/plain")}
+    except CredencialAusente:
+        raise    # que llegue al errorhandler y lo mande al login
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1827,6 +1856,8 @@ def productos():
 
     try:
         return jsonify(_traer())
+    except CredencialAusente:
+        raise    # que llegue al errorhandler y lo mande al login
     except Exception as e:
         # Segundo intento con login fresco: el CRM a veces contesta 200 con una
         # página en vez del JSON, y eso _growi_request no lo ve como sesión caída.
@@ -1834,6 +1865,8 @@ def productos():
         try:
             _growi_relogin()
             return jsonify(_traer())
+        except CredencialAusente:
+            raise
         except Exception as e2:
             return jsonify({"error": str(e2)}), 500
 
@@ -1850,6 +1883,8 @@ def server_time_ar():
         )
         resp.raise_for_status()
         return jsonify(resp.json())
+    except CredencialAusente:
+        raise    # que llegue al errorhandler y lo mande al login
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -2150,6 +2185,35 @@ def _enviar_ordenes_crm_impl(ordenes, *, post_url="", cliente_ig="", idventa_ele
         return data, resp.text, resp.status_code
 
 
+def _respuesta_relogin(mensaje=None, **extra):
+    """401 que le dice al front que mande al vendedor de vuelta al login.
+
+    Cuando falta la contraseña del CRM en memoria, la sesión de Flask sigue
+    perfectamente válida: `logged_in` está puesto y `require_login` deja pasar.
+    Por eso el vendedor veía "volvé a iniciar sesión" y no pasaba nada — no había
+    nada que lo llevara ahí. Se limpia la sesión (ya no sirve para operar contra
+    el CRM) y se marca `relogin` para que el front redirija en vez de pintar el
+    mensaje en un cartel que no se puede accionar.
+    """
+    _olvidar_credencial()
+    session.clear()
+    return jsonify({
+        "error": mensaje or ("Tu sesión ya no tiene la contraseña de Growi. "
+                             "Volvé a iniciar sesión para poder cargar órdenes."),
+        "relogin": True,
+        **extra,
+    }), 401
+
+
+@app.errorhandler(CredencialAusente)
+def _manejar_credencial_ausente(e):
+    """Red de contención: cualquier endpoint que toque el CRM sin la credencial
+    en memoria manda al login, sin tener que acordarse de capturarlo uno por uno
+    (son más de veinte los que hablan con el CRM)."""
+    print(f"[auth] sin credencial del CRM en la sesión: {e}", flush=True)
+    return _respuesta_relogin(str(e))
+
+
 def _motivo_de_error_de_envio(e):
     """Código de motivo para el front (o None si no hay ninguno accionable).
 
@@ -2237,6 +2301,19 @@ def enviar_trafico():
             account_id=session.get("account_id"),
             user_id=session.get("user_id"),
             username=session.get("username"),
+        )
+    except CredencialAusente as e:
+        # Igual que en /api/publicar: la orden se guarda antes de mandarlo al
+        # login, así no pierde lo que había cargado por una sesión vencida.
+        print(f"[enviar_trafico] sin credencial del CRM: {e}", flush=True)
+        guardada = _encolar_pendiente(data.get("url"), [], ordenes, cliente_ig,
+                                      str(e), disponible=data.get("disponible"),
+                                      trace_id=getattr(e, "growi_trace_id", None))
+        return _respuesta_relogin(
+            "Tu sesión venció. Guardamos la orden: volvé a entrar y reintentala "
+            "desde 'Órdenes que no entraron'." if guardada else None,
+            encolada=bool(guardada),
+            encolada_id=guardada.get("id") if guardada else None,
         )
     except Exception as e:
         print(f"[enviar_trafico] error: {e!r}", flush=True)

@@ -1,3 +1,30 @@
+// Si el backend contesta 401 con `relogin`, la sesión ya no sirve para operar
+// contra el CRM y no hay pantalla que valga: se va al login.
+//
+// Va como interceptor global de fetch a propósito. Las llamadas al backend están
+// repartidas en más de veinte lugares de este archivo, sin un wrapper común, y
+// el caso apareció justo por eso: el vendedor leía "volvé a iniciar sesión" en
+// un cartel y no pasaba nada, porque nadie lo llevaba ahí. Poniéndolo acá queda
+// cubierto también cualquier fetch que se agregue después.
+(function redirigirAlLoginSiHaceFalta() {
+  const fetchOriginal = window.fetch;
+  let yendoAlLogin = false;      // una sola redirección aunque fallen 5 juntas
+  window.fetch = async (...args) => {
+    const r = await fetchOriginal(...args);
+    if (r.status !== 401 || yendoAlLogin) return r;
+    // Se clona para no consumir el cuerpo que espera quien llamó. Solo pasa en
+    // el 401, así que no toca la respuesta del stream de generación.
+    let data = {};
+    try { data = await r.clone().json(); } catch (e) { /* 401 sin JSON */ }
+    if (data.relogin) {
+      yendoAlLogin = true;
+      const volver = encodeURIComponent(location.pathname + location.search);
+      location.href = `/login?motivo=sesion_crm&next=${volver}`;
+    }
+    return r;
+  };
+})();
+
 let currentUrl = "";
 // Modo keyword: la tanda es N veces una palabra ("CLAUDE" / "Claude" / "claude").
 // Se guarda del post en curso para que "Cargar más" y el reintento sigan en el

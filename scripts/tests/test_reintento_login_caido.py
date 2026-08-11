@@ -65,13 +65,22 @@ class RepoCola:
 web._repo = RepoCola
 
 cli = web.app.test_client()
-with cli.session_transaction() as s:
-    s["logged_in"] = True
-    s["stamp"] = web.SESSION_STAMP
-    s["account_id"] = 3
-    s["user_id"] = 9
-    s["username"] = "facu"
-    s["cred_key"] = web._guardar_credencial(3, "x")
+
+
+def loguear():
+    """(Re)arma la sesión del vendedor. Hace falta llamarla de nuevo después de
+    un 401 de relogin: ese caso limpia la sesión a propósito, para mandarlo al
+    login en vez de dejarlo operando a medias."""
+    with cli.session_transaction() as s:
+        s["logged_in"] = True
+        s["stamp"] = web.SESSION_STAMP
+        s["account_id"] = 3
+        s["user_id"] = 9
+        s["username"] = "facu"
+        s["cred_key"] = web._guardar_credencial(3, "x")
+
+
+loguear()
 
 ORDEN = {"redsocial_id": "1", "prod": "Followers", "url": "u", "costo": 1.0,
          "cant_inicial": "10", "cantidad": "10", "programado": 0,
@@ -112,6 +121,8 @@ check("y el mensaje dice dónde reintentarla",
       "reintentala desde" in (res.get("errors") or [""])[0].lower(), res.get("errors"))
 
 print("\n== 2. Sin la contraseña en memoria, igual se guarda ==")
+# Este caso además manda al login (ver test_relogin), así que la respuesta es un
+# 401 con los datos arriba de todo en vez del `resultado` de un envío normal.
 
 
 def sin_credencial(method, path, account_id=None, **kw):
@@ -120,8 +131,11 @@ def sin_credencial(method, path, account_id=None, **kw):
 
 web._growi_request = sin_credencial
 r = publicar()
-res = (r.get_json() or {}).get("resultado") or {}
-check("la orden no se pierde por una sesión vencida", res.get("encolada") is True, res)
+d = r.get_json() or {}
+check("la orden no se pierde por una sesión vencida", d.get("encolada") is True, d)
+check("y de paso lo manda a reloguear", r.status_code == 401 and d.get("relogin") is True, d)
+
+loguear()   # el 401 limpió la sesión: se vuelve a entrar para seguir el test
 
 print("\n== 3. El tráfico también se guarda (antes nunca se encolaba) ==")
 web._growi_request = login_rechazado
