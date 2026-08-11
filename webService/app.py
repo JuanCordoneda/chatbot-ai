@@ -1991,6 +1991,30 @@ class CuentaSinCRM(RuntimeError):
         self.motivo = motivo
 
 
+class SaldoInsuficiente(RuntimeError):
+    """La campaña de la que salen los fondos no tiene con qué pagar esta orden.
+
+    Se levanta ANTES de mandar nada: el CRM la rebotaría igual, pero lo hacía
+    con un error suyo, ilegible, y recién después de que el vendedor esperara el
+    round-trip. Peor: la orden entraba parcial (algunas líneas sí y otras no) y
+    quedaba plata descontada por un envío que el vendedor daba por fallido.
+
+    NO lleva `pre_envio = True` a propósito, aunque el POST efectivamente nunca
+    salga: eso la encolaría, y la cola la reintentaría contra la MISMA campaña
+    sin saldo hasta agotar los reintentos. Este error no se arregla esperando,
+    se arregla eligiendo otra campaña o cargándole plata a esta. Por eso viaja
+    con motivo="sin_saldo" y el front ofrece el selector de campañas.
+    """
+
+    motivo = "sin_saldo"
+
+    def __init__(self, mensaje, *, saldo=None, costo=None, idventa=None):
+        super().__init__(mensaje)
+        self.saldo = saldo
+        self.costo = costo
+        self.idventa = idventa
+
+
 def _cuenta_tiene_crm_propio(account_id) -> bool:
     """¿Esta cuenta tiene credenciales de CRM propias en la DB?
 
@@ -2140,6 +2164,27 @@ def _enviar_ordenes_crm_impl(ordenes, *, post_url="", cliente_ig="", idventa_ele
 
     costo_total = sum(float(o.get("costo", 0)) for o in ordenes)
 
+    # ¿Alcanza la plata? Se chequea contra el saldo REAL leído del CRM recién
+    # ahora (fondos["saldo"], con refrescar=True), no contra `disponible`: ese
+    # cae a un valor de respaldo del .env cuando no se pudo leer la campaña, y
+    # comparar contra un número inventado rebota órdenes buenas.
+    #
+    # Solo aplica a las órdenes que cuestan: una tanda de puros comentarios da
+    # costo_total 0 y no toca el saldo, así que pasa aunque la campaña esté en
+    # cero. Es el caso normal de un cliente al que solo se le comenta.
+    saldo_real = fondos["saldo"]
+    if saldo_real is not None and costo_total > 0 and costo_total > float(saldo_real):
+        print(f"[fondos] CORTE por saldo: campaña {idventa} tiene "
+              f"${float(saldo_real):.4f} y la orden cuesta ${costo_total:.4f}", flush=True)
+        falta = costo_total - float(saldo_real)
+        raise SaldoInsuficiente(
+            f"La campaña #{idventa} no tiene saldo para esta orden: "
+            f"cuesta ${costo_total:.2f} y quedan ${float(saldo_real):.2f} "
+            f"(faltan ${falta:.2f}). No mandamos nada. Elegí otra campaña con "
+            "saldo o cargale plata a esta y reintentá.",
+            saldo=float(saldo_real), costo=costo_total, idventa=idventa,
+        )
+
     payload = {
         "idvendedor": idvendedor,
         "idventa":    idventa,
@@ -2217,8 +2262,10 @@ def _manejar_credencial_ausente(e):
 def _motivo_de_error_de_envio(e):
     """Código de motivo para el front (o None si no hay ninguno accionable).
 
-    Hoy el único es "sin_campania": el vendedor puede elegir otra campaña y
-    reintentar SOLO lo que falló, sin volver a generar los comentarios.
+    Los dos de hoy los resuelve el vendedor solo, eligiendo otra campaña y
+    reintentando SOLO lo que falló, sin volver a generar los comentarios:
+    "sin_campania" (no se pudo resolver de dónde sale la plata) y "sin_saldo"
+    (se resolvió, pero la campaña no llega a cubrir la orden).
     """
     return getattr(e, "motivo", None)
 
@@ -2230,7 +2277,7 @@ def _mensaje_de_error_de_envio(e):
     Los de red se resumen sin volcarle el traceback con la IP y el puerto del
     proxy, que es lo que se veía antes en pantalla.
     """
-    if isinstance(e, CuentaSinCRM):
+    if isinstance(e, (CuentaSinCRM, SaldoInsuficiente)):
         return str(e)
     if isinstance(e, CredencialAusente):
         # No es un rechazo del CRM: no tenemos su contraseña en memoria. El texto
@@ -2756,6 +2803,42 @@ def ventas_crm():
     except Exception as e:
         print(f"[ventas] error leyendo traer_campanas.php: {e!r}", flush=True)
         return jsonify({"error": _mensaje_amigable(e), "ventas": []}), 502
+
+
+@app.route("/api/venta-resuelta", methods=["GET"])
+@require_login
+def venta_resuelta():
+    """De qué campaña saldría la plata para este cliente, y cuánto le queda.
+
+    Es la MISMA resolución que hace el envío (resolver_venta), expuesta para que
+    el paso de órdenes pueda mostrar de antemano la campaña asignada y su saldo.
+    Antes el front solo sabía la campaña cuando el vendedor la elegía a mano, así
+    que a un cliente con campaña asignada y sin plata no había forma de avisarle
+    hasta que el envío ya había rebotado.
+
+    ?ig= vacío es válido: es el post sin cliente, y ahí la resolución cae en la
+    campaña por defecto (o en ninguna).
+    """
+    try:
+        account_id = _target_account_id() if session.get("is_admin") else session.get("account_id")
+    except Exception:
+        account_id = session.get("account_id")
+
+    ig = (request.args.get("ig") or "").strip().lstrip("@").lower()
+    try:
+        # Sin refrescar: esto corre al abrir el paso de órdenes y el caché de 5
+        # minutos alcanza para mostrarlo. El número que MANDA es el que relee el
+        # envío con refrescar=True; este es el aviso temprano.
+        fondos = resolver_venta(account_id, ig)
+        return jsonify({
+            "idventa": fondos["idventa"],
+            "origen":  fondos["origen"],
+            "detalle": fondos["detalle"],
+            "saldo":   fondos["saldo"],
+        })
+    except Exception as e:
+        print(f"[fondos] no pude resolver la campaña de @{ig or '—'}: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
 
 
 @app.route("/api/admin/clients", methods=["GET"])

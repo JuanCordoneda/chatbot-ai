@@ -3034,10 +3034,13 @@ function _rangoDelProducto() {
   return r;
 }
 
-// ── Campaña de la que sale la plata cuando el post no es de ningún cliente ──
-// Con cliente, el backend la resuelve solo (asignada > última del perfil). Sin
-// cliente no hay nada que deducir: antes caía en la campaña por defecto de la
-// cuenta sin avisar, ahora se elige acá y viaja en el envío.
+// ── Campaña de la que sale la plata ────────────────────────────────────────
+// El picker se muestra SIEMPRE, tenga el cliente campaña asignada o no. Antes
+// solo aparecía en los posts sin cliente: con cliente, el backend resolvía la
+// campaña en silencio, y si esa campaña estaba sin plata el vendedor se enteraba
+// cuando el CRM ya le había rebotado la orden, sin manera de mandarla por otra.
+// Ahora la campaña resuelta viene precargada y elegida (se puede cambiar), y el
+// saldo se compara contra el costo antes de dejar mandar nada.
 // Saldo de cada campaña (idventa -> disponible), para mostrarlo al elegirla.
 let _ventasSaldo = {};
 
@@ -3055,21 +3058,28 @@ function prepararVentaPicker() {
   const sel = document.getElementById("venta-picker-select");
   const retry = document.getElementById("venta-picker-retry");
   const owner = document.getElementById("venta-picker-owner");
+  const titulo = document.getElementById("venta-picker-title");
+  const sub = document.getElementById("venta-picker-sub");
+  const asignado = !!window._clienteAsignado;
   box.classList.remove("venta-picker--falta");
   _ventaPickerMsg("");
   _mostrarSaldoVenta("");
-
-  if (window._clienteAsignado) {
-    box.classList.add("hidden");
-    window._ventaElegida = "";
-    return;
-  }
 
   box.classList.remove("hidden");
   // De qué cuenta es el post: lo primero que uno mira para entender el aviso.
   if (owner) {
     owner.textContent = window._clientIg ? `@${window._clientIg}` : "";
     owner.classList.toggle("hidden", !window._clientIg);
+  }
+  if (titulo) {
+    titulo.textContent = asignado
+      ? "Campaña de la que se descuenta este envío"
+      : "Esta publicación no es de ningún cliente tuyo";
+  }
+  if (sub) {
+    sub.textContent = asignado
+      ? "Viene puesta la campaña del cliente. Podés cambiarla por cualquier otra tuya. Los comentarios no consumen saldo."
+      : "Elegí de cuál de tus campañas se descuenta este envío. Los comentarios no consumen saldo.";
   }
   retry.classList.add("hidden");
   _llenarSelectVentas(sel)
@@ -3079,13 +3089,84 @@ function prepararVentaPicker() {
         _ventaPickerMsg("No encontramos campañas en tu cuenta del CRM. Creá una o pedile al admin que te asigne el cliente.", true);
         return;
       }
-      // Si ya había una elegida en este post, la mantenemos.
-      if (window._ventaElegida) { sel.value = window._ventaElegida; _mostrarSaldoVenta(window._ventaElegida); }
+      // Si ya había una elegida en este post, la mantenemos: una elección a mano
+      // le gana a la campaña que el backend resolvería.
+      if (window._ventaElegida) {
+        sel.value = window._ventaElegida;
+        _mostrarSaldoVenta(window._ventaElegida);
+        _avisarSiNoAlcanza();
+        return;
+      }
+      // Con cliente asignado, preseleccionamos la campaña que el backend va a
+      // usar igual, para que se vea CUÁL es y con cuánto saldo. Es la misma
+      // resolución del envío, así que preseleccionarla no cambia a dónde va la
+      // plata: solo la hace visible y editable.
+      if (asignado) return _preseleccionarVentaDelCliente(sel, ventas);
     })
     .catch(() => {
       retry.classList.remove("hidden");
       _ventaPickerMsg("No pudimos leer tus campañas del CRM.", true);
     });
+}
+
+// Deja elegida en el select la campaña que el backend resolvería para este
+// cliente. Si no se puede (falla la consulta, o la campaña resuelta no está en
+// el listado), se deja la opción vacía y el backend resuelve como siempre: el
+// envío no se rompe por no poder mostrar el saldo de antemano.
+function _preseleccionarVentaDelCliente(sel, ventas) {
+  const ig = window._clientIg || "";
+  return fetch(`/api/venta-resuelta?ig=${encodeURIComponent(ig)}`)
+    .then(r => r.json())
+    .then(d => {
+      const id = String(d.idventa || "");
+      const vacia = sel.querySelector('option[value=""]');
+      if (vacia) vacia.textContent = "— Campaña del cliente —";
+      if (!id || !ventas.some(v => String(v.idventa) === id)) return;
+      sel.value = id;
+      window._ventaElegida = id;
+      // El saldo del listado y el de la resolución salen de la misma lectura del
+      // CRM; si por caché difieren, mandamos el más nuevo al chip.
+      if (d.saldo != null) _ventasSaldo[id] = parseFloat(d.saldo) || 0;
+      _mostrarSaldoVenta(id);
+      _avisarSiNoAlcanza();
+    })
+    .catch(() => { /* sin preselección: el backend la resuelve igual */ });
+}
+
+// Cuánto cuesta la tanda que está armada ahora mismo. Los comentarios no suman:
+// vienen con costo 0/null porque no consumen saldo de la campaña.
+function _costoDeLaTanda() {
+  return (ordenes || []).reduce((s, o) => s + (parseFloat(o.costo) || 0), 0);
+}
+
+// ¿La campaña elegida cubre lo que hay cargado? Devuelve true si NO alcanza, y
+// deja el aviso puesto. El corte de verdad lo hace el backend contra el saldo
+// recién leído del CRM; esto es para que el vendedor no arme la tanda entera
+// para enterarse al final.
+// Frena el envío en el picker: lo destaca, lo trae a la vista y deja el foco en
+// el select. `texto` null mantiene el aviso que ya haya puesto quien llamó.
+function _frenarEnVentaPicker(texto) {
+  const box = document.getElementById("venta-picker");
+  if (!box) return;
+  box.classList.remove("hidden");
+  box.classList.add("venta-picker--falta");
+  if (texto) _ventaPickerMsg(texto, true);
+  box.scrollIntoView({ behavior: "smooth", block: "center" });
+  document.getElementById("venta-picker-select")?.focus();
+}
+
+function _avisarSiNoAlcanza() {
+  const id = String(window._ventaElegida || "");
+  if (!id || !(id in _ventasSaldo)) return false;
+  const saldo = _ventasSaldo[id];
+  const costo = _costoDeLaTanda();
+  if (costo <= 0) return false;           // tanda de puros comentarios
+  if (costo <= saldo) { _ventaPickerMsg(""); return false; }
+  _ventaPickerMsg(
+    `Esta campaña no alcanza: la orden cuesta $${costo.toFixed(2)} y quedan ` +
+    `$${saldo.toFixed(2)} (faltan $${(costo - saldo).toFixed(2)}). ` +
+    `Elegí otra campaña o cargale saldo a esta.`, true);
+  return true;
 }
 
 // Llena un <select> con las campañas de la cuenta. Lo usan el picker del paso de
@@ -3140,7 +3221,11 @@ function onVentaElegida() {
   if (window._ventaElegida) {
     document.getElementById("venta-picker").classList.remove("venta-picker--falta");
     const disp = _ventasSaldo[String(window._ventaElegida)];
-    _ventaPickerMsg(disp <= 0 ? "Esta campaña no tiene saldo disponible: el envío va a fallar." : "");
+    // Sin saldo NINGUNO se avisa siempre, aunque la tanda todavía no tenga
+    // órdenes cargadas: es el caso más común y conviene verlo al elegir.
+    if (!_avisarSiNoAlcanza() && disp <= 0) {
+      _ventaPickerMsg("Esta campaña no tiene saldo disponible: no vas a poder mandar órdenes con costo.", true);
+    }
   } else {
     _ventaPickerMsg("");
   }
@@ -3819,6 +3904,10 @@ function renderOrdenes() {
     }
   }
 
+  // El costo de la tanda acaba de cambiar: puede haber pasado a no entrar en la
+  // campaña elegida (o volver a entrar si sacaron una orden).
+  _avisarSiNoAlcanza();
+
   const CUANDO_ICONS = { ahora: "⚡", programar: "🗓", split3: "÷3", split5: "÷5" };
 
   // Los likes se pueden cargar DESPUÉS de los views y dejar el post corto: el
@@ -4066,11 +4155,12 @@ function _bloqueReintentoCampania() {
 
   const que = f.comentarios.length && f.trafico.length ? "la orden"
     : f.comentarios.length ? "los comentarios" : "el tráfico";
-  // Cambiar de campaña es OBLIGATORIO solo cuando el CRM no pudo resolver
-  // ninguna. En el resto de los fallos (saldo insuficiente, red caída, el CRM
-  // que rebota) reintentar con la misma campaña es una opción legítima, así que
-  // el selector queda como algo opcional y el botón anda sin tocarlo.
-  const hayQueElegir = f.motivo === "sin_campania";
+  // Cambiar de campaña es OBLIGATORIO cuando el CRM no pudo resolver ninguna
+  // ("sin_campania") y cuando la que hay no llega a pagar la orden
+  // ("sin_saldo"): en los dos casos reintentar con la misma vuelve a rebotar.
+  // En el resto (red caída, el CRM que rebota) reintentar igual es una opción
+  // legítima, así que el selector queda opcional y el botón anda sin tocarlo.
+  const hayQueElegir = f.motivo === "sin_campania" || f.motivo === "sin_saldo";
   const titulo = hayQueElegir
     ? `Elegí otra campaña y reintentá ${que}`
     : `Reintentá ${que} sin rehacer el post`;
@@ -4109,12 +4199,22 @@ async function reintentarConOtraCampania() {
     _resRetryMsg("Elegí una campaña de la lista.");
     return;
   }
+  // Es exactamente el error del que venimos: mandar a una campaña que no cubre
+  // la orden vuelve a rebotar. Se avisa antes de gastar el viaje al CRM. Se
+  // compara contra lo que cuesta lo que quedó pendiente (los comentarios no
+  // consumen saldo), no contra cero: una campaña con $3 tampoco sirve para una
+  // orden de $10.
   const saldo = _ventasSaldo[String(idventa)];
-  if (idventa && saldo !== undefined && saldo <= 0) {
-    // Es exactamente el error del que venimos: mandar a una campaña sin crédito
-    // vuelve a rebotar. Se avisa antes de gastar el viaje al CRM.
-    _resRetryMsg("Esa campaña tampoco tiene saldo: elegí otra.");
+  const costoPendiente = f.trafico.reduce((s, o) => s + (parseFloat(o.costo) || 0), 0);
+  if (idventa && saldo !== undefined && costoPendiente > 0 && saldo < costoPendiente) {
+    _resRetryMsg(`Esa campaña tampoco alcanza: quedan $${saldo.toFixed(2)} y ` +
+                 `falta mandar $${costoPendiente.toFixed(2)}. Elegí otra.`);
     return;
+  }
+  if (idventa && saldo !== undefined && saldo <= 0 && costoPendiente <= 0) {
+    // Solo comentarios pendientes: no consumen saldo, pero si la campaña está
+    // en cero conviene decirlo igual antes de reintentar.
+    _resRetryMsg("Ojo: esa campaña está en cero. Los comentarios igual no consumen saldo.");
   }
 
   // Sin elegir nada se reintenta con la misma campaña de antes (o con la que el
@@ -4321,12 +4421,16 @@ async function solicitarOrdenes() {
   // Vale también para los comentarios: aunque no toquen el saldo, el CRM los
   // carga contra una campaña igual que al tráfico, y sin ella los rebota.
   if (!window._clienteAsignado && !window._ventaElegida) {
-    const box = document.getElementById("venta-picker");
-    box.classList.remove("hidden");
-    box.classList.add("venta-picker--falta");
-    _ventaPickerMsg("Elegí una campaña para poder enviar la orden.", true);
-    box.scrollIntoView({ behavior: "smooth", block: "center" });
-    document.getElementById("venta-picker-select").focus();
+    _frenarEnVentaPicker("Elegí una campaña para poder enviar la orden.");
+    return;
+  }
+
+  // Y no mandamos una orden que la campaña no puede pagar. El CRM la rebota
+  // igual, pero puede llegar a entrar parcial: quedaba saldo descontado por un
+  // envío que el vendedor daba por fallido. El backend vuelve a chequearlo
+  // contra el saldo fresco — este corte es para no hacerlo esperar al pedo.
+  if (_avisarSiNoAlcanza()) {
+    _frenarEnVentaPicker(null);
     return;
   }
 
