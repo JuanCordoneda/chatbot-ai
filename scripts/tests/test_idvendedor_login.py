@@ -127,8 +127,10 @@ ENVIOS.clear()
 c = web.app.test_client()
 with c.session_transaction() as s:
     s["logged_in"] = True
+    s["stamp"] = web.SESSION_STAMP     # si no, la sesión se invalida y da 401
     s["account_id"] = CUENTA["id"]
     s["user_id"] = 1
+    s["cred_key"] = web._guardar_credencial(CUENTA["id"], "x")
 r = c.post("/api/enviar_trafico", json={
     "ordenes": [{"redsocial_id": "1", "prod": "Followers", "url": "u", "costo": 1.0,
                  "cant_inicial": "10", "cantidad": "10", "programado": 0,

@@ -15,7 +15,6 @@ from werkzeug.security import check_password_hash
 from common.db import db_available, session_scope
 from common.models import (Account, User, Client, PromptRequest, UsageEvent,
                            PendingOrder, PostCache, TokenUsage, GrowiCall)
-from common import crypto
 
 
 # ── Clientes ──────────────────────────────────────────────────────────────────
@@ -716,8 +715,14 @@ def usage_counts_by_user(account_id: int) -> list[dict]:
 
 
 def get_account_crm_config(account_id: int) -> Optional[dict]:
-    """Credenciales del CRM de una cuenta, con la password ya descifrada. None si
-    no hay DB o la cuenta no existe. El llamador cae al .env global si es None."""
+    """Datos del CRM de una cuenta. None si no hay DB o la cuenta no existe. El
+    llamador cae al .env global si es None.
+
+    `crm_password` viene SIEMPRE vacía: la contraseña de Growi ya no se guarda.
+    La pone el webService desde su almacén en memoria, con la que el vendedor
+    tipeó al entrar. La clave se mantiene en el dict para no romper a quien lo
+    consuma esperando la forma completa.
+    """
     if not db_available():
         return None
     with session_scope() as s:
@@ -728,7 +733,7 @@ def get_account_crm_config(account_id: int) -> Optional[dict]:
             "account_id": a.id,
             "crm_url": a.crm_url,
             "crm_email": a.crm_email,
-            "crm_password": crypto.decrypt(a.crm_password_enc) if a.crm_password_enc else "",
+            "crm_password": "",
             "crm_idvendedor": a.crm_idvendedor,
             "crm_idventa": a.crm_idventa,
             "crm_proxy": a.crm_proxy,
@@ -744,8 +749,10 @@ def get_account_crm_config(account_id: int) -> Optional[dict]:
 # sus propios clientes. El admin es un super-usuario (login local) que ve y
 # gestiona todos los vendedores.
 
-def _account_to_dict(a: Account, *, with_secrets: bool = False) -> dict:
-    d = {
+def _account_to_dict(a: Account) -> dict:
+    """Los datos de una cuenta. Ya no hay variante "con secretos": la contraseña
+    del CRM no se guarda, así que no hay nada que revelar."""
+    return {
         "id": a.id,
         "name": a.name,
         "slug": a.slug,
@@ -757,11 +764,7 @@ def _account_to_dict(a: Account, *, with_secrets: bool = False) -> dict:
         "crm_idventa": a.crm_idventa,
         "crm_proxy": a.crm_proxy,
         "crm_disponible": a.crm_disponible,
-        "has_password": bool(a.crm_password_enc),
     }
-    if with_secrets:
-        d["crm_password"] = crypto.decrypt(a.crm_password_enc) if a.crm_password_enc else ""
-    return d
 
 
 def _slugify(text: str) -> str:
@@ -773,8 +776,10 @@ def _slugify(text: str) -> str:
 def get_account_by_crm_email(email: str) -> Optional[dict]:
     """Busca una cuenta por su email de Growi (case-insensitive), sin filtrar por
     estado: el login necesita distinguir "no existe" de "pendiente/restringida"
-    para darle al vendedor el mensaje correcto. Devuelve el dict con la password
-    descifrada para poder validar el login en vivo. None si no hay DB o no existe."""
+    para darle al vendedor el mensaje correcto. None si no hay DB o no existe.
+
+    No devuelve contraseña porque no hace falta: el login valida contra el CRM la
+    que el vendedor acaba de tipear, no una guardada."""
     if not db_available() or not email:
         return None
     key = email.strip().lower()
@@ -785,18 +790,7 @@ def get_account_by_crm_email(email: str) -> Optional[dict]:
              .first())
         if not a:
             return None
-        return _account_to_dict(a, with_secrets=True)
-
-
-def update_account_crm_password(account_id: int, plaintext: str) -> None:
-    """Guarda cifrada la password del CRM que el vendedor acaba de tipear al
-    loguearse, para que las operaciones de fondo puedan reloguear sin pedirla."""
-    if not db_available() or not plaintext:
-        return
-    with session_scope() as s:
-        a = s.query(Account).filter(Account.id == account_id).first()
-        if a:
-            a.crm_password_enc = crypto.encrypt(plaintext)
+        return _account_to_dict(a)
 
 
 def guardar_idvendedor(account_id: int, idvendedor: str) -> bool:
@@ -890,11 +884,15 @@ def _unique_slug(s, base: str) -> str:
     return slug
 
 
-def create_vendedor(*, name: str, crm_email: str, crm_password: str, crm_url: str = "",
+def create_vendedor(*, name: str, crm_email: str, crm_url: str = "",
                     crm_idvendedor: str = "", crm_idventa: str = "", crm_proxy: str = "",
                     crm_disponible: str = "") -> dict:
-    """Da de alta un vendedor (Account) con sus credenciales de Growi. El admin lo
-    usa para pre-registrar a cada vendedor antes de que entre con su login."""
+    """Da de alta un vendedor (Account). El admin lo usa para pre-registrarlo
+    antes de que entre con su login.
+
+    Sin contraseña a propósito: la pone el vendedor al entrar y no se guarda. El
+    admin da de alta el email de Growi y el resto de la config; la credencial es
+    del vendedor y nadie más la ve."""
     if not db_available():
         raise RepoError("Base de datos no disponible")
     name = (name or "").strip()
@@ -903,8 +901,6 @@ def create_vendedor(*, name: str, crm_email: str, crm_password: str, crm_url: st
         raise RepoError("El nombre del vendedor es obligatorio")
     if not email:
         raise RepoError("El email de Growi es obligatorio")
-    if not crm_password:
-        raise RepoError("La contraseña de Growi es obligatoria")
     with session_scope() as s:
         from sqlalchemy import func
         dup = s.query(Account).filter(func.lower(Account.crm_email) == email).first()
@@ -917,7 +913,6 @@ def create_vendedor(*, name: str, crm_email: str, crm_password: str, crm_url: st
             status="approved",   # alta manual del admin: nace habilitado
             crm_url=(crm_url or "").strip() or "https://crm.growiagency.com",
             crm_email=email,
-            crm_password_enc=crypto.encrypt(crm_password),
             crm_idvendedor=(crm_idvendedor or "").strip() or None,
             crm_idventa=(crm_idventa or "").strip() or None,
             crm_proxy=(crm_proxy or "").strip() or None,
@@ -928,7 +923,7 @@ def create_vendedor(*, name: str, crm_email: str, crm_password: str, crm_url: st
         return _account_to_dict(a)
 
 
-def create_pending_vendedor(*, crm_email: str, crm_password: str, crm_url: str = "",
+def create_pending_vendedor(*, crm_email: str, crm_url: str = "",
                             crm_proxy: str = "") -> dict:
     """Autoregistro: alguien se logueó con credenciales de Growi VÁLIDAS pero no
     tiene cuenta todavía. Se crea en estado "pending" e inactiva; no puede operar
@@ -951,7 +946,6 @@ def create_pending_vendedor(*, crm_email: str, crm_password: str, crm_url: str =
             status="pending",
             crm_url=(crm_url or "").strip() or "https://crm.growiagency.com",
             crm_email=email,
-            crm_password_enc=crypto.encrypt(crm_password) if crm_password else None,
             crm_proxy=(crm_proxy or "").strip() or None,
         )
         s.add(a)
@@ -978,10 +972,12 @@ def set_vendedor_status(account_id: int, status: str) -> dict:
 
 
 def update_vendedor(account_id: int, *, name=None, active=None, crm_email=None,
-                    crm_password=None, crm_url=None, crm_idvendedor=None,
+                    crm_url=None, crm_idvendedor=None,
                     crm_idventa=None, crm_proxy=None, crm_disponible=None) -> dict:
-    """Edita los datos/credenciales de un vendedor. Campos None se dejan igual.
-    crm_password vacío/None no toca la password guardada."""
+    """Edita los datos de un vendedor. Campos None se dejan igual.
+
+    La contraseña de Growi no está: no se guarda ni se puede cambiar desde acá.
+    Si el vendedor la cambió en Growi, entra con la nueva y listo."""
     if not db_available():
         raise RepoError("Base de datos no disponible")
     with session_scope() as s:
@@ -1004,8 +1000,6 @@ def update_vendedor(account_id: int, *, name=None, active=None, crm_email=None,
             if dup:
                 raise RepoError(f"Ya existe un vendedor con el email {email}")
             a.crm_email = email
-        if crm_password:
-            a.crm_password_enc = crypto.encrypt(crm_password)
         if crm_url is not None:
             a.crm_url = crm_url.strip() or a.crm_url
         if crm_idvendedor is not None:
@@ -1275,31 +1269,59 @@ def cancelar_orden(orden_id: int, account_id=None) -> bool:
         return True
 
 
-def reencolar_orden(orden_id: int, account_id=None) -> bool:
-    """Devuelve a la cola una orden frenada, para que el worker la reintente ya.
+def get_pending_order_account(orden_id: int):
+    """De qué cuenta es una orden encolada. None si no existe o no tiene cuenta.
 
-    Es el reintento manual del vendedor sobre una orden que no entró. Solo aplica
-    a 'revisar' y 'fallida', que son los dos estados donde el worker ya se dio
-    por vencido: las 'pendiente' van a salir solas y las 'enviando' tienen un
-    envío en vuelo, así que tocarlas duplicaría la orden.
-
-    Los intentos se resetean a propósito: el vendedor está diciendo que el
-    problema de fondo ya lo arregló, y arrancar con el backoff donde había
-    quedado lo dejaría esperando horas.
+    Lo usa el reintento manual para saber si quien lo pide es su dueño: el envío
+    sale con la contraseña de Growi del que está logueado, y esa es la única que
+    el sistema tiene (en memoria, y solo la suya).
     """
     if not db_available():
-        return False
+        return None
     with session_scope() as s:
-        q = s.query(PendingOrder).filter(PendingOrder.id == orden_id)
+        p = s.query(PendingOrder).filter(PendingOrder.id == orden_id).first()
+        return p.account_id if p else None
+
+
+def tomar_orden_puntual(orden_id: int, account_id=None) -> Optional[dict]:
+    """Reclama UNA orden concreta y la marca 'enviando'. None si no se puede.
+
+    Es el reintento manual del vendedor: como ya no hay worker de fondo, el envío
+    sale dentro de su request (es el único momento en que tenemos su contraseña
+    del CRM). Por eso acá se hace el claim además de la validación: es el mismo
+    UPDATE atómico que usaba el worker, y es lo que evita que dos clicks seguidos
+    en "reintentar" manden la orden dos veces y le cobren doble al cliente.
+
+    Solo aplica a 'revisar' y 'fallida', los dos estados donde el envío está
+    frenado y sabemos que no hay nada en vuelo. Las 'enviando' tienen un POST sin
+    respuesta todavía y las 'pendiente' están reclamadas: tocarlas duplicaría.
+
+    Los intentos se resetean a propósito: el vendedor está diciendo que el
+    problema de fondo ya lo arregló.
+    """
+    if not db_available():
+        return None
+    ahora = _utcnow_naive()
+    with session_scope() as s:
+        q = s.query(PendingOrder).filter(PendingOrder.id == orden_id,
+                                         PendingOrder.estado.in_(("revisar", "fallida")))
         if account_id is not None:
             q = q.filter(PendingOrder.account_id == account_id)
-        p = q.first()
-        if not p or p.estado not in ("revisar", "fallida"):
-            return False
-        p.estado = "pendiente"
+        try:
+            p = q.with_for_update(skip_locked=True).first()
+        except Exception:
+            # SQLite y backends sin SKIP LOCKED: claim simple.
+            p = q.first()
+        if p is None:
+            return None
+        p.estado = "enviando"
         p.intentos = 0
-        p.proximo_intento = None      # que la tome en la vuelta que viene
-        return True
+        # Igual que en el claim del worker: si el proceso se muere con el envío
+        # en vuelo, `revisar_ordenes_colgadas` la rescata pasado este plazo.
+        from datetime import timedelta
+        p.proximo_intento = ahora + timedelta(minutes=TIMEOUT_ENVIANDO_MIN)
+        s.flush()
+        return _pending_order_to_dict(p)
 
 
 # ── Trazabilidad de las llamadas al CRM de Growi ──────────────────────────────

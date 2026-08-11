@@ -1630,10 +1630,9 @@
         <div class="ax-field"><label for="ven-name">Nombre</label><input id="ven-name" placeholder="Facu" autocomplete="off" /></div>
         <div class="ax-field"><label for="ven-email">Email de Growi</label><input id="ven-email" type="email" placeholder="facu@growiagency.com" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
       </div>
-      <div class="ax-field">
-        <label for="ven-pass">Contraseña de Growi <span class="ax-hint" id="ven-pass-hint">la que usa en el CRM</span></label>
-        <input id="ven-pass" type="text" placeholder="contraseña del CRM" autocomplete="off" />
-      </div>
+      <!-- Sin campo de contraseña: el sistema no la guarda. El vendedor la tipea
+           al entrar y vive solo en memoria mientras dura su sesión. -->
+      <p class="ax-hint" style="margin:2px 0 10px">La contraseña de Growi la pone el vendedor al iniciar sesión. No se guarda ni se puede cargar desde acá.</p>
       <div class="ax-grid2">
         <div class="ax-field"><label for="ven-idvendedor">ID vendedor <span class="ax-hint">CRM</span></label><input id="ven-idvendedor" placeholder="opcional" autocomplete="off" /></div>
         <div class="ax-field"><label for="ven-idventa">ID venta <span class="ax-hint">CRM</span></label><input id="ven-idventa" placeholder="opcional" autocomplete="off" /></div>

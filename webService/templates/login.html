@@ -80,7 +80,9 @@
               <rect x="3" y="7" width="10" height="7" rx="2" stroke="currentColor" stroke-width="1.5"/>
               <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            <input type="password" id="password" name="password" value="{{ password|default('') }}" placeholder="Tu contraseña" autocomplete="current-password" {% if username %}autofocus{% endif %} required />
+            <!-- Sin `value`: el server nunca precarga la contraseña, porque no la
+                 guarda. Si el navegador la tiene guardada, la completa él. -->
+            <input type="password" id="password" name="password" placeholder="Tu contraseña" autocomplete="current-password" {% if username %}autofocus{% endif %} required />
             <button type="button" class="login-eye" id="togglePwd" tabindex="-1" aria-label="Mostrar contraseña">
               <svg id="eyeIcon" width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <ellipse cx="8" cy="8" rx="6" ry="4" stroke="currentColor" stroke-width="1.5"/>

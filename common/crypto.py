@@ -1,7 +1,12 @@
 """
-Cifrado simétrico para secretos guardados en la DB (hoy: la password del CRM de
-cada cuenta). Usamos Fernet (AES-128 + HMAC) con una clave tomada de
-DB_ENCRYPTION_KEY. Nunca guardamos la password del CRM en texto plano.
+Cifrado simétrico para datos que salen del proceso. Hoy queda un solo uso: la
+cookie que recuerda el usuario para precargar el login. Usamos Fernet (AES-128 +
+HMAC) con una clave tomada de DB_ENCRYPTION_KEY.
+
+Ojo: esto NO es para contraseñas. La del CRM de Growi no se guarda en ningún
+lado —ni cifrada— porque la clave vive en el mismo entorno que los datos, así
+que quien tiene una tiene la otra. Vive solo en memoria del webService mientras
+el vendedor está logueado.
 
 Generar la clave una vez con:
     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

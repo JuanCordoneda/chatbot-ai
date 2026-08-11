@@ -44,7 +44,10 @@ class Account(Base):
     # Credenciales del CRM Growi, propias de cada cuenta. Reemplazan al .env global.
     crm_url = Column(String(300), nullable=True)
     crm_email = Column(String(200), nullable=True)
-    crm_password_enc = Column(Text, nullable=True)   # cifrada con Fernet
+    # NO hay columna de contraseña, y es a propósito: la de Growi la tipea el
+    # vendedor en cada login y vive solo en memoria del webService mientras dure
+    # su sesión. La columna `crm_password_enc` (Fernet) existió hasta la
+    # migración 0021, que la borró junto con las contraseñas que tenía adentro.
     crm_idvendedor = Column(String(50), nullable=True)
     crm_idventa = Column(String(50), nullable=True)
     crm_proxy = Column(String(400), nullable=True)

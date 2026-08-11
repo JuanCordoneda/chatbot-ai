@@ -10,6 +10,7 @@ Cada bloque provoca una falla distinta y afirma dos cosas:
 Al final imprime el catálogo completo, para poder leerlo de un vistazo.
 """
 import json
+import os
 import sys
 
 sys.path.insert(0, "/app")
@@ -86,9 +87,11 @@ web.resolver_venta = lambda a, i, idventa_elegida=None, refrescar=False: {
 cli = web.app.test_client()
 with cli.session_transaction() as s:
     s["logged_in"] = True
+    s["stamp"] = web.SESSION_STAMP     # si no, la sesión se invalida y da 401
     s["account_id"] = 7
     s["user_id"] = 21
     s["username"] = "tmignola"
+    s["cred_key"] = web._guardar_credencial(7, "x")
 
 ORDEN_T = {"redsocial_id": "1", "prod": "Followers", "url": "u", "costo": 0.715,
            "cant_inicial": "500", "cantidad": "500", "programado": 0,
@@ -242,12 +245,17 @@ res = (r.get_json() or {}).get("resultado") or {}
 CATALOGO.append(("Resultado", "orden encolada", (res.get("errors") or [""])[0]))
 check("el backend marca encolada=True", res.get("encolada") is True, res)
 check("con el id de la cola", res.get("encolada_id") == 77, res)
-check("y el mensaje dice que se manda sola",
-      "se va a enviar sola" in (res.get("errors") or [""])[0], res.get("errors"))
+check("y el mensaje dice cómo reintentarla",
+      "Reintentala" in (res.get("errors") or [""])[0], res.get("errors"))
 
-js = open("/app/static/app.js").read()
-check("la pantalla muestra 'En cola' en vez de rojo",
-      "En cola — se envía sola" in js and "const encolada = !!(rc && rc.encolada)" in js)
+# Ruta del contenedor con fallback al repo, para poder correrlo también local.
+_js_path = "/app/static/app.js"
+if not os.path.exists(_js_path):
+    _js_path = os.path.join(os.path.dirname(__file__), "..", "..",
+                            "webService", "static", "app.js")
+js = open(_js_path).read()
+check("la pantalla la muestra como guardada, no en rojo",
+      "Guardada — reintentala" in js and "const encolada = !!(rc && rc.encolada)" in js)
 check("y no la cuenta como fallo",
       "const fallo = errores.length > 0 && !encolada;" in js)
 

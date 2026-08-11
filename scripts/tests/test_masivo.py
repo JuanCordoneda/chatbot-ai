@@ -166,9 +166,15 @@ def cli_de(aid):
     c = web.app.test_client()
     with c.session_transaction() as s:
         s["logged_in"] = True
+        # Sin el sello, _invalidar_sesiones_viejas limpia la sesión y TODO
+        # contesta 401: el test pasaba a verificar nada.
+        s["stamp"] = web.SESSION_STAMP
         s["account_id"] = aid
         s["user_id"] = 100 + aid
         s["username"] = f"v{aid}"
+        # La contraseña del CRM vive en memoria, no en la DB: sin esto el envío
+        # corta con CredencialAusente antes de llegar al CRM falso.
+        s["cred_key"] = web._guardar_credencial(aid, "x")
     return c
 
 

@@ -24,7 +24,6 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 
 from common.db import db_available, session_scope  # noqa: E402
 from common.models import Account, User, Client  # noqa: E402
-from common import crypto  # noqa: E402
 
 
 def _first_existing(*candidates: str) -> str:
@@ -79,12 +78,11 @@ def _get_or_create_account(s) -> Account:
     else:
         print(f"[seed] cuenta ya existía: {acc.name} (id={acc.id})")
 
-    # Credenciales del CRM desde el entorno actual (se actualizan siempre por si
-    # cambiaron en el .env). La password se guarda cifrada.
+    # Config del CRM desde el entorno actual (se actualiza siempre por si cambió
+    # en el .env). La contraseña NO va: no se guarda en la base. La tipea el
+    # vendedor al entrar y vive en memoria mientras dura su sesión.
     acc.crm_url = os.environ.get("GROWI_CRM_URL", "https://crm.growiagency.com")
     acc.crm_email = os.environ.get("GROWI_CRM_EMAIL", "")
-    pwd = os.environ.get("GROWI_CRM_PASSWORD", "")
-    acc.crm_password_enc = crypto.encrypt(pwd) if pwd else None
     acc.crm_idvendedor = os.environ.get("GROWI_IDVENDEDOR", "")
     acc.crm_idventa = os.environ.get("GROWI_IDVENTA", "32600")
     acc.crm_proxy = os.environ.get("GROWI_HTTP_PROXY", "")

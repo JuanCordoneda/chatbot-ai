@@ -526,30 +526,45 @@ _EFFORT = os.environ.get("CROW_EFFORT", "medium").strip().lower()
 # olvidarse.
 _VISION_EN_GENERACION = os.environ.get("CROW_VISION_EN_GENERACION", "1").strip() not in ("0", "false", "no")
 
-# Excepción de effort por vendedor: IDs de users.id separados por coma que
-# generan con `low` en vez de _EFFORT. Existe para los usuarios de volumen muy
-# alto, donde el thinking a effort normal se come el presupuesto sin que el
-# resto de la base gaste nada parecido.
+# Excepción de effort: quién genera con `low` en vez de _EFFORT. Existe para los
+# de volumen muy alto, donde el thinking a effort normal se come el presupuesto
+# sin que el resto de la base gaste nada parecido.
 #
-# OJO — esto hace que dos vendedores de la misma cuenta reciban tandas generadas
-# con distinta profundidad de planificación para el MISMO cliente pro. Es una
-# diferencia chica pero comparable: si empieza a aparecer en quejas, la salida
-# no es afinar la lista sino bajar _EFFORT para todos (y medirlo) o dejarlo como
-# está. Lista corta y temporal, no un mecanismo de tarifas encubierto.
-_EFFORT_LOW_USERS = frozenset(
-    u.strip() for u in os.environ.get("CROW_EFFORT_LOW_USERS", "").split(",") if u.strip()
-)
+# Hay DOS listas porque hay dos claves y no siempre llegan las dos. En la
+# práctica `user_id` viene vacío en casi todas las llamadas (el panel de tokens
+# lo muestra como "sin identificar"), mientras que `account_id` sí llega: por eso
+# la lista de cuentas es la que hace el trabajo, y la de usuarios queda para
+# cuando la atribución por vendedor esté arreglada. Son listas separadas a
+# propósito: un mismo número es una cuenta distinta que un usuario, y mezclarlos
+# en una sola lista le bajaría el effort a quien no corresponde.
+#
+# OJO — CROW_EFFORT_LOW_ACCOUNTS agarra a la cuenta ENTERA, todos sus vendedores.
+# Y esto hace que dos vendedores reciban tandas con distinta profundidad de
+# planificación para el MISMO cliente pro: es una diferencia chica pero
+# comparable entre ellos. Si aparece en quejas, la salida no es afinar la lista
+# sino bajar _EFFORT para todos (y medirlo) o dejarlo como está. Listas cortas y
+# temporales, no un mecanismo de tarifas encubierto.
+def _lista_ids(var: str) -> frozenset:
+    return frozenset(x.strip() for x in os.environ.get(var, "").split(",") if x.strip())
 
 
-def _effort_para(user_id) -> str:
-    """El effort que le toca a este vendedor: `low` si está en la lista de
-    excepción, si no el global. user_id llega como int (users.id) o None."""
+_EFFORT_LOW_USERS = _lista_ids("CROW_EFFORT_LOW_USERS")
+_EFFORT_LOW_ACCOUNTS = _lista_ids("CROW_EFFORT_LOW_ACCOUNTS")
+
+
+def _effort_para(user_id=None, account_id=None) -> str:
+    """El effort que le toca a esta generación: `low` si el vendedor o su cuenta
+    están en las listas de excepción, si no el global. Ambos llegan como int o
+    None; un None no matchea nunca (si no, una llamada sin atribuir se llevaría
+    el effort de la excepción)."""
     if user_id is not None and str(user_id) in _EFFORT_LOW_USERS:
+        return "low"
+    if account_id is not None and str(account_id) in _EFFORT_LOW_ACCOUNTS:
         return "low"
     return _EFFORT
 
 
-def _extra_body(modo_keyword: bool, user_id=None) -> dict:
+def _extra_body(modo_keyword: bool, user_id=None, account_id=None) -> dict:
     """Los kwargs de thinking/effort que el SDK pineado (anthropic 0.54.0) no
     expone. En modo keyword no hay nada que planear (es la misma palabra N veces):
     pensar solo suma latencia y tokens.
@@ -567,7 +582,7 @@ def _extra_body(modo_keyword: bool, user_id=None) -> dict:
     if modo_keyword or _THINKING in ("off", "0", "no", "disabled", ""):
         return {"thinking": {"type": "disabled"}}
     return {"thinking": {"type": "adaptive"},
-            "output_config": {"effort": _effort_para(user_id)}}
+            "output_config": {"effort": _effort_para(user_id, account_id)}}
 
 
 def _bloques(prompt: "_Prompt", image_b64: str, image_media_type: str) -> list | str:
@@ -639,7 +654,8 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     # Escribir la misma palabra 40 veces no mejora con el modelo caro.
     modelo = _MODEL_STANDARD if modo_keyword else _modelo(client_quality)
     print(f"[ai] calidad={client_quality or 'standard'} modelo={modelo}"
-          + (f" effort={_effort_para(user_id)}" if not modo_keyword else "")
+          + (f" effort={_effort_para(user_id, account_id)}" if not modo_keyword else "")
+          + f" user={user_id} account={account_id}"
           + (f" keyword={keyword!r}" if modo_keyword else ""), flush=True)
     prompt = _load_prompt_partes(caption, comentarios_existentes, client_id, transcription, photo_description, is_video, evitar, has_image=has_image, client_gender=client_gender, n_imagenes=n_imagenes, keyword=keyword, cantidad=cantidad)
 
@@ -656,7 +672,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
               else min(_MIN_COMENTARIOS, max(1, int(cantidad_pedida * 0.75))))
 
     content = _bloques(prompt, image_b64 if has_image else "", image_media_type)
-    extra = _extra_body(modo_keyword, user_id)
+    extra = _extra_body(modo_keyword, user_id, account_id)
 
     # Comentarios que ya se le entregaron al consumidor y NO se van a descartar.
     # Si la tanda queda corta, la vuelta siguiente los pasa como "a evitar" y pide

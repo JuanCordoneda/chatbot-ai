@@ -3935,15 +3935,16 @@ function renderResultado(data, nComentarios, nTrafico) {
   // Programadas: las que no salen ya. Es lo primero que pregunta el vendedor.
   const programadas = ordenes.filter(o => o.cuando !== "ahora").length;
 
-  // La orden no salió PERO quedó guardada y un worker la reintenta sola. No es
-  // un fallo: si se muestra en rojo, el vendedor la vuelve a cargar a mano y
-  // termina duplicada cuando la cola la manda.
+  // La orden no salió PERO quedó guardada, con los comentarios adentro, lista
+  // para reintentar de un click desde "Órdenes que no entraron". No es un fallo
+  // común: si se muestra en rojo, el vendedor la vuelve a cargar a mano y
+  // termina duplicada cuando además reintente la guardada.
   const encolada = !!(rc && rc.encolada);
   const fallo = errores.length > 0 && !encolada;
   // Que el CRM acepte MENOS órdenes de las que mandamos es el caso peligroso:
   // antes se perdía entre los mensajes y el vendedor creía que salió todo.
   const faltan = !fallo && !encolada && insertadas > 0 && insertadas < enviadas;
-  const estado = encolada ? { clase: "warn", ico: "⏳", txt: "En cola — se envía sola" }
+  const estado = encolada ? { clase: "warn", ico: "⏳", txt: "Guardada — reintentala cuando vuelva el CRM" }
     : fallo ? { clase: "bad", ico: "✕", txt: "No se pudo enviar" }
     : faltan ? { clase: "warn", ico: "!", txt: `Se enviaron ${insertadas} de ${enviadas}` }
     : { clase: "ok", ico: "✓", txt: "Enviado correctamente" };

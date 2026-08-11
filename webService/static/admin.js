@@ -1795,7 +1795,6 @@ function renderVendedores() {
       <div class="ax-main">
         <div class="ax-name">${esc(v.name)}
           ${pill}
-          ${v.has_password || pend ? "" : '<span class="ax-pill ax-pill--paused" title="Sin contraseña guardada">sin pass</span>'}
         </div>
         <div class="ax-sub">${sub}</div>
       </div>
@@ -1828,13 +1827,11 @@ function openVendorModal(id) {
   const v = id ? vendedoresCache.find(x => x.id === id) : null;
   document.getElementById("ven-title").textContent = v ? "Editar vendedor" : "Nuevo vendedor";
   document.getElementById("ven-subtitle").textContent = v
-    ? "Actualizá sus datos o credenciales de Growi."
-    : "El vendedor entra a la plataforma con este email y contraseña de Growi.";
-  document.getElementById("ven-pass-hint").textContent = v ? "dejala vacía para no cambiarla" : "la que usa en el CRM";
+    ? "Actualizá sus datos y su configuración del CRM."
+    : "El vendedor entra a la plataforma con este email y su contraseña de Growi.";
   document.getElementById("ven-id").value = v ? v.id : "";
   document.getElementById("ven-name").value = v ? v.name : "";
   document.getElementById("ven-email").value = v ? (v.crm_email || "") : "";
-  document.getElementById("ven-pass").value = "";
   document.getElementById("ven-idvendedor").value = v ? (v.crm_idvendedor || "") : "";
   document.getElementById("ven-idventa").value = v ? (v.crm_idventa || "") : "";
   document.getElementById("ven-disponible").value = v ? (v.crm_disponible || "") : "";
@@ -1855,9 +1852,7 @@ async function saveVendor() {
     crm_url: document.getElementById("ven-url").value,
     crm_proxy: document.getElementById("ven-proxy").value,
   };
-  const pass = document.getElementById("ven-pass").value;
-  // En alta la contraseña es obligatoria; en edición, vacía = no tocar.
-  if (pass || !id) payload.crm_password = pass;
+  // Sin contraseña: no se guarda, así que el admin no la carga ni la cambia.
   const btn = document.getElementById("ven-save"); btn.disabled = true;
   try {
     if (id) await api("PATCH", `/api/admin/vendedores/${id}`, payload);

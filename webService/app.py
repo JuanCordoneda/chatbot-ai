@@ -5,6 +5,7 @@ import os
 import json
 import re
 import time
+import secrets
 import threading
 from datetime import timedelta
 
@@ -52,19 +53,28 @@ app.config.update(
     SESSION_REFRESH_EACH_REQUEST=False,
 )
 
-# Cookie aparte de la sesión: guarda usuario Y contraseña para precargar el
-# formulario de login, así al vencer la sesión alcanza con apretar Enter.
-# Va cifrada con Fernet (misma DB_ENCRYPTION_KEY que el resto) y HttpOnly, de
-# modo que ni el JS de la página ni quien mire el disco del cliente ve la
-# credencial en claro; el descifrado pasa sólo en el servidor. Sobrevive al
-# logout y al vencimiento de la sesión.
+# Cookie aparte de la sesión: guarda SOLO el usuario para precargar el campo del
+# formulario de login. Va cifrada con Fernet (misma DB_ENCRYPTION_KEY que el
+# resto) y HttpOnly. Sobrevive al logout y al vencimiento de la sesión.
+#
+# Antes guardaba también la contraseña, para que al vencer la sesión alcanzara
+# con apretar Enter. Se sacó a propósito: la contraseña del login ES la del CRM
+# de Growi, y el sistema ya no la guarda en ningún lado (ver _CREDENCIALES). Una
+# cookie de 365 días con la credencial adentro era justamente el lugar donde más
+# tiempo vivía. El navegador sigue ofreciendo autocompletar la contraseña, que es
+# donde corresponde que esté esa decisión: en el cliente, no en nuestro server.
 REMEMBER_USER_COOKIE = "GROWI_LAST_USER"
 REMEMBER_USER_DAYS = 365
 
 # Sello de sesión: las cookies viejas no lo traen (o traen otro valor), así que
 # al subir este deploy todos quedan deslogueados una vez y vuelven a entrar.
 # Para forzar otro logout masivo más adelante, subir el número.
-SESSION_STAMP = 1
+#
+# Se sube a 2 con el cambio de credenciales-en-memoria: las sesiones abiertas de
+# antes no tienen su contraseña en el almacén (nunca la pidieron por esta vía) y
+# quedarían sin poder operar contra el CRM hasta reloguear. Mejor un logout
+# masivo limpio que un vendedor descubriéndolo al mandar una orden.
+SESSION_STAMP = 2
 
 # Recargar templates ante cambios sin reiniciar el proceso (dev / edición en caliente).
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -252,13 +262,104 @@ def _env_crm_cfg():
     }
 
 
+# ── Contraseñas del CRM: en memoria, nunca en disco ─────────────────────────────
+#
+# La contraseña de Growi del vendedor NO se guarda: ni en la DB, ni en la cookie
+# de sesión, ni en la de "recordar usuario". Vive solo acá, en la memoria de este
+# proceso, desde que la tipea al entrar hasta que se desloguea o vence la sesión.
+# Si el proceso se reinicia, se pierde y hay que reloguear — que es exactamente
+# lo que se pidió.
+#
+# Por qué en memoria y no en la sesión de Flask: `session` es una cookie FIRMADA,
+# no cifrada. Poner la contraseña ahí la mandaría al navegador en algo que
+# cualquiera con la cookie puede leer en claro; sería peor que la DB cifrada que
+# había antes. Lo que viaja en la cookie es `cred_key`, un token aleatorio que no
+# significa nada fuera de esta memoria.
+#
+# Ojo si algún día esto pasa a correr con varios workers (gunicorn): la memoria
+# no se comparte entre procesos y el vendedor quedaría sin credencial según a qué
+# worker caiga su request. Hoy el web-service corre como un solo proceso.
+_CREDENCIALES = {}
+_credenciales_lock = threading.Lock()
+
+
+class CredencialAusente(RuntimeError):
+    """No tenemos la contraseña del CRM de esta cuenta en memoria. No es un
+    rechazo del CRM: es que el vendedor no está logueado (o se reinició el
+    servicio) y hay que pedírsela de nuevo."""
+
+
+def _cred_ttl():
+    return app.config["PERMANENT_SESSION_LIFETIME"].total_seconds()
+
+
+def _purgar_credenciales(ahora):
+    """Saca las vencidas. Se llama en cada acceso: son pocas (una por vendedor
+    logueado) y así no hace falta un hilo de limpieza."""
+    ttl = _cred_ttl()
+    for k, v in list(_CREDENCIALES.items()):
+        if ahora - v["ts"] > ttl:
+            del _CREDENCIALES[k]
+
+
+def _guardar_credencial(account_id, password):
+    """Guarda la contraseña recién tipeada y devuelve la clave para la sesión."""
+    clave = secrets.token_urlsafe(32)
+    with _credenciales_lock:
+        _purgar_credenciales(time.time())
+        _CREDENCIALES[clave] = {"account_id": account_id, "password": password,
+                                "ts": time.time()}
+    return clave
+
+
+def _credencial_de_sesion(account_id):
+    """La contraseña del CRM del vendedor logueado, o "" si no está disponible.
+
+    Se valida que la entrada sea de ESTA cuenta: la clave sale de la cookie, y
+    una cookie vieja de otra cuenta no puede terminar prestando su contraseña.
+    Fuera de un request (hilos de fondo) no hay sesión y devuelve "" — a
+    propósito: ya no hay operaciones automáticas contra el CRM.
+    """
+    if not has_request_context():
+        return ""
+    clave = session.get("cred_key")
+    if not clave:
+        return ""
+    with _credenciales_lock:
+        entry = _CREDENCIALES.get(clave)
+        if not entry:
+            return ""
+        if time.time() - entry["ts"] > _cred_ttl():
+            del _CREDENCIALES[clave]
+            return ""
+        if account_id and entry["account_id"] != account_id:
+            return ""
+        return entry["password"]
+
+
+def _olvidar_credencial():
+    """Borra la contraseña del vendedor que se está deslogueando."""
+    clave = session.get("cred_key") if has_request_context() else None
+    if not clave:
+        return
+    with _credenciales_lock:
+        _CREDENCIALES.pop(clave, None)
+
+
 def _account_crm_cfg(account_id):
     """Credenciales del CRM de la cuenta (vendedor). Cae al .env global si no hay
-    cuenta / DB. La URL siempre queda seteada."""
+    cuenta / DB. La URL siempre queda seteada.
+
+    La contraseña NO viene de la DB (ya no se guarda): se toma del almacén en
+    memoria de la sesión del vendedor. Si no está, `crm_password` queda vacía y
+    el login contra el CRM falla con CredencialAusente, que el front traduce a
+    "volvé a iniciar sesión".
+    """
     if _repo is not None and account_id:
         try:
             cfg = _repo.get_account_crm_config(account_id)
             if cfg and cfg.get("crm_email"):
+                cfg["crm_password"] = _credencial_de_sesion(account_id)
                 cfg["crm_url"] = cfg.get("crm_url") or GROWI_CRM_URL
                 # El proxy es infra COMPARTIDA (la IP de salida estable).
                 # OJO: acá decía que el CRM tenía esa IP "en whitelist". Es
@@ -330,7 +431,52 @@ def _login_parece_aceptado(resp):
     return "login.php" not in destino.lower()
 
 
-def _detalle_login(cfg, login_resp, check):
+# Cuántos logins contra el CRM llevamos por credencial, con su hora. Sirve para
+# una sola cosa, pero importante: saber si cuando el CRM nos rebota veníamos de
+# hacerle muchos logins seguidos. Growi no documenta si tiene protección contra
+# fuerza bruta; si la tiene, el síntoma sería exactamente el que vemos (rechaza
+# un login con credenciales buenas, y se arregla solo al rato). Sin este contador
+# no hay forma de distinguir eso de una contraseña mal cargada.
+_LOGINS_RECIENTES = {}
+_logins_lock = threading.Lock()
+VENTANA_LOGINS = 600.0     # 10 minutos
+
+
+def _anotar_login(clave):
+    """Registra un login y devuelve cuántos van en los últimos 10 minutos."""
+    ahora = time.time()
+    with _logins_lock:
+        hist = [t for t in _LOGINS_RECIENTES.get(clave, []) if ahora - t < VENTANA_LOGINS]
+        hist.append(ahora)
+        _LOGINS_RECIENTES[clave] = hist
+        return len(hist)
+
+
+def _huella_respuesta(resp):
+    """Qué contestó el CRM al POST del login, en una línea y sin secretos.
+
+    El status y el redirect no alcanzaron para diagnosticar: cuando el CRM
+    contesta 200 sin redirect, la diferencia entre "te rechacé la contraseña",
+    "te estoy limitando" y "cambié el formulario" está en el CUERPO, y era lo
+    único que no mirábamos. No se guarda el HTML entero: solo su tamaño, el tipo
+    y el texto visible recortado, que es donde Growi pone el mensaje de error.
+    """
+    if resp is None:
+        return "sin respuesta"
+    tipo = (resp.headers.get("content-type") or "?").split(";")[0]
+    cuerpo = resp.text or ""
+    # El texto visible: sin tags ni scripts, colapsado. Un form de login son
+    # ~40 caracteres útiles, y ahí está el "usuario o contraseña incorrectos" o
+    # el "demasiados intentos" que necesitamos leer.
+    visible = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", cuerpo,
+                     flags=re.S | re.I)
+    visible = re.sub(r"<[^>]+>", " ", visible)
+    visible = re.sub(r"\s+", " ", visible).strip()[:300]
+    cookies = ",".join(sorted(resp.cookies.keys())) or "ninguna"
+    return f"{tipo} {len(cuerpo)}b; cookies={cookies}; texto=\"{visible}\""
+
+
+def _detalle_login(cfg, login_resp, check, logins_recientes=None):
     """Arma la explicación del rechazo con los datos crudos, sin inventar causa."""
     email = cfg.get("crm_email") or "(sin email)"
     dest = _destino_del_login(login_resp)
@@ -347,7 +493,18 @@ def _detalle_login(cfg, login_resp, check):
              f"{' → ' + dest if dest else ''}; "
              f"trafico.php → {check.get('status')}"
              f"{' → ' + check['location'] if check.get('location') else ''}")
-    if _login_parece_aceptado(login_resp):
+    # Los logins recientes van SIEMPRE en el detalle: si el CRM nos rechaza el
+    # login número 15 en diez minutos, esa es la pista, y no aparecía por ningún
+    # lado. Con 1 o 2 se lee igual y descarta la hipótesis.
+    if logins_recientes:
+        crudo += f"; {logins_recientes} login/s en los últimos 10 min"
+    # Tres casos, no dos. Antes el "no hay señal" caía en el mismo texto que el
+    # rebote confirmado y mandaba a revisar una contraseña sin tener con qué
+    # afirmar que el problema fuera esa: _login_parece_aceptado devuelve None
+    # justamente para no afirmar nada, y tratar ese None como False lo tiraba.
+    aceptado = _login_parece_aceptado(login_resp)
+
+    if aceptado is True:
         # El CRM aceptó las credenciales y ACÁ ABAJO igual no hay sesión: es la
         # sesión, no la contraseña. Pasa cuando el CRM ata la sesión a la IP de
         # salida (y la IP rota) o cuando dos sesiones del MISMO usuario de Growi
@@ -355,8 +512,24 @@ def _detalle_login(cfg, login_resp, check):
         return (f"El CRM aceptó el login de {email} pero la sesión no quedó abierta "
                 f"({crudo}). No es la contraseña: suele ser la IP de salida o dos "
                 f"sesiones del mismo usuario de Growi pisándose.")
-    return (f"El CRM no dejó entrar a {email} y rebotó al login ({crudo}). "
-            "Revisá el usuario y la contraseña de Growi en la ficha del vendedor.")
+
+    if aceptado is False:
+        # Redirect de vuelta a login.php: el CRM rechazó explícitamente.
+        return (f"El CRM no dejó entrar a {email} y rebotó al login ({crudo}). "
+                "Casi seguro la contraseña de Growi está mal o cambió: probá "
+                "entrar al CRM a mano con esas credenciales.")
+
+    # Sin redirect no sabemos si rechazó o si ni siquiera procesó el formulario
+    # (un 200 puede ser el form de vuelta con el error, pero también un cambio
+    # en el login del CRM que hace que el POST no llegue a nada). Se describe lo
+    # que pasó y se dan las dos posibilidades, sin elegir una. Va la huella de la
+    # respuesta: es lo único que puede desempatar, y se lee de la pantalla sin
+    # tener que entrar a los logs del servidor.
+    return (f"El CRM no abrió la sesión de {email} y no redirigió a ningún lado "
+            f"({crudo}). Respuesta del CRM: {_huella_respuesta(login_resp)}. "
+            "Puede ser la contraseña, o que el CRM nos esté limitando o haya "
+            "cambiado su formulario de login. Probá entrar a mano: si entrás vos "
+            "y el sistema no, no es la contraseña.")
 
 
 def _growi_login_with(cfg, verify=True, account_id=None):
@@ -364,12 +537,24 @@ def _growi_login_with(cfg, verify=True, account_id=None):
     Con verify, comprueba que el login haya funcionado de verdad (mismo patrón
     que openAIService/growi_client) y falla fuerte si no."""
     url = cfg.get("crm_url") or GROWI_CRM_URL
+    # Sin contraseña no se intenta el login: el CRM contestaría "credenciales
+    # inválidas" y el vendedor leería "revisá tu usuario y contraseña", que es
+    # una causa equivocada. Lo que pasa es que su sesión no tiene la credencial
+    # en memoria (se deslogueó, venció, o se reinició el servicio).
+    if not cfg.get("crm_password"):
+        raise CredencialAusente(
+            "Tu sesión ya no tiene la contraseña de Growi. Volvé a iniciar "
+            "sesión para poder cargar órdenes.")
     # crm_proxy puede traer VARIOS proxies separados por coma: se prueban en
     # orden y gana el primero que responda. Con uno solo se comporta igual que
     # antes. Ojo: sin este parseo, una lista se pasaría entera como si fuera una
     # única URL de proxy y no conectaría con ninguno.
     pool = ProxyPool(cfg.get("crm_proxy") or "")
     ultimo_error = None
+
+    # El contador va por credencial (a qué CRM y con qué usuario), que es como el
+    # CRM nos ve: si nos está limitando, nos limita al usuario, no al proceso.
+    logins = _anotar_login(_clave_sesion(cfg))
 
     for proxy in pool.candidatos():
         s = requests.Session()
@@ -400,8 +585,13 @@ def _growi_login_with(cfg, verify=True, account_id=None):
             pool.marcar_muerto(proxy)
             continue
         if check["ok"] is False:
-            detalle = _detalle_login(cfg, login_resp, check)
+            detalle = _detalle_login(cfg, login_resp, check, logins_recientes=logins)
             print(f"[growi-web] sesión no autenticada tras el login: {detalle}", flush=True)
+            # La huella completa va al log SIEMPRE (aunque verify=False, que es el
+            # camino del login del vendedor): es el rastro que permite reconstruir
+            # qué contestó el CRM cuando esto pasa en producción y nadie mira.
+            print(f"[growi-web] respuesta cruda del login: {_huella_respuesta(login_resp)}",
+                  flush=True)
             if verify:
                 raise GrowiAuthError(detalle)
         pool.marcar_vivo(proxy)
@@ -691,11 +881,20 @@ def _growi_request(method, path, account_id=None, **kwargs):
                   f"intento {intento}/4 para {path} (cuenta {account_id}), relogueando", flush=True)
             _olvidar_sesion(entry["cfg"])
             entry = _abrir_sesion(_account_crm_cfg(account_id), account_id=account_id)
-        # Cuatro logins frescos y la sesión sigue sin abrir: no es mala suerte de IP,
-        # es que no estamos entrando. Lo decimos con todas las letras.
+        # Se agotaron los reintentos con la sesión cayéndose una y otra vez.
+        #
+        # Ojo con leer esto como "probó 4 logins": no llega hasta acá con el login
+        # rechazado. `_abrir_sesion` verifica la sesión y levanta GrowiAuthError en
+        # el PRIMER relogin que no abre, así que ese caso sale por otro lado, con
+        # el detalle de `_detalle_login`. Acá se llega solo si cada relogin abre
+        # bien y la sesión se muere igual entre un request y el siguiente — que es
+        # el síntoma de la sesión atada a una IP que rota, o de otra sesión del
+        # mismo usuario de Growi pisando la nuestra.
         raise GrowiAuthError(
-            f"El CRM rebotó al login en {path} después de 4 intentos. La sesión de "
-            "Growi no se está abriendo: revisá las credenciales del vendedor y el proxy."
+            f"La sesión de Growi se cayó {intento} veces seguidas en {path}, "
+            "reabriéndola cada vez. El login funciona, así que no son las "
+            "credenciales: es la IP de salida rotando, o alguien más usando el "
+            "mismo usuario de Growi al mismo tiempo."
         )
 
 
@@ -832,7 +1031,7 @@ def _authenticate_vendedor(email, password):
         # Primer ingreso: se autoregistra y espera la verificación del admin.
         try:
             nueva = _repo.create_pending_vendedor(
-                crm_email=email, crm_password=password,
+                crm_email=email,
                 crm_url=GROWI_CRM_URL, crm_proxy=_GROWI_PROXY_URL or "")
             print(f"[auth] solicitud de acceso creada para {email} (cuenta {nueva['id']})", flush=True)
         except Exception as e:
@@ -845,13 +1044,10 @@ def _authenticate_vendedor(email, password):
     if estado == "rejected" or not acc.get("active"):
         return None, MSG_RECHAZADO
 
-    # Credenciales válidas y cuenta habilitada: refrescamos la password guardada y
-    # limpiamos cualquier sesión cacheada vieja de esta cuenta para que las
-    # próximas operaciones usen la password recién validada.
-    try:
-        _repo.update_account_crm_password(acc["id"], password)
-    except Exception as e:
-        print(f"[auth] no pude refrescar la password del CRM ({e})", flush=True)
+    # Credenciales válidas y cuenta habilitada. La password NO se guarda: el
+    # llamador la mete en el almacén en memoria de la sesión (ver
+    # _guardar_credencial). Acá solo se limpia la sesión cacheada vieja de esta
+    # cuenta, para que las próximas operaciones usen la recién validada.
     _olvidar_sesion_de_cuenta(acc["id"])
     return {"user_id": None, "account_id": acc["id"],
             "username": acc.get("crm_email") or email, "is_admin": False}, None
@@ -954,15 +1150,20 @@ def require_admin(fn):
     return wrapper
 
 
-def _recordar_usuario(resp, username, password):
-    """Deja usuario+contraseña cifrados en una cookie propia para precargar el
-    login. Si algo falla al cifrar (falta la clave), no rompe el login: se
-    sigue sin recordar."""
+def _recordar_usuario(resp, username):
+    """Deja el usuario cifrado en una cookie propia para precargar el login. Si
+    algo falla al cifrar (falta la clave), no rompe el login: se sigue sin
+    recordar.
+
+    Solo el usuario: la contraseña es la del CRM de Growi y no se guarda en
+    ningún lado (ver REMEMBER_USER_COOKIE). El formato del payload se mantiene
+    por compatibilidad con las cookies ya emitidas.
+    """
     try:
         from common.crypto import encrypt as _encrypt
-        blob = _encrypt(json.dumps({"u": username, "p": password}))
+        blob = _encrypt(json.dumps({"u": username}))
     except Exception as e:
-        print(f"[login] no pude recordar credenciales ({e})", flush=True)
+        print(f"[login] no pude recordar el usuario ({e})", flush=True)
         return resp
     resp.set_cookie(
         REMEMBER_USER_COOKIE, blob,
@@ -974,18 +1175,22 @@ def _recordar_usuario(resp, username, password):
     return resp
 
 
-def _credenciales_recordadas():
-    """(usuario, contraseña) de la cookie, o ('', '') si no hay/no descifra."""
+def _usuario_recordado():
+    """El usuario guardado en la cookie, o "" si no hay / no descifra.
+
+    Las cookies emitidas por versiones anteriores traen además la contraseña en
+    la clave "p": se ignora deliberadamente, no se lee ni se devuelve. La cookie
+    se reescribe sin ella en el próximo login.
+    """
     blob = request.cookies.get(REMEMBER_USER_COOKIE, "")
     if not blob:
-        return "", ""
+        return ""
     try:
         from common.crypto import decrypt as _decrypt
-        datos = json.loads(_decrypt(blob) or "{}")
-        return datos.get("u", ""), datos.get("p", "")
+        return json.loads(_decrypt(blob) or "{}").get("u", "")
     except Exception:
         # Cookie vieja (formato anterior), corrupta o cifrada con otra clave.
-        return "", ""
+        return ""
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -994,9 +1199,9 @@ def login():
         return redirect(url_for("index"))
     error = None
     error_kind = "error"
-    # Si venció la sesión, los campos ya vienen con la credencial recordada:
-    # el usuario sólo aprieta Enter.
-    username, password_guardada = _credenciales_recordadas()
+    # Si venció la sesión, el campo de usuario ya viene cargado; la contraseña
+    # la tipea siempre (o la completa el navegador, si él la guardó).
+    username = _usuario_recordado()
     olvidar = False
     status = 200
     if request.method == "POST":
@@ -1018,6 +1223,12 @@ def login():
                 session["account_id"] = user["account_id"]
                 session["username"] = user["username"]
                 session["is_admin"] = user["is_admin"]
+                # La contraseña del CRM queda SOLO en memoria del proceso; en la
+                # cookie viaja nada más que la clave que la referencia. Es lo
+                # único que le permite al vendedor operar contra Growi, y muere
+                # con el logout, el vencimiento de la sesión o un reinicio.
+                if user["account_id"]:
+                    session["cred_key"] = _guardar_credencial(user["account_id"], password)
                 # Al entrar, dejamos anotado en la cuenta el ID de vendedor que
                 # el CRM le reconoce. Así el envío de órdenes lo lee de la base y
                 # no depende de volver a parsear las campañas justo cuando el
@@ -1028,16 +1239,15 @@ def login():
                 destino = (request.form.get("next") or "").strip()
                 if not (destino.startswith("/") and not destino.startswith("//")):
                     destino = url_for("index")
-                return _recordar_usuario(redirect(destino), username, password)
+                return _recordar_usuario(redirect(destino), username)
             # Solo cuenta como intento de fuerza bruta la credencial equivocada.
             # Pendiente / restringido / CRM caído son credenciales válidas o un
             # problema nuestro: no penalizan al usuario.
             if auth_error is None:
                 _login_register_fail(rate_key)
                 # La credencial guardada ya no sirve (la cambió en el CRM):
-                # borramos la cookie para no reintentar siempre la vieja.
+                # borramos la cookie para no precargar siempre el usuario viejo.
                 olvidar = True
-                password_guardada = ""
             # auth_error explica el caso (pendiente de habilitación / acceso
             # restringido); sin él es un login fallido común.
             error = auth_error or MSG_CREDENCIALES
@@ -1045,7 +1255,6 @@ def login():
             error_kind = "info" if error == MSG_PENDIENTE else "error"
     resp = make_response(render_template("login.html", error=error, error_kind=error_kind,
                                          username=username,
-                                         password=password_guardada,
                                          next=(request.values.get("next") or "")), status)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
@@ -1056,6 +1265,9 @@ def login():
 
 @app.route("/logout")
 def logout():
+    # Primero la credencial (necesita leer la clave de la sesión), después la
+    # sesión. Al revés, la contraseña quedaría huérfana en memoria hasta vencer.
+    _olvidar_credencial()
     session.clear()
     return redirect(url_for("login"))
 
@@ -1272,15 +1484,17 @@ def publicar():
         print(f"[publicar] error: {e!r}", flush=True)
         error = _mensaje_de_error_de_envio(e)
         # No llegó a salir: en vez de perder los comentarios ya generados, la
-        # orden queda en cola y un worker la reintenta sola. Solo si el envío es
-        # seguro de repetir (si pudo haber entrado, se informa y listo).
+        # orden queda guardada con su payload completo para que el vendedor la
+        # reintente de un click. Solo si el envío es seguro de repetir (si pudo
+        # haber entrado, se informa y listo).
         if _es_error_de_red(e) and not _envio_pudo_haber_entrado(e):
             encolada = _encolar_pendiente(post_url, comentarios, ordenes_crm,
                                           cliente_ig, error)
             if encolada:
-                error = ("No había conexión con el CRM, así que la orden quedó en "
-                         "cola y se va a enviar sola apenas vuelva. No hace falta "
-                         "que la cargues de nuevo.")
+                error = ("No había conexión con el CRM, así que la orden quedó "
+                         "guardada con los comentarios ya generados. Reintentala "
+                         "desde 'Órdenes que no entraron' cuando el CRM vuelva; "
+                         "no hace falta que la cargues de nuevo.")
         elif _envio_pudo_haber_entrado(e) and _es_error_de_red(e):
             error = ("Se cortó la conexión esperando la respuesta del CRM. "
                      "Revisá en Growi si la orden entró antes de volver a mandarla.")
@@ -1905,6 +2119,10 @@ def _mensaje_de_error_de_envio(e):
     """
     if isinstance(e, CuentaSinCRM):
         return str(e)
+    if isinstance(e, CredencialAusente):
+        # No es un rechazo del CRM: no tenemos su contraseña en memoria. El texto
+        # ya está escrito para el vendedor y dice exactamente qué hacer.
+        return str(e)
     if isinstance(e, GrowiAuthError):
         # El texto de GrowiAuthError está escrito para el admin (menciona la
         # ruta del CRM y el proxy). Al vendedor se le dice lo que le sirve; el
@@ -2058,7 +2276,6 @@ def admin_vendedores_create():
     v = _repo.create_vendedor(
         name=d.get("name", ""),
         crm_email=d.get("crm_email", ""),
-        crm_password=d.get("crm_password", ""),
         crm_url=d.get("crm_url", ""),
         crm_idvendedor=d.get("crm_idvendedor", ""),
         crm_idventa=d.get("crm_idventa", ""),
@@ -2074,8 +2291,10 @@ def admin_vendedores_create():
 def admin_vendedores_update(account_id):
     d = request.get_json(silent=True) or {}
     # Campos presentes en el body se actualizan; ausentes quedan igual.
+    # crm_password no está en la lista a propósito: el admin no carga ni cambia
+    # la contraseña de Growi de nadie. Si viene en el body, se ignora.
     kwargs = {k: d[k] for k in (
-        "name", "active", "crm_email", "crm_password", "crm_url",
+        "name", "active", "crm_email", "crm_url",
         "crm_idvendedor", "crm_idventa", "crm_proxy", "crm_disponible",
     ) if k in d}
     # Si cambiaron credenciales, la sesión CRM cacheada quedó vieja. Se invalida
@@ -2619,15 +2838,49 @@ def ordenes_pendientes_reintentar(orden_id):
     de esos no quedaron los comentarios, y por eso no se pueden reintentar desde
     el historial.
 
-    No manda nada acá: devuelve la orden a la cola y la despacha el worker, que
-    es el único que tiene el claim atómico contra el envío duplicado.
+    El envío sale ACÁ, sincrónico. Antes se devolvía la orden a la cola y la
+    despachaba el worker de fondo; ese worker ya no existe, porque reintentar
+    necesita loguearse al CRM y la contraseña del vendedor solo está en memoria
+    mientras él está logueado. Este request es justamente ese momento.
+
+    El claim atómico contra el envío duplicado sigue estando: lo hace
+    `tomar_orden_puntual` antes de mandar nada.
     """
+    # El reintento sale con la contraseña del que está logueado, y solo tenemos
+    # la suya: el admin ya no puede reintentar la orden de un vendedor por él.
+    # Se corta acá, ANTES del claim, para no dejarle la orden marcada 'enviando'
+    # a alguien que no la puede mandar. Que la reintente su dueño, que es quien
+    # tiene la credencial.
     account_id = None if session.get("is_admin") else session.get("account_id")
-    ok = _repo.reencolar_orden(orden_id, account_id)
-    if not ok:
-        return jsonify({"error": "No se pudo reintentar (ya salió, o la está "
-                                 "enviando el worker)"}), 400
-    return jsonify({"ok": True})
+    if account_id is None:
+        propietario = _repo.get_pending_order_account(orden_id)
+        if propietario != session.get("account_id"):
+            return jsonify({"error": "Esta orden la tiene que reintentar el "
+                                     "vendedor: sale con su usuario de Growi y "
+                                     "su contraseña no la guarda el sistema."}), 403
+
+    orden = _repo.tomar_orden_puntual(orden_id, account_id)
+    if not orden:
+        return jsonify({"error": "No se pudo reintentar (ya salió, o hay un "
+                                 "envío en curso)"}), 400
+
+    try:
+        crm = _reenviar_orden_de_cola(orden)
+    except Exception as e:
+        # Reintentable=False salvo que sepamos que NO salió: si el POST pudo
+        # haber entrado, la orden queda a revisión y no se vuelve a mandar sola.
+        _repo.reprogramar_orden(orden_id, f"{e.__class__.__name__}: {e}",
+                                reintentable=False)
+        print(f"[reintento] orden {orden_id} falló: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_de_error_de_envio(e)}), 502
+
+    if crm and crm.get("success"):
+        _repo.marcar_orden_enviada(orden_id)
+        return jsonify({"ok": True, "insertadas": crm.get("insertadas", 0)})
+
+    errores = "; ".join((crm or {}).get("errors") or []) or "el CRM rechazó la orden"
+    _repo.reprogramar_orden(orden_id, errores, reintentable=False)
+    return jsonify({"error": errores}), 502
 
 
 # Motivos en criollo para la pantalla del vendedor. Se buscan como subcadena
@@ -2640,6 +2893,11 @@ _MOTIVOS_ENVIO = (
      "No había una campaña activa a la que cargarle la orden"),
     ("sin_crm",       ("todavía no tiene el crm",),
      "Tu cuenta no tiene el CRM configurado"),
+    # Va ANTES de "sesion": su texto contiene la palabra "sesión" y si no,
+    # quedaría clasificado como "el CRM cortó la sesión", que manda a revisar la
+    # contraseña cuando lo único que hay que hacer es volver a entrar.
+    ("sin_credencial", ("credencialausente", "ya no tiene la contraseña"),
+     "Tu sesión venció: volvé a entrar y reintentala"),
     ("saldo",         ("saldo", "disponible", "insuficiente"),
      "No alcanzaba el saldo de la campaña"),
     ("sesion",        ("401", "login", "growiautherror", "sesión"),
@@ -3039,21 +3297,13 @@ def me():
     return jsonify(_current_user())
 
 
-class _ReintentoFallido(RuntimeError):
-    """Falló un reintento de la cola. `reintentable` le dice al worker si la
-    orden puede volver a la cola o si tiene que ir a revisión manual (porque el
-    POST pudo haber entrado y reintentarlo la duplicaría)."""
-
-    def __init__(self, mensaje, reintentable):
-        super().__init__(mensaje)
-        self.reintentable = reintentable
-
-
 def _reenviar_orden_de_cola(orden):
     """Reintento de una orden encolada, con las credenciales de SU cuenta.
 
-    Corre fuera de un request de Flask, por eso todo va con account_id explícito
-    (`_growi_request` y `resolver_venta` ya están preparados para eso).
+    Todo va con account_id explícito (`_growi_request` y `resolver_venta` ya
+    están preparados para eso) en vez de leerlo de la sesión: la orden puede ser
+    de una cuenta distinta a la del que dispara el reintento (el admin reintenta
+    órdenes ajenas), y con la sesión saldría cargada en el CRM equivocado.
     """
     payload = orden.get("payload") or {}
 
@@ -3081,33 +3331,37 @@ def _reenviar_orden_de_cola(orden):
         account_id=orden.get("account_id"),
         user_id=orden.get("user_id"),
         # origen="cola": en el panel de auditoría hay que poder distinguir un
-        # reintento automático de un vendedor apretando Publicar dos veces.
+        # reintento de la cola de un vendedor apretando Publicar dos veces.
         origen="cola",
     )
     return crm
 
 
-def _enviar_de_cola(orden):
-    try:
-        return _reenviar_orden_de_cola(orden)
-    except Exception as e:
-        if _es_error_de_red(e):
-            raise _ReintentoFallido(str(e), not _envio_pudo_haber_entrado(e)) from e
-        raise
-
-
 def _arrancar_cola():
-    """Worker de reintentos. Con el reloader de Flask el módulo se importa dos
-    veces: se arranca solo en el proceso hijo para no tener dos workers
-    haciendo polling (mandar la misma orden dos veces ya lo impide el claim
-    atómico en la DB, pero el ruido no suma)."""
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "false":
+    """El worker de reintentos automáticos está APAGADO y no se arranca.
+
+    Reintentar solo exige loguearse al CRM sin el vendedor delante, y para eso
+    hacía falta tener su contraseña guardada. Como ya no se guarda (vive en
+    memoria mientras él está logueado), un reintento de fondo no tendría con qué
+    autenticarse: fallaría siempre y llenaría la cola de intentos muertos.
+
+    Las órdenes que no entran NO se pierden: quedan en `pending_orders` y el
+    vendedor las ve en "Órdenes que no entraron", con el botón de reintentar
+    (POST /api/ordenes-pendientes/<id>/reintentar). Ese reintento corre dentro de
+    su request, así que tiene su credencial en memoria y sale con sus datos.
+
+    Queda el rescate de las que quedaron colgadas en 'enviando' por un reinicio:
+    sin eso, esas filas no las mira nadie —el claim solo busca 'pendiente'— y el
+    vendedor no las vería ni podría reintentarlas a mano.
+    """
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "false" or _repo is None:
         return
     try:
-        from orden_cola import arrancar
-        arrancar(_enviar_de_cola)
+        _repo.revisar_ordenes_colgadas()
     except Exception as e:
-        print(f"[cola] no pude arrancar el worker: {e!r}", flush=True)
+        print(f"[cola] no pude revisar las órdenes colgadas: {e!r}", flush=True)
+    print("[cola] reintento automático desactivado: las órdenes fallidas las "
+          "reintenta el vendedor desde la pantalla", flush=True)
 
 
 _arrancar_cola()
