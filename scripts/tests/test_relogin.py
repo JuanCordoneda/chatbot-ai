@@ -81,9 +81,20 @@ check("con los comentarios ya generados",
 check("y el mensaje se lo dice", "guardamos la orden" in (d.get("error") or "").lower(),
       d.get("error"))
 
-print("\n== 3. La sesión se limpia: no queda a medio camino ==")
+print("\n== 3. La sesión NO se limpia acá: la limpia el login ==")
+# Antes esta respuesta hacía session.clear(), y eso costaba órdenes: el request
+# siguiente del MISMO click (el POST de publicar / enviar_trafico) llegaba sin
+# cookie, moría en require_login con "No autenticado" y no alcanzaba el
+# `except CredencialAusente` que guarda la orden. De paso le borraba la sesión a
+# las otras pestañas, cuyos 401 pasaban a ser "No autenticado" pelados —sin la
+# marca `relogin`—, así que nadie las llevaba al login: quedaban colgadas.
+# La sesión sigue siendo una identidad válida; lo que falta es la contraseña del
+# CRM. Quien corta es el guard al navegar, y el POST del login pisa todo al entrar.
 with cli.session_transaction() as s:
-    check("deja de estar logueado", not s.get("logged_in"), dict(s))
+    check("la sesión sobrevive para que el rescate funcione",
+          s.get("logged_in") is True, dict(s))
+# Lo que importa de verdad es que el front tenga con qué redirigir.
+check("y la respuesta trae la marca que lo lleva al login", d.get("relogin") is True, d)
 
 print("\n== 4. Tráfico: mismo trato ==")
 ENCOLADAS.clear()

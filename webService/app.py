@@ -1227,6 +1227,62 @@ def _invalidar_sesiones_viejas():
         session.clear()
 
 
+# Rutas que se sirven aunque no haya sesión (o justamente para recuperarla).
+_SIN_SESION_CRM = {"login", "logout", "static", "ayuda_page", "ayuda_ordenes_page"}
+
+
+def _sesion_crm_perdida():
+    """True si la cookie dice "logueado" pero ya no tenemos la contraseña del CRM.
+
+    Pasa siempre que se reinicia el web-service: `_CREDENCIALES` vive en memoria
+    del proceso y la cookie de Flask sobrevive 30 días. El vendedor entraba, veía
+    la pantalla completa, cargaba el link, elegía comentarios y recién ahí
+    reventaba. El admin no tiene account_id (opera con la config del .env), así
+    que no se le pide credencial en memoria.
+    """
+    if not session.get("logged_in"):
+        return False
+    account_id = session.get("account_id")
+    if not account_id:
+        return False
+    return not _credencial_de_sesion(account_id)
+
+
+@app.before_request
+def _exigir_sesion_crm():
+    """Manda al login ANTES de servir la página si la sesión del CRM ya no sirve.
+
+    Va en before_request y no en cada vista a propósito: el chequeo reactivo
+    (401 con `relogin`) solo salta cuando algo toca el CRM, o sea después de que
+    el vendedor ya cargó el link y laburó. Acá se corta en el primer request.
+    """
+    if request.endpoint in _SIN_SESION_CRM:
+        return None
+    # Las /api/ NO se tocan acá, a propósito, y esto es más sutil de lo que
+    # parece. Cortarlas de entrada rompía dos cosas:
+    #   1) /api/stream/<job_id> es el único endpoint sin @require_login, justo
+    #      para que la reconexión sobreviva a un reinicio; atajarlo tiraba la
+    #      tanda ya generada y los tokens ya pagados.
+    #   2) _respuesta_relogin() limpia la sesión, así que un GET cualquiera
+    #      dejaba sin cookie al POST /api/publicar que venía después: moría en
+    #      require_login ("No autenticado") sin llegar al except que guarda la
+    #      orden en "Órdenes que no entraron". Se perdía justo lo que el carve-out
+    #      de POST quería salvar.
+    # Las APIs ya tienen su camino: CredencialAusente → _respuesta_relogin →
+    # el interceptor de app.js manda al login. Acá solo se ataja la NAVEGACIÓN.
+    if request.path.startswith("/api/"):
+        return None
+    if request.method not in ("GET", "HEAD"):
+        return None
+    if not _sesion_crm_perdida():
+        return None
+    # Sin limpiar la sesión: de eso se encarga login(). Limpiarla acá dejaba a
+    # las otras pestañas sin cookie, y sus 401 pasaban a ser "No autenticado"
+    # pelados —sin la marca `relogin`—, así que nadie las llevaba al login.
+    volver = request.full_path if request.query_string else request.path
+    return redirect(url_for("login", motivo="sesion_crm", next=volver))
+
+
 def require_login(fn):
     @wraps(fn)
     def wrapper(*a, **kw):
@@ -1294,7 +1350,17 @@ def _usuario_recordado():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if session.get("logged_in"):
+    # Sesión sin la contraseña del CRM: no sirve para operar, así que no se lo
+    # rebota a la home (de ahí lo devolvían acá y quedaba un ida y vuelta).
+    #
+    # Y NO se limpia acá, aunque tiente: borrar la cookie desde el GET del login
+    # se la borra a TODO el navegador, o sea también a las otras pestañas que el
+    # vendedor dejó abiertas con la tanda ya generada. Sus fetch pasan a contestar
+    # "No autenticado" pelado —sin la marca `relogin`—, así que el interceptor de
+    # app.js no las lleva a ningún lado: quedan colgadas, y el POST de publicar
+    # deja de guardar la orden en "Órdenes que no entraron". El POST de más abajo
+    # pisa todas las claves igual, así que la sesión muerta no sobrevive al login.
+    if session.get("logged_in") and not _sesion_crm_perdida():
         return redirect(url_for("index"))
     error = None
     error_kind = "error"
@@ -1336,6 +1402,10 @@ def login():
                 # con el logout, el vencimiento de la sesión o un reinicio.
                 if user["account_id"]:
                     session["cred_key"] = _guardar_credencial(user["account_id"], password)
+                else:
+                    # El admin no tiene cuenta: que no le quede colgada la clave
+                    # de la sesión anterior (ahora que el login ya no hace clear).
+                    session.pop("cred_key", None)
                 # Al entrar, dejamos anotado en la cuenta el ID de vendedor que
                 # el CRM le reconoce. Así el envío de órdenes lo lee de la base y
                 # no depende de volver a parsear las campañas justo cuando el
@@ -1966,10 +2036,18 @@ def server_time_ar():
         )
         resp.raise_for_status()
         return jsonify(resp.json())
-    except CredencialAusente:
-        raise    # que llegue al errorhandler y lo mande al login
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # Un reloj NO puede mandar a nadie al login. Esto es una consulta
+        # auxiliar del envío de tráfico: el front la pide y una línea después
+        # postea /api/enviar_trafico, en el mismo click. Cuando acá salía un 401
+        # con `relogin`, el interceptor navegaba al login en el acto y el POST
+        # nunca llegaba a guardar la orden en "Órdenes que no entraron": el
+        # vendedor perdía el trabajo por culpa de una consulta de la hora.
+        # Se contesta la hora AR local, que es el mismo fallback que ya usa
+        # _fecha_ar_crm, y el que decide mandar al login es el POST del envío.
+        print(f"[server_time_ar] el CRM no me dio la hora ({e!r}); uso la AR local",
+              flush=True)
+        return jsonify({"ymdhmAR": _ordenes.ahora_ar_texto(), "fallback": True})
 
 
 def _fecha_ar_crm(account_id=None):
@@ -2319,12 +2397,20 @@ def _respuesta_relogin(mensaje=None, **extra):
     Cuando falta la contraseña del CRM en memoria, la sesión de Flask sigue
     perfectamente válida: `logged_in` está puesto y `require_login` deja pasar.
     Por eso el vendedor veía "volvé a iniciar sesión" y no pasaba nada — no había
-    nada que lo llevara ahí. Se limpia la sesión (ya no sirve para operar contra
-    el CRM) y se marca `relogin` para que el front redirija en vez de pintar el
-    mensaje en un cartel que no se puede accionar.
+    nada que lo llevara ahí: se marca `relogin` para que el front redirija en vez
+    de pintar el mensaje en un cartel que no se puede accionar.
+
+    NO se limpia la sesión, aunque antes sí se hacía. Limpiarla acá era lo que
+    convertía este 401 en pérdida de trabajo: el request siguiente del mismo
+    click (el POST de publicar / enviar_trafico) llegaba SIN cookie, moría en
+    require_login con "No autenticado" y no alcanzaba el `except CredencialAusente`
+    que guarda la orden en "Órdenes que no entraron". Y de paso le borraba la
+    sesión a las otras pestañas, cuyos 401 pasaban a ser "No autenticado" pelados,
+    sin esta marca, así que nadie las llevaba al login. La sesión sigue siendo una
+    identidad válida: lo que falta es la contraseña del CRM, y de eso ya se
+    ocupan _sesion_crm_perdida() al navegar y CredencialAusente al operar. El
+    POST del login pisa todas las claves cuando el vendedor vuelve a entrar.
     """
-    _olvidar_credencial()
-    session.clear()
     return jsonify({
         "error": mensaje or ("Tu sesión ya no tiene la contraseña de Growi. "
                              "Volvé a iniciar sesión para poder cargar órdenes."),
@@ -3715,6 +3801,25 @@ def _rango_exclusivo(hasta_inclusivo: str) -> str:
     """El panel habla en fechas inclusivas y la API de costos en exclusivas."""
     from datetime import datetime, timedelta as _td
     return (datetime.strptime(hasta_inclusivo, "%Y-%m-%d") + _td(days=1)).strftime("%Y-%m-%d")
+
+
+@app.route("/api/sesion-viva", methods=["GET"])
+@require_login
+def sesion_viva():
+    """¿Esta sesión todavía sirve para operar contra el CRM?
+
+    Existe por el caso que el redirect al abrir la página NO cubre: el vendedor
+    deja el panel abierto toda la jornada, el servicio se reinicia de noche, y a
+    la mañana no recarga — pega el link y genera. Como nunca navega, el guard de
+    _exigir_sesion_crm no llega a correr, y se enteraba recién en el paso de
+    órdenes, con los comentarios ya generados y los tokens ya gastados.
+
+    Es una consulta barata (mira el diccionario en memoria, no toca el CRM) que
+    sesion.js dispara cuando la pestaña vuelve al foco.
+    """
+    if _sesion_crm_perdida():
+        return _respuesta_relogin()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/cantidades_usadas", methods=["GET"])

@@ -7,8 +7,8 @@
           {
             "type": "command",
             "command": "cd /Users/abc/Desktop/CROW/chatbot-ai && /usr/local/bin/docker compose restart web-service openai-service &>> /tmp/flask-growi.log",
-            "async": true,
-            "statusMessage": "Reiniciando servicios..."
+            "statusMessage": "Reiniciando servicios...",
+            "async": true
           }
         ]
       }
@@ -23,6 +23,12 @@
           }
         ]
       }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{redirect_url}\\\\n\" http://localhost:8502/)",
+      "Bash(curl -sI http://localhost:8502/login)"
     ]
   }
 }
