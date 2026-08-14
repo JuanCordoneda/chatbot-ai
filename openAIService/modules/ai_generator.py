@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import anthropic
 from pathlib import Path
@@ -549,7 +550,10 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     prompt = ""
 
     if evitar:
-        evitar_str = "\n".join(f"- {c}" for c in evitar)
+        # Uno por línea y SIN guiones: la lista va como ejemplo de formato aunque
+        # no lo sea. Con "- " adelante, el modelo devolvía la tanda nueva en viñetas
+        # ("- man really out here...") y los guiones terminaban publicados.
+        evitar_str = "\n".join(str(c).strip() for c in evitar)
         prompt += (
             "\n\nATENCIÓN — ESTA ES UNA TANDA ADICIONAL. Los comentarios de abajo YA "
             "se generaron en una tanda anterior. Generá comentarios COMPLETAMENTE "
@@ -570,6 +574,20 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     # entre posts y cachearlo sería pagar el recargo de escritura sin lecturas.
     cacheable = not (tiene_caption_tok or tiene_coments_tok)
     return _Prompt(prompt_template, contexto, prompt, cacheable)
+
+
+# Viñeta o numeración al principio de la línea. El prompt pide "sin numeración,
+# sin guiones", pero el modelo igual las mete cada tanto (sobre todo en las tandas
+# adicionales) y eso se publicaba tal cual: "- man really out here in a gym fit".
+# Un comentario de verdad no arranca con un guión suelto, así que se saca acá y
+# no dependemos de que el modelo obedezca.
+_VINETA_RE = re.compile(r"^\s*(?:[-–—*•·]+|\d{1,3}[.)])\s+")
+
+
+def _sin_vineta(linea: str) -> str:
+    limpio = _VINETA_RE.sub("", linea, count=1).strip()
+    # Si la línea era SOLO la viñeta, no la vaciamos: que decida el llamador.
+    return limpio or linea.strip()
 
 
 class _Rechazo(Exception):
@@ -836,7 +854,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                     lines = buffer.split("\n")
                     buffer = lines.pop()
                     for line in lines:
-                        line = line.strip()
+                        line = _sin_vineta(line)
                         if line:
                             count += 1
                             nuevos.append(line)
@@ -876,10 +894,11 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             hubo_error = True
             continue
 
-        if buffer.strip():
+        ultimo = _sin_vineta(buffer)
+        if ultimo:
             count += 1
-            nuevos.append(buffer.strip())
-            yield ("comentario", buffer.strip())
+            nuevos.append(ultimo)
+            yield ("comentario", ultimo)
 
         total = len(acumulados) + count
 
