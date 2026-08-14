@@ -1792,29 +1792,31 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 .repartir-toggle-chev { float: right; transition: transform 0.15s; }
 .repartir-toggle--abierto .repartir-toggle-chev { transform: rotate(180deg); }
 
-/* Todo en un mensaje. Va arriba de la lista porque es un toque contra N. */
+/* Todo en un mensaje. Va arriba de la lista porque es un toque contra N.
+   Va en verde lleno —el mismo tratamiento que .repartir-bulk-btn— y no tenue:
+   era la opción que menos se veía siendo la que menos trabajo da, así que
+   quedaba pareja con el resto de la pantalla en vez de ofrecerse. */
 .repartir-uno {
   width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: rgba(37,211,102,0.1);
-  color: var(--text);
+  background: #25d366;
+  color: #04310f;
   font-family: var(--font);
-  font-size: 0.88rem;
-  font-weight: 700;
-  border: 1px solid rgba(37,211,102,0.4);
+  font-size: 0.92rem;
+  font-weight: 800;
+  border: none;
   border-radius: 11px;
-  padding: 12px 18px;
+  padding: 13px 18px;
   cursor: pointer;
-  transition: filter 0.15s, border-color 0.15s;
+  transition: filter 0.15s;
 }
 
-.repartir-uno:hover:not(:disabled) {
-  border-color: #25d366;
-  background: rgba(37,211,102,0.08);
-}
+/* Antes el hover ACLARABA el fondo (0.08 sobre un 0.1 de base): pasar el mouse
+   apagaba el botón en vez de encenderlo. */
+.repartir-uno:hover:not(:disabled) { filter: brightness(1.06); }
 
 .repartir-uno:disabled { opacity: 0.5; cursor: not-allowed; }
 
