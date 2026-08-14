@@ -1436,7 +1436,7 @@ function _clientFormState() {
   return JSON.stringify([
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
     v("client-quality"), document.getElementById("client-keyword-mode").checked,
-    document.getElementById("client-prompt-standalone").checked,
+    soloPrompt(),
     v("client-venta"), v("client-prompt"),
     leerRangosDOM(), leerComentariosDOM(),
   ]);
@@ -1489,20 +1489,26 @@ function pintarCabeceraCliente() {
       (pausado ? ' · <span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pausado</span>' : "");
 }
 
-// Qué se le manda al motor depende del switch de "usar solo este prompt", así
-// que la ayuda se repinta en cada cambio y no una sola vez al abrir la ficha:
-// si no, decía que las reglas generales se suman solas justo en el cliente
-// donde no se suman.
+// El modo del prompt son dos radios (capas / solo). Se lee y se escribe por
+// acá para no repetir en cinco lugares cuál de los dos es el que manda.
+function soloPrompt() {
+  return document.getElementById("client-prompt-standalone").checked;
+}
+
+function setModoPrompt(solo) {
+  document.getElementById("client-prompt-standalone").checked = !!solo;
+  document.getElementById("client-prompt-capas").checked = !solo;
+}
+
+// Lo de las capas ya lo dicen las dos tarjetas de "¿qué se le manda al modelo?",
+// así que este pie no lo repite: se queda con lo único que no está escrito en
+// ningún otro lado — que el contexto del post lo agrega la herramienta sola.
 function pintarAyudaPrompt(gen) {
   const help = document.getElementById("client-prompt-help");
   if (!help) return;
-  if (gen) {
-    help.innerHTML = "Estas reglas se aplican a <b>todos los clientes</b>, arriba de las instrucciones propias de cada uno. Es el lugar para los arreglos generales (ej: que no todos los comentarios arranquen en minúscula).";
-    return;
-  }
-  help.innerHTML = document.getElementById("client-prompt-standalone").checked
-    ? "Este cliente usa <b>únicamente este prompt</b>: las reglas generales del sistema no se le mandan. Escribí acá todo lo que tenga que cumplir, también lo que en los demás clientes viene del prompt del sistema. El formato de salida lo sigue poniendo la herramienta."
-    : "Acá va <b>solo lo propio de este cliente</b> (rubro, personajes, @menciones, tono). Las reglas generales del prompt de sistema se le suman solas al generar — no hace falta repetirlas. Si algo se contradice, manda lo que escribas acá.";
+  help.innerHTML = gen
+    ? "Estas reglas se aplican a <b>todos los clientes</b>, arriba de las instrucciones propias de cada uno. Es el lugar para los arreglos generales (ej: que no todos los comentarios arranquen en minúscula)."
+    : "Escribí solo las instrucciones de estilo. El <b>texto del post, sus comentarios y la imagen</b> se agregan solos al generar — no tenés que ponerlos vos.";
 }
 
 function updatePromptCount() {
@@ -1525,6 +1531,10 @@ function updatePromptCount() {
   const gen = !!(idAbierto && (findClient(parseInt(idAbierto)) || {}).reserved);
   document.getElementById("client-solo-field").classList.toggle("ax-hidden", gen || kw);
   pintarAyudaPrompt(gen);
+  // Chip en la tarjeta cerrada: que no haya que abrir el editor para saber si
+  // este cliente recibe el prompt del sistema o no.
+  document.getElementById("client-prompt-teaser-solo")
+    .classList.toggle("ax-hidden", gen || kw || !soloPrompt());
   const sucio = clientIsDirty();
   document.getElementById("client-dirty").classList.toggle("ax-on", sucio);
   // Editando sin tocar nada no hay nada que guardar: el botón lo dice en vez de
@@ -1605,7 +1615,7 @@ function openClientModal(id) {
   document.getElementById("client-keyword-mode").checked = !!(c && c.keyword_mode);
   // Cliente nuevo nace con su prompt solo (sin la capa genérica arriba); las
   // fichas ya cargadas muestran lo que tengan guardado.
-  document.getElementById("client-prompt-standalone").checked = c ? !!c.prompt_standalone : true;
+  setModoPrompt(c ? !!c.prompt_standalone : true);
   // Las fichas del sistema no son un cliente: no tienen posts propios. Y el
   // genérico ES la capa de arriba, así que "usar solo este prompt" no aplica.
   document.getElementById("client-keyword-field").classList.toggle("ax-hidden", gen);
@@ -1671,6 +1681,30 @@ async function saveClient() {
       : "Revisá los números marcados en rojo para poder guardar.");
     return;
   }
+  // Cambiar el modo del prompt no se ve hasta la próxima tanda de comentarios, y
+  // para entonces ya nadie se acuerda de que lo tocó. Se pregunta SOLO cuando
+  // cambia respecto de lo guardado (no en cada guardada, ni al crear: ahí el
+  // modo es la decisión que se está tomando y ya está a la vista).
+  const guardado = id ? findClient(parseInt(id)) : null;
+  const kwOn = document.getElementById("client-keyword-mode").checked;
+  if (guardado && !gen && !kwOn && soloPrompt() !== !!guardado.prompt_standalone) {
+    const nombreCli = guardado.display_name || "@" + guardado.ig_username;
+    const ok = await confirmDialog(soloPrompt() ? {
+      title: "¿Sacarle el prompt del sistema?",
+      text: `${nombreCli} va a generar SOLO con las instrucciones de su ficha. Las reglas `
+          + "generales de la agencia (largos, mayúsculas, cómo no sonar a bot) dejan de "
+          + "aplicarse acá: lo que tenga que cumplir tiene que estar escrito en su prompt. "
+          + "Se nota recién en la próxima tanda.",
+      okLabel: "Sí, usar solo su prompt",
+    } : {
+      title: "¿Volver a sumarle el prompt del sistema?",
+      text: `${nombreCli} va a recibir las reglas generales arriba de sus instrucciones. `
+          + "Si su prompt ya las repite, le van a llegar dos veces — conviene revisarlo. "
+          + "Se nota recién en la próxima tanda.",
+      okLabel: "Sí, sumar el del sistema",
+    });
+    if (!ok) return;
+  }
   // Lo que se guarda es lo que queda a la vista: se limpia el campo, no solo el
   // payload, para que la ficha no muestre algo distinto a lo que fue a la base.
   if (!gen) {
@@ -1716,7 +1750,7 @@ async function saveClient() {
     gender: document.getElementById("client-gender").value,
     quality: document.getElementById("client-quality").value,
     keyword_mode: document.getElementById("client-keyword-mode").checked,
-    prompt_standalone: document.getElementById("client-prompt-standalone").checked,
+    prompt_standalone: soloPrompt(),
     ranges,
     prompt: document.getElementById("client-prompt").value,
     // El idvendedor viaja junto al idventa: el CRM imputa la orden a ese par, y
@@ -2540,7 +2574,7 @@ async function runPromptAi() {
       // no tiene que sacar lo que "ya viene del genérico", porque no viene.
       // Se manda el estado del checkbox, no el guardado: la propuesta se pide
       // sobre la ficha como está en pantalla.
-      standalone: document.getElementById("client-prompt-standalone").checked,
+      standalone: soloPrompt(),
     });
     aiPromptAnterior = actual;
     document.getElementById("client-prompt").value = d.prompt;

@@ -17,7 +17,7 @@ env = Environment(loader=FileSystemLoader(os.path.join(WEB, "templates")))
 
 CLIENTS = [
     {"id": 1, "ig_username": "peterjfournier", "display_name": "Peter Fournier", "status": "active",
-     "gender": "male", "quality": "pro", "keyword_mode": False, "crm_idventa": "8811",
+     "gender": "male", "quality": "pro", "keyword_mode": False, "prompt_standalone": True, "crm_idventa": "8811",
      "prompt": ("Actuá como seguidores reales de un entrenador de fitness. Comentarios cortos "
                 "(máximo 8 palabras), variados, en el idioma del post, con buena onda y algo "
                 "concreto de lo que se ve en el video.\n\nNunca: “nice post”, "
@@ -27,13 +27,13 @@ CLIENTS = [
                 "likes": [{"min": 300, "max": 600, "prod_id": "101"}],
                 "views": [{"min": 2000, "max": 3500, "prod_id": "201"}]}},
     {"id": 2, "ig_username": "luciaramos", "display_name": "Lucía Ramos", "status": "active",
-     "gender": "female", "quality": "standard", "keyword_mode": False, "crm_idventa": "8812",
+     "gender": "female", "quality": "standard", "keyword_mode": False, "prompt_standalone": False, "crm_idventa": "8812",
      "prompt": "Comentarios de clientas reales de un estudio de pilates. Cálidos, breves, sin emojis.",
      "ranges": {"comentarios": {"verificados": {"min": 4, "max": 8},
                                 "comunes": {"min": 15, "max": 30}},
                 "likes": [{"min": 200, "max": 400, "prod_id": "102"}]}},
     {"id": 3, "ig_username": "estudiobora", "display_name": "Estudio Bora", "status": "active",
-     "gender": None, "quality": "standard", "keyword_mode": False, "crm_idventa": "",
+     "gender": None, "quality": "standard", "keyword_mode": False, "prompt_standalone": True, "crm_idventa": "",
      "prompt": "", "ranges": {}},
 ]
 
