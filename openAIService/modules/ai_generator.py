@@ -488,6 +488,29 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     if transcription and not transcription.strip().startswith("("):
         prompt += f"\n\nTranscripción del audio del video:\n---\n{transcription}\n---"
 
+    # La descripción visual la escribimos NOSOTROS en español (es para que la lea
+    # el vendedor), pero el modelo la tomaba como si fuera texto del post y copiaba
+    # las palabras tal cual: en una tanda en inglés salieron "the mesa negra setup",
+    # "the banda en la cabeza is the real MVP", "the mesa oscura reflection". Un
+    # comentario real de ese post nunca diría eso.
+    # La transcripción, en cambio, sí viene en el idioma del video (no se traduce).
+    if photo_description:
+        prompt += (
+            "\n\nLA DESCRIPCIÓN VISUAL DE ARRIBA ES UNA NOTA INTERNA NUESTRA, escrita "
+            "en español. No es el post ni lo que se lee en pantalla.\n"
+            "- Los comentarios van en el idioma del post, no en el de esa nota.\n"
+            "- PROHIBIDO copiar palabras o frases en español de esa nota dentro de un "
+            "comentario que no es en español. Si comentás un detalle, nombralo en el "
+            "idioma del post.\n"
+            "- Nunca menciones que existe una descripción."
+        )
+    if transcription and not transcription.strip().startswith("("):
+        prompt += (
+            "\n\nLa transcripción es el audio real del video, en el idioma en el que "
+            "se habla. Si un tramo quedó cortado o no se entiende, ignoralo: no "
+            "comentes sobre eso ni lo completes inventando."
+        )
+
     if has_image:
         # El modelo recibe la imagen real del post como bloque multimodal (arriba).
         prompt += (
@@ -566,7 +589,15 @@ class _Rechazo(Exception):
 # completa (que es el lado caro y no se cachea). Ahora, si llegó algo aprovechable
 # se completa la tanda pidiendo SOLO los que faltan (ver _MIN_PARA_COMPLETAR).
 _MIN_COMENTARIOS = 20
-_MAX_INTENTOS = 3
+_MAX_INTENTOS = 4
+
+# Qué fracción de lo pedido alcanza para dar la tanda por buena. El modelo entrega
+# ~50 comentarios por llamada por más que se le pidan 84, y el corte de "tanda
+# completa" era _MIN_COMENTARIOS (20): con 51 en la mano se daba por terminada y
+# al cliente que compra 70 le faltaban 20. Ahora, si no llega, se completa
+# pidiendo SOLO los que faltan. La tolerancia evita gastar una llamada entera por
+# los últimos 3 comentarios (la reserva del 20% ya cubre ese hueco).
+_TOLERANCIA_TANDA = float(os.environ.get("CROW_TOLERANCIA_TANDA", "0.9"))
 
 # Piso para "completar" en vez de "regenerar". Debajo de esto lo que llegó es tan
 # poco que probablemente la llamada falló de entrada (no vale la pena arrastrar
@@ -739,11 +770,13 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     cantidad_pedida = KEYWORD_CANTIDAD if modo_keyword else (
         cantidad if cantidad and cantidad > 0 else _COMENTARIOS_DEFAULT)
 
-    # El piso de "generación cortada" es relativo a lo que se pidió: con 40
-    # comentarios de una palabra, el fijo de 70 no aplica. Con un objetivo chico
-    # tampoco: pedir 25 y exigir 20 dejaba casi sin margen.
-    minimo = (max(1, int(KEYWORD_CANTIDAD * 0.75)) if modo_keyword
-              else min(_MIN_COMENTARIOS, max(1, int(cantidad_pedida * 0.75))))
+    # Cuántos hacen falta para dar la tanda por terminada. En modo palabra clave
+    # el modelo aporta las FORMAS de escribir la palabra y la cantidad la ponemos
+    # nosotros repitiendo, así que no tiene sentido exigirle el total.
+    # En modo normal es lo que se pidió (menos la tolerancia): si no llega, se
+    # completa pidiendo solo los que faltan en vez de entregar una tanda corta.
+    suficiente = (max(1, int(KEYWORD_CANTIDAD * 0.75)) if modo_keyword
+                  else max(_MIN_COMENTARIOS, int(cantidad_pedida * _TOLERANCIA_TANDA)))
 
     content = _bloques(prompt, image_b64 if has_image else "", image_media_type)
     extra = _extra_body(modo_keyword, user_id, account_id)
@@ -754,11 +787,15 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     acumulados: list[str] = []
 
     prev_motivo = None
+    hubo_error = False   # la vuelta anterior falló por API (≠ entregó de menos)
     for intento in range(1, _MAX_INTENTOS + 1):
         if intento > 1:
             print(f"[ai] {prev_motivo}, reintento {intento}/{_MAX_INTENTOS}"
                   + (f" — completando (ya hay {len(acumulados)})" if acumulados else ""),
                   flush=True)
+            if hubo_error:
+                time.sleep(3 * (intento - 1))  # backoff: overloaded suele ser transitorio
+                hubo_error = False
             if acumulados:
                 # COMPLETAR: no se emite "reset", así que el consumidor conserva
                 # lo que ya mostró y esta vuelta solo agrega lo que falta. El
@@ -773,7 +810,6 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                 content = _bloques(prompt, image_b64 if has_image else "", image_media_type)
             else:
                 yield ("reset", None)
-            time.sleep(3 * (intento - 1))  # backoff: 3s, 6s (overloaded suele ser transitorio)
 
         count = 0
         buffer = ""
@@ -837,6 +873,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             if intento == _MAX_INTENTOS:
                 raise
             prev_motivo = f"error de API ({e})"
+            hubo_error = True
             continue
 
         if buffer.strip():
@@ -847,7 +884,10 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         total = len(acumulados) + count
 
         # tanda completa (o último intento): la damos por buena
-        if total >= minimo or intento == _MAX_INTENTOS:
+        if total >= suficiente or intento == _MAX_INTENTOS:
+            if total < suficiente:
+                print(f"[ai] tanda entregada corta: {total} de {cantidad_pedida} "
+                      f"(se agotaron los {_MAX_INTENTOS} intentos)", flush=True)
             return
 
         # Quedó corta. Si lo que hay ya es aprovechable, se CONSERVA y la vuelta
@@ -860,6 +900,9 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         else:
             acumulados = []
             prev_motivo = f"generación cortada ({total} líneas)"
+            # Casi nada en la mano: la llamada se cortó de entrada (throttling,
+            # corte de stream). Eso sí conviene esperarlo antes de reintentar.
+            hubo_error = True
 
 
 def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = "",

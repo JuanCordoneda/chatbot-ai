@@ -104,8 +104,19 @@ _whisper_load_lock = threading.Lock()
 _whisper_sem = threading.BoundedSemaphore(int(os.environ.get("WHISPER_CONCURRENCIA", "2")))
 # Cores por transcripción: acotado para que N transcripciones no se peleen por la CPU.
 _WHISPER_THREADS = int(os.environ.get("WHISPER_THREADS", "4"))
-# Idioma de los videos. Vacío ("") vuelve a la autodetección.
-_WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "es") or None
+# Idioma de los videos. Vacío = autodetección, que es el default: NO se traduce
+# ni se fuerza idioma. Estaba fijo en "es" y con un cliente que habla inglés
+# whisper decodificaba inglés como español y devolvía un engendro
+# ("Si estás cansado de un mejor proceso de practicar, con vías o sellos") que
+# después alimentaba los comentarios. Poner WHISPER_LANGUAGE=es|en solo si hace
+# falta forzar una cuenta puntual.
+_WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "").strip() or None
+# Red de seguridad de la autodetección (el motivo por el que en su momento se fijó
+# el idioma): con audio de cancha, música o viento la detección se va a cualquier
+# lado y el modelo inventa frases. Si la confianza no llega a este piso, se
+# transcribe en el idioma de respaldo en vez de creerle a la detección.
+_WHISPER_LANG_MIN_PROB = float(os.environ.get("WHISPER_LANG_MIN_PROB", "0.5"))
+_WHISPER_LANG_FALLBACK = os.environ.get("WHISPER_LANG_FALLBACK", "es").strip() or None
 # Tamaño del modelo. "small" transcribe bastante mejor que "base" y ocupa ~500MB
 # (vs ~150MB): si el server queda corto de RAM, WHISPER_MODEL=base.
 _WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
@@ -180,19 +191,28 @@ def _transcribe_video(video_path: str) -> str:
             espera = time.time() - t0
             if espera > 0.5:
                 print(f"[whisper] esperó {espera:.1f}s por turno (otra transcripción en curso)", flush=True)
-            # language fijo: con audio de cancha / música, la autodetección de
-            # idioma se equivocaba y devolvía frases inventadas en inglés sobre
-            # un video hablado en español.
+            audio = _preparar_audio(video_path)
+            # task="transcribe" explícito: la transcripción va SIEMPRE en el idioma
+            # que se habla en el video. No se traduce a español ni a nada.
             # vad_filter: recorta los tramos sin voz. Sin esto, whisper "rellena"
             # el ruido ambiente con texto alucinado ("I don't know...") que después
             # se le mostraba al vendedor como si fuera lo que dice el video.
-            segments, _ = model.transcribe(
-                _preparar_audio(video_path),
-                language=_WHISPER_LANGUAGE,
-                vad_filter=True,
-                condition_on_previous_text=False,   # corta el loop de repetir la última frase
-                beam_size=_WHISPER_BEAM,
-            )
+            opciones = dict(task="transcribe", vad_filter=True,
+                            condition_on_previous_text=False,   # corta el loop de repetir la última frase
+                            beam_size=_WHISPER_BEAM)
+            segments, info = model.transcribe(audio, language=_WHISPER_LANGUAGE, **opciones)
+            # Autodetección sin confianza (audio con cancha, música o viento): antes
+            # de creerle y transcribir en un idioma inventado, caemos al de respaldo.
+            # Los segments son perezosos: si todavía no los consumimos, esta segunda
+            # llamada no rehace la transcripción, solo la detección.
+            if _WHISPER_LANGUAGE is None:
+                prob = getattr(info, "language_probability", 1.0) or 0.0
+                print(f"[whisper] idioma detectado: {info.language} ({prob:.2f})", flush=True)
+                if prob < _WHISPER_LANG_MIN_PROB and _WHISPER_LANG_FALLBACK:
+                    print(f"[whisper] confianza baja, transcribo en "
+                          f"{_WHISPER_LANG_FALLBACK}", flush=True)
+                    segments, info = model.transcribe(
+                        audio, language=_WHISPER_LANG_FALLBACK, **opciones)
             # Descartamos los segmentos que el propio modelo da por poco
             # confiables: ahí es donde aparecían las frases inventadas.
             partes, descartados = [], 0

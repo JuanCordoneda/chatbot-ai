@@ -43,6 +43,11 @@ let tiposGenerados = [];          // "verificado" (default) | "noverif" por índ
 // que entran dentro del objetivo se marcan solos; el resto queda de reserva.
 let objetivoV = 0, objetivoNV = 0;
 let asignadosV = 0, asignadosNV = 0;
+// Firma (job + rangos) con la que ya se tiró la cantidad de la ficha. El backend
+// manda el evento de scrape DOS veces por post (preview rápido + scrape completo)
+// y cada uno volvía a tirar el random: el objetivo cambiaba DESPUÉS de que la
+// lista ya se había marcado sola y quedaba "19 de 10 elegidos".
+let _objetivoFuente = null;
 // Mientras corre "+ generar más" de una lista, TODO lo que llega va a esa lista.
 let tipoForzado = null;
 
@@ -744,6 +749,10 @@ function mostrarScrape(data) {
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
   // cada tipo con rango (likes/views/shares/reposts/saves/reach) con un valor random.
   if (data.ranges !== undefined) window._clientRanges = data.ranges || {};
+  // Cuántos verificados y cuántos comunes lleva este post. El sorteo lo hace el
+  // backend (una sola vez) porque es el que tiene que pedirle esa cantidad a la
+  // IA: si lo tiraba el front, el backend no sabía cuántos iban a hacer falta.
+  if (data.objetivos !== undefined) window._clientObjetivos = data.objetivos || {};
   // Cantidad de comentarios de la ficha del cliente: autocompleta los dos
   // casilleros del reparto con un número al azar dentro del rango configurado.
   _autocompletarComentarios(data.cliente_asignado ? data.client_id : "");
@@ -2184,13 +2193,29 @@ function seleccionarTodos() {
 // SIEMPRE: si no, el post de un cliente arrastraría la cantidad del anterior.
 function _autocompletarComentarios(clienteLabel) {
   const cfg = (window._clientRanges || {}).comentarios || {};
+  // El número lo sortea el BACKEND, una sola vez por post, y lo manda en el
+  // evento de scrape. Acá solo se lee. Antes se tiraba acá, en cada scrape (que
+  // llegan dos por post): el objetivo cambiaba después de que la lista ya se
+  // había marcado sola y quedaba "19 de 10 elegidos".
+  const obj = window._clientObjetivos || {};
+  const leer = (v) => (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : null);
+  // Respaldo para un backend viejo que no manda "objetivos": se sortea acá, pero
+  // una sola vez mientras el job y los rangos no cambien.
   const tirar = (r) => {
     const mn = parseInt(r?.min, 10), mx = parseInt(r?.max, 10);
     if (!Number.isFinite(mn) || !Number.isFinite(mx)) return null;
     return mn + Math.floor(Math.random() * (mx - mn + 1));
   };
-  const verif = tirar(cfg.verificados);
-  const comunes = tirar(cfg.comunes);
+  const firma = [currentJobId,
+                 cfg.verificados?.min, cfg.verificados?.max,
+                 cfg.comunes?.min, cfg.comunes?.max].join("|");
+  const yaTirado = _objetivoFuente === firma;
+  const delBackend = obj.verificados !== undefined || obj.comunes !== undefined;
+  const verif = delBackend ? leer(obj.verificados)
+                           : (yaTirado ? (objetivoV || null) : tirar(cfg.verificados));
+  const comunes = delBackend ? leer(obj.comunes)
+                             : (yaTirado ? (objetivoNV || null) : tirar(cfg.comunes));
+  _objetivoFuente = firma;
 
   // Estos son los objetivos de cada etapa: la etapa 1 marca sola esa cantidad de
   // verificados y la 2 esa cantidad de comunes. Sin ficha cargada quedan en 0 y
@@ -2199,8 +2224,10 @@ function _autocompletarComentarios(clienteLabel) {
   objetivoNV = comunes || 0;
   const inputEtapa = document.getElementById("cant-etapa");
   if (inputEtapa) inputEtapa.value = etapaObjetivo();
-  asignadosV = 0;
-  asignadosNV = 0;
+  if (!yaTirado) {
+    asignadosV = 0;
+    asignadosNV = 0;
+  }
 
   // El vendedor tiene que saber que el número no lo puso él, y de dónde salió.
   const hint = document.getElementById("reparto-hint");
@@ -2210,6 +2237,27 @@ function _autocompletarComentarios(clienteLabel) {
       : `Cantidad de la ficha de ${clienteLabel || "el cliente"} — podés cambiarla`;
     hint.classList.toggle("reparto-hint--auto", verif != null || comunes != null);
   }
+
+  // Si el objetivo cambió con comentarios ya en pantalla (cliente distinto), la
+  // lista quedaría marcada con el número viejo y el contador diría "19 de 10".
+  // Se vuelve a repartir para que lo marcado sea siempre lo que pide la ficha.
+  if (!yaTirado && etapaObjetivo() > 0 && _itemsEtapa().length) sincronizarMarcadosConObjetivo();
+}
+
+// Deja marcados exactamente los primeros N (orden de la lista) de la etapa en
+// curso. No sortea: es una corrección, no un re-sorteo — el 🎲 sigue siendo del
+// vendedor.
+function sincronizarMarcadosConObjetivo() {
+  const objetivo = Math.min(etapaObjetivo(), _itemsEtapa().length);
+  let marcados = 0;
+  _itemsEtapa().forEach((item) => {
+    const chk = item.querySelector("input[type=checkbox]");
+    const elegido = marcados < objetivo;
+    if (elegido) marcados++;
+    if (chk) chk.checked = elegido;
+    item.classList.toggle("selected", elegido);
+  });
+  actualizarConteo();
 }
 
 function _errorEtapa(txt) {

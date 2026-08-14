@@ -101,8 +101,32 @@ _MIN_PEDIDO = 30
 _MAX_PEDIDO = 140     # tope de sanidad: nadie publica más que esto en un post
 
 
-def _cantidad_a_pedir(ranges: dict) -> int:
-    """Cuántos comentarios pedirle a la IA según la ficha del cliente.
+def _objetivos_comentarios(ranges: dict) -> dict:
+    """Cuántos verificados y cuántos comunes se mandan en ESTE post: un valor al
+    azar dentro de cada rango de la ficha.
+
+    El sorteo se hace UNA sola vez y ACÁ, no en el navegador. Antes lo tiraba el
+    front en cada evento de scrape (que llegan dos por post), así que el número
+    cambiaba solo después de que la lista ya se había marcado —el "19 de 10
+    elegidos"— y, sobre todo, el backend no podía saber cuántos iba a necesitar
+    el vendedor: le pedía a la IA el máximo teórico de los rangos.
+    """
+    com = (ranges or {}).get("comentarios") or {}
+    objetivos = {}
+    for k in ("verificados", "comunes"):
+        entrada = com.get(k) or {}
+        try:
+            mn, mx = int(entrada.get("min")), int(entrada.get("max"))
+        except (TypeError, ValueError):
+            continue
+        if mx < mn:
+            mn, mx = mx, mn
+        objetivos[k] = random.randint(mn, mx)
+    return objetivos
+
+
+def _cantidad_a_pedir(objetivos: dict) -> int:
+    """Cuántos comentarios pedirle a la IA para cubrir el objetivo de este post.
 
     Antes se pedían ~70 SIEMPRE, sin relación con lo que el cliente publica, y
     eso desperdiciaba en las dos direcciones: al que publica 40 le sobraban 30
@@ -110,16 +134,14 @@ def _cantidad_a_pedir(ranges: dict) -> int:
     faltaban, así que el vendedor tenía que apretar "Cargar más" y disparar una
     generación entera de nuevo.
 
-    Se usa el MÁXIMO de cada rango, no un valor al azar: el front tira el random
-    después y no podemos quedarnos cortos. Devuelve 0 si el cliente no tiene
-    comentarios configurados, y ahí el generador cae en su default de siempre.
+    Es la suma de los objetivos ya sorteados (verificados + comunes) más la
+    reserva. Devuelve 0 si el cliente no tiene comentarios configurados, y ahí
+    el generador cae en su default de siempre.
     """
-    com = (ranges or {}).get("comentarios") or {}
     total = 0
     for k in ("verificados", "comunes"):
-        entrada = com.get(k) or {}
         try:
-            total += int(entrada.get("max") or 0)
+            total += int((objetivos or {}).get(k) or 0)
         except (TypeError, ValueError):
             continue
     if total <= 0:
@@ -529,6 +551,21 @@ def procesar_post_web():
             "cancelado": False,
         }
 
+    # Objetivo sorteado de este post. Se guarda con la firma de los rangos que lo
+    # generaron: el preview rápido y el scrape completo pasan por acá, y mientras
+    # sea el mismo cliente el número NO se vuelve a sortear (si el scrape resuelve
+    # otro cliente —un collab— los rangos cambian y ahí sí corresponde re-tirar).
+    _obj_estado = {"firma": None, "valores": {}}
+
+    def _objetivos_del_post(ranges: dict) -> dict:
+        firma = json.dumps((ranges or {}).get("comentarios") or {}, sort_keys=True)
+        if _obj_estado["firma"] != firma:
+            _obj_estado["firma"] = firma
+            _obj_estado["valores"] = _objetivos_comentarios(ranges)
+            print(f"[cantidad] objetivo del post: {_obj_estado['valores'] or '(sin ficha)'}",
+                  flush=True)
+        return _obj_estado["valores"]
+
     def run():
         from modules.post_processor import scrape_post
         from modules.ai_generator import generar_comentarios_stream, GENERIC_CLIENT_ID
@@ -572,6 +609,9 @@ def procesar_post_web():
                             # Rangos ya desde el preview: el modal de órdenes puede
                             # ofrecer la cantidad random sin esperar el scrape completo.
                             "ranges": preview_ranges,
+                            # Cuántos verificados y cuántos comunes lleva ESTE post
+                            # (sorteo ya hecho acá: ver _objetivos_del_post).
+                            "objetivos": _objetivos_del_post(preview_ranges),
                             "gender": preview_gender,
                         }
                         job["meta"] = preview_meta
@@ -682,6 +722,7 @@ def procesar_post_web():
                 "caption": post_data.caption,
                 "is_video": post_data.is_video,
                 "ranges": ranges,
+                "objetivos": _objetivos_del_post(ranges),
                 # male/female -> el front muestra UNA sola sección; None -> mixto (2 columnas)
                 "gender": client_gender,
             }
@@ -707,10 +748,11 @@ def procesar_post_web():
                 n_imagenes=post_data.n_imagenes,
                 keyword=keyword,
                 shortcode=post_data.shortcode,
-                # Cuántos pedirle a la IA sale de la ficha del cliente, no de un
-                # 70 fijo (ver _cantidad_a_pedir). En "Cargar más" no se toca: el
+                # Cuántos pedirle a la IA sale del objetivo ya sorteado de este
+                # post (verificados + comunes + reserva), no de un 70 fijo ni del
+                # máximo teórico de los rangos. En "Cargar más" no se toca: el
                 # vendedor ya cubrió el objetivo y lo que quiere es más resto.
-                cantidad=0 if evitar else _cantidad_a_pedir(ranges),
+                cantidad=0 if evitar else _cantidad_a_pedir(_objetivos_del_post(ranges)),
                 # Quién paga esta tanda: alimenta el panel de gasto por vendedor.
                 account_id=account_id, user_id=user_id,
             ):
