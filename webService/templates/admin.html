@@ -799,44 +799,55 @@
        va nada arriba y este texto es TODO lo que ve el modelo. Como
        interruptor de una línea se pasaba de largo, así que son dos tarjetas
        que dibujan las capas: se ve qué recibe el modelo sin leer la letra. */
-    .ax-pmodo { margin: 12px 0 0; }
+    .ax-pmodo { margin: 14px 0 0; }
     .ax-pmodo-tit { display: block; font-size: .72rem; font-weight: 700; letter-spacing: .04em;
-      text-transform: uppercase; color: var(--faint); margin-bottom: 7px; }
-    .ax-pmodo-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+    /* Con el editor a pantalla completa el modal es larguísimo: sin tope, cada
+       tarjeta medía un metro y el texto quedaba perdido en el medio de la nada.
+       El tope las deja del ancho de un párrafo, que es lo que son. */
+    .ax-pmodo-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 880px; }
     /* En pantalla angosta (o con el editor a media ventana) una al lado de la
        otra dejan el texto en dos palabras por renglón: van apiladas. */
     @media (max-width: 900px) { .ax-pmodo-ops { grid-template-columns: 1fr; } }
     .ax-pmodo-op { display: block; margin: 0; cursor: pointer; }
     .ax-pmodo-op input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
-    .ax-pmodo-card { display: flex; align-items: flex-start; gap: 11px; height: 100%;
-      padding: 11px 13px; border: 1px solid var(--border); border-radius: 12px;
-      background: var(--surface2); transition: border-color .13s, background .13s, box-shadow .13s; }
-    .ax-pmodo-op:hover .ax-pmodo-card { border-color: var(--border2); }
+    .ax-pmodo-card { display: flex; align-items: center; gap: 13px; height: 100%; min-height: 82px;
+      padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px;
+      background: var(--surface2);
+      transition: border-color .13s, background .13s, box-shadow .13s, transform .13s; }
+    .ax-pmodo-op:hover .ax-pmodo-card { border-color: var(--border2); background: var(--surface3); }
     .ax-pmodo-op input:checked + .ax-pmodo-card { border-color: var(--yellow);
       background: var(--yellow-lo); box-shadow: inset 0 0 0 1px var(--yellow); }
     .ax-pmodo-op input:focus-visible + .ax-pmodo-card { box-shadow: 0 0 0 3px var(--yellow-md); }
-    /* Las capas, dibujadas: la barra de arriba es el prompt del sistema (rayada
-       cuando no va), la de abajo estas instrucciones. */
-    .ax-pmodo-ico { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px;
-      width: 24px; padding-top: 3px; }
-    .ax-pmodo-bar { display: block; height: 7px; border-radius: 3px; background: var(--border2);
-      transition: background .13s, opacity .13s; }
+    /* Las capas, dibujadas adentro de una plaquita: sueltas sobre el fondo eran
+       dos rayitas flotando que no se leían como un dibujo de nada. La barra de
+       arriba es el prompt del sistema (hueca cuando no va), la de abajo estas
+       instrucciones. */
+    .ax-pmodo-ico { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center;
+      gap: 5px; width: 44px; height: 44px; padding: 0 9px; border-radius: 12px;
+      background: var(--surface3); border: 1px solid var(--border);
+      transition: background .13s, border-color .13s; }
+    .ax-pmodo-op input:checked + .ax-pmodo-card .ax-pmodo-ico { background: var(--surface);
+      border-color: var(--yellow-md); }
+    .ax-pmodo-bar { display: block; height: 8px; border-radius: 4px; background: var(--border2);
+      transition: background .13s; }
     .ax-pmodo-bar--yo { background: var(--muted); }
     .ax-pmodo-op input:checked + .ax-pmodo-card .ax-pmodo-bar--yo { background: var(--yellow); }
     /* Capa ausente: el hueco se ve, pero vacío. Sin esto las dos tarjetas
        tenían el mismo dibujo y el ícono no decía nada. */
-    .ax-pmodo-bar--no { background: transparent; border: 1px dashed var(--border2); height: 7px; }
-    .ax-pmodo-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-    .ax-pmodo-txt b { font-size: .84rem; font-weight: 700; color: var(--text); line-height: 1.3; }
-    .ax-pmodo-txt span { font-size: .76rem; font-weight: 500; color: var(--faint); line-height: 1.4; }
+    .ax-pmodo-bar--no { background: transparent; border: 1px dashed var(--border2); }
+    .ax-pmodo-txt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .ax-pmodo-txt b { font-size: .89rem; font-weight: 700; color: var(--text); line-height: 1.25; }
+    .ax-pmodo-txt span { font-size: .78rem; font-weight: 500; color: var(--faint); line-height: 1.45; }
     .ax-pmodo-op input:checked + .ax-pmodo-card .ax-pmodo-txt span { color: var(--muted2); }
-    .ax-pmodo-tick { flex: 0 0 auto; margin-left: auto; width: 17px; height: 17px; border-radius: 50%;
-      display: grid; place-items: center; font-size: .64rem; font-weight: 800; color: #1a1a1a;
+    .ax-pmodo-tick { flex: 0 0 auto; margin-left: auto; align-self: center;
+      width: 20px; height: 20px; border-radius: 50%;
+      display: grid; place-items: center; font-size: .7rem; font-weight: 800; color: #1a1a1a;
       background: var(--yellow); opacity: 0; transform: scale(.6);
       transition: opacity .13s, transform .13s; }
     .ax-pmodo-op input:checked + .ax-pmodo-card .ax-pmodo-tick { opacity: 1; transform: none; }
     @media (prefers-reduced-motion: reduce) {
-      .ax-pmodo-card, .ax-pmodo-tick, .ax-pmodo-bar { transition: none; }
+      .ax-pmodo-card, .ax-pmodo-tick, .ax-pmodo-bar, .ax-pmodo-ico { transition: none; }
     }
 
     /* Pie del modal: aviso de cambios + atajos, todo a la izquierda. */
