@@ -1692,9 +1692,9 @@ async function saveClient() {
     const ok = await confirmDialog(soloPrompt() ? {
       title: "¿Sacarle el prompt del sistema?",
       text: `${nombreCli} va a generar SOLO con las instrucciones de su ficha. Las reglas `
-          + "generales de la agencia (largos, mayúsculas, cómo no sonar a bot) dejan de "
-          + "aplicarse acá: lo que tenga que cumplir tiene que estar escrito en su prompt. "
-          + "Se nota recién en la próxima tanda.",
+          + "generales de la agencia dejan de aplicarse acá: el idioma, el tono y los "
+          + "personajes tienen que estar escritos en su prompt. La herramienta le mantiene "
+          + "el piso para que no suene a bot. Se nota recién en la próxima tanda.",
       okLabel: "Sí, usar solo su prompt",
     } : {
       title: "¿Volver a sumarle el prompt del sistema?",

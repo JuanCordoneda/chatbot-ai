@@ -3734,8 +3734,13 @@ def prompt_ai():
         contexto = f"Cliente: {nombre}\n\n" if nombre else ""
         if solo:
             contexto += ("Este cliente NO recibe las reglas generales de la agencia: su "
-                         "prompt va solo. Todo lo que tenga que cumplir tiene que estar "
-                         "escrito acá adentro; no des nada por sobreentendido.\n\n")
+                         "prompt va solo. El idioma, el tono, los personajes y los temas "
+                         "tienen que estar escritos acá adentro; no des nada por "
+                         "sobreentendido. Lo único que agrega la herramienta por su cuenta "
+                         "es un piso de oficio (que cada comentario parezca de una persona "
+                         "distinta, que reaccione a algo concreto del post, nada de "
+                         "\"great content\", largos mezclados): ESO no hace falta que lo "
+                         "repitas.\n\n")
         bloque_base = (f"REGLAS GENERALES (contexto: ya se aplican solas, NO las repitas "
                        f"en tu salida):\n<<<\n{base}\n>>>\n\n") if base.strip() else ""
         user_msg = (

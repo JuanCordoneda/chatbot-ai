@@ -9,6 +9,11 @@ Lo que se afirma acá:
   - prendido, el genérico NO aparece en el prompt final (ni su texto ni el
     separador de capas): si se colara, el cliente seguiría peleando con las
     reglas que justamente pidió no tener, y encima pagando esos tokens;
+  - prendido, SÍ va el piso de oficio, y va ABAJO del prompt del cliente. Sin
+    él los comentarios salían planos e intercambiables ("parecen re bots"):
+    el genérico no era solo reglas de la agencia, la mitad era artesanía;
+  - apagado, el piso NO se agrega: el genérico ya lo cubre y de paso lo diría
+    dos veces;
   - apagado, el armado de siempre no cambia — genérico arriba, cliente abajo,
     separador en el medio;
   - prendido pero sin prompt cargado, cae al genérico: mejor eso que mandarle
@@ -62,13 +67,21 @@ def armar(prompt_cliente, solo, client_id="cliente_test", generico=GENERICO):
         ai._repo = None
 
 
-# ── 1. Prendido: va SOLO el prompt del cliente ────────────────────────────────
+# ── 1. Prendido: el prompt del cliente + el piso de oficio ───────────────────
+PISO = "PISO DE OFICIO"
+
 t = armar(CLIENTE, solo=True)
 check("prendido: está el prompt del cliente", CLIENTE in t)
 check("prendido: NO está el genérico", GENERICO not in t, repr(t[:200]))
 check("prendido: NO está el separador de capas",
       "INSTRUCCIONES ESPECÍFICAS DE ESTE CLIENTE" not in t)
-check("prendido: no arrastra nada más", t.strip() == CLIENTE, repr(t))
+check("prendido: está el piso de oficio", PISO in t, repr(t[-120:]))
+check("prendido: el piso va ABAJO del prompt del cliente", t.index(CLIENTE) < t.index(PISO))
+check("prendido: el piso cede ante el cliente", "MANDAN\nLAS DE ARRIBA" in t)
+# El piso es de artesanía, no de estilo: si impusiera idioma o tono estaría
+# peleando con el prompt del cliente, que es justo lo que se quiso evitar.
+check("prendido: el piso no impone idioma", "inglés" not in t.lower())
+check("prendido: nada más que eso", t.strip() == (CLIENTE + ai._PISO_OFICIO).strip())
 
 # ── 2. Apagado: el armado por capas de siempre ───────────────────────────────
 t = armar(CLIENTE, solo=False)
@@ -77,6 +90,7 @@ check("apagado: está el prompt del cliente", CLIENTE in t)
 check("apagado: el genérico va ARRIBA del cliente", t.index(GENERICO) < t.index(CLIENTE))
 check("apagado: está el separador de capas",
       "INSTRUCCIONES ESPECÍFICAS DE ESTE CLIENTE" in t)
+check("apagado: NO se agrega el piso (el genérico ya lo cubre)", PISO not in t)
 
 # ── 3. Prendido pero sin prompt propio: cae al genérico ──────────────────────
 t = armar("", solo=True)

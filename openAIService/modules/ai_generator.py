@@ -275,6 +275,62 @@ def _client_layer(client_id: str, account_id: int | None) -> tuple[str, bool]:
     return "", False
 
 
+# PISO DE OFICIO (solo para los clientes que van sin capa genérica) ───────────
+#
+# El genérico son ~7.000 caracteres, y de esos la mitad no son "reglas de la
+# agencia" sino ARTESANÍA: qué hace que un comentario parezca escrito por una
+# persona y no por una IA. Al sacar la capa entera se iba también eso, y los
+# clientes en modo "solo este prompt" empezaron a devolver comentarios planos,
+# intercambiables, de los que sirven para cualquier post.
+#
+# Esto es el piso: lo mínimo de oficio, sin nada de estilo (ni idioma, ni tono,
+# ni temas, ni personajes: eso es del cliente). Va abajo del prompt del cliente
+# y cede ante él en todo lo que se contradiga — es un piso, no un techo.
+#
+# Se puede apagar con CROW_PISO_OFICIO=0 para un cliente que necesite control
+# absoluto del prompt (ojo: vuelve el problema de los comentarios de bot).
+_PISO_ON = os.environ.get("CROW_PISO_OFICIO", "1").strip().lower() not in ("0", "false", "no")
+
+_PISO_OFICIO = (
+    "\n\n"
+    "════════════════════════════════════════════════════════════════\n"
+    "PISO DE OFICIO (lo pone la herramienta, no el cliente)\n"
+    "Son reglas de artesanía, no de estilo: si algo de acá choca con las\n"
+    "instrucciones de arriba (idioma, tono, largos, temas, personajes), MANDAN\n"
+    "LAS DE ARRIBA. Esto es el piso para que no parezca escrito por una IA.\n"
+    "════════════════════════════════════════════════════════════════\n"
+    "- Cada comentario es de una persona DISTINTA. Nunca variaciones del mismo "
+    "mensaje ni el mismo elogio reescrito de diez maneras.\n"
+    "- Reaccioná a algo CONCRETO de este post (un gesto, una frase, la edición, "
+    "la ropa, el lugar, algo del fondo). Si un detalle no está en el post, no "
+    "existe: no lo inventes.\n"
+    "- Repartí los comentarios entre 5 y 10 detalles distintos del post, no "
+    "todos alrededor de la misma idea.\n"
+    "- PROHIBIDO el repertorio de IA: \"great content\", \"love this\", "
+    "\"amazing\", \"so true\", \"thanks for sharing\", \"nice post\" y cualquier "
+    "elogio intercambiable que serviría igual para otro post.\n"
+    "- Largos mezclados y sin patrón visible: bastantes de 1 a 3 palabras, la "
+    "mayoría cortos, y unos pocos de varias oraciones.\n"
+    "- Escritos desde el teléfono, no redactados: gramática relajada, varios que "
+    "arranquen en minúscula, sin punto final en los cortos, alguna palabra "
+    "suelta en mayúscula.\n"
+    "- NO todos positivos: sumá escépticos, confundidos, neutrales, algún "
+    "pícaro, y preguntas de verdad.\n"
+    "- Ingenio: remates inesperados y específicos de ESTE post. Un comentario "
+    "que podría ir en cualquier video no sirve — reescribilo.\n"
+    "- No repitas estructuras, inicios de frase, remates ni el mismo emoji a lo "
+    "largo de la tanda.\n"
+    "- Nunca inventes un @handle.\n"
+    "- Antes de dar por bueno cada comentario: ¿parece que vio el post?, "
+    "¿parece de otra persona?, ¿podría existir de verdad? Si alguna es \"no\", "
+    "reescribilo."
+)
+
+
+def _piso_oficio() -> str:
+    return _PISO_OFICIO if _PISO_ON else ""
+
+
 def _load_template(client_id: str | None, account_id: int | None = None) -> str:
     """Arma el prompt final: base genérica + capa del cliente (ver arriba).
 
@@ -283,15 +339,16 @@ def _load_template(client_id: str | None, account_id: int | None = None) -> str:
     que quedó como último recurso por si no hay genérico cargado.
 
     Con "usa solo su prompt" prendido en la ficha, el genérico no se arma: va la
-    capa del cliente sola. Si además está sin prompt cargado, igual cae a la
-    base — es preferible eso a mandar un template vacío."""
+    capa del cliente + el piso de oficio (ver arriba). Si además está sin prompt
+    cargado, igual cae a la base — es preferible eso a mandar un template
+    vacío."""
     if not client_id or client_id == GENERIC_CLIENT_ID:
         return _generic_base() or (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
 
     especifico_raw, solo = _client_layer(client_id, account_id)
     especifico = (especifico_raw or "").strip()
     if especifico and solo:
-        return especifico
+        return especifico + _piso_oficio()
 
     base = _generic_base()
     if not especifico:
