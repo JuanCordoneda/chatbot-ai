@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import unicodedata
 import anthropic
 from pathlib import Path
 
@@ -590,6 +591,38 @@ def _sin_vineta(linea: str) -> str:
     return limpio or linea.strip()
 
 
+# Todo lo que no sea letra, número o espacio: emojis, puntuación, comillas. Dos
+# comentarios que solo se diferencian en el emoji del final son el mismo
+# comentario para quien lee el post.
+_NO_ALFANUM_RE = re.compile(r"[^\w\s]", re.UNICODE)
+# Alargues del tipo "holaaaa" / "jajajaaa": mismo comentario escrito distinto.
+# Se colapsan las corridas de 3 o más, no las de 2, para no pisar los dobles
+# legítimos del español (carro, calle, acción).
+# Solo LETRAS: con los dígitos adentro, "1000%" se reducía a "10%" y quedaba
+# como repetido de un comentario que decía otra cosa.
+_ALARGUE_RE = re.compile(r"([^\W\d_])\1{2,}", re.UNICODE)
+
+
+def _clave_dedup(texto: str) -> str:
+    """Clave para decidir si dos comentarios son "el mismo".
+
+    No alcanza con comparar el texto crudo: el modelo repite la misma idea
+    cambiando el emoji, una tilde o una mayúscula, y eso publicado en el mismo
+    post se lee como lo que es (un bot). Se normaliza a minúsculas, sin tildes,
+    sin emojis ni puntuación y sin alargues.
+
+    Si después de limpiar no queda nada (un comentario que es SOLO emojis), se
+    cae al texto crudo en minúsculas: ahí el emoji es el comentario, y dos "🔥🔥"
+    sí son duplicados entre sí, pero "🔥" y "😍" no.
+    """
+    base = unicodedata.normalize("NFD", (texto or "").lower())
+    base = "".join(c for c in base if unicodedata.category(c) != "Mn")   # sin tildes
+    base = _NO_ALFANUM_RE.sub(" ", base)
+    base = _ALARGUE_RE.sub(r"\1", base)
+    base = re.sub(r"\s+", " ", base).strip()
+    return base or (texto or "").strip().lower()
+
+
 class _Rechazo(Exception):
     """La IA rechazó el pedido por políticas.
 
@@ -757,9 +790,13 @@ def generar_comentarios(caption: str, comentarios_existentes: list[str], client_
 
 
 def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, image_b64: str = "", image_media_type: str = "", client_gender=None, client_quality=None, n_imagenes: int = 1, keyword: str = "", shortcode: str = "", cantidad: int = 0, account_id=None, user_id=None):
-    """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa)
-    o ("reset", None) cuando una generación salió cortada y se reintenta desde cero
-    (el consumidor debe descartar lo emitido hasta ese punto).
+    """Yields (tipo, data): ("chunk", texto_parcial), ("comentario", linea_completa),
+    ("descartado", linea_repetida) o ("reset", None) cuando una generación salió
+    cortada y se reintenta desde cero (el consumidor debe descartar lo emitido
+    hasta ese punto).
+
+    "descartado" es un comentario repetido que NO se entrega: el consumidor solo
+    tiene que limpiar el texto parcial que venía mostrando de esa línea.
 
     evitar: comentarios de tandas anteriores que el modelo no debe repetir ni
     parafrasear (usado por "Cargar más").
@@ -804,6 +841,28 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     # solo los que faltan, en vez de tirar todo y re-pagar la salida completa.
     acumulados: list[str] = []
 
+    # Antirrepetidos. El prompt ya pide no repetir (y en "Cargar más" le pasamos
+    # la tanda anterior en `evitar`), pero el modelo igual manda el mismo
+    # comentario dos veces —o el mismo con otro emoji—, y eso se publicaba tal
+    # cual: dos comentarios idénticos abajo del mismo post.
+    #
+    # El repetido se DESCARTA y no cuenta para el total, así que la tanda queda
+    # corta y el mecanismo de completar (más abajo) pide justo los que faltan,
+    # con los ya entregados en la lista de "no repetir". Es decir: se tiran los
+    # repetidos y se generan nuevos, sin re-pagar la tanda entera.
+    #
+    # En modo palabra clave la repetición NO es un defecto (todos los
+    # comentarios son la misma palabra y lo que varía es cómo está escrita), así
+    # que ahí se comparan las FORMAS tal cual: se descarta "toolkit" dos veces,
+    # pero "TOOLKIT" y "toolkit" son formas distintas y las dos sirven.
+    def _clave(texto: str) -> str:
+        return texto.strip() if modo_keyword else _clave_dedup(texto)
+
+    # Las tandas anteriores ("Cargar más") también cuentan como ya vistas. En
+    # modo keyword no: ahí volver a mandar la misma forma es lo esperado.
+    semilla = set() if modo_keyword else {_clave(c) for c in (evitar or []) if c.strip()}
+    descartados = 0
+
     prev_motivo = None
     hubo_error = False   # la vuelta anterior falló por API (≠ entregó de menos)
     for intento in range(1, _MAX_INTENTOS + 1):
@@ -832,6 +891,12 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         count = 0
         buffer = ""
         nuevos: list[str] = []      # lo de ESTA vuelta (por si hay que conservarlo)
+        # Se rearma en cada vuelta a partir de lo que el consumidor TIENE en
+        # pantalla: si hubo "reset" (acumulados vacío), lo de la vuelta anterior
+        # ya no existe para nadie y volver a generarlo es legítimo. Si no se
+        # rearmara, un corte de stream en el primer intento dejaría marcada como
+        # repetida a media tanda buena y la regeneración saldría vacía.
+        vistos = set(semilla) | {_clave(c) for c in acumulados}
         try:
             with _client.messages.stream(
                 model=modelo,
@@ -855,10 +920,20 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                     buffer = lines.pop()
                     for line in lines:
                         line = _sin_vineta(line)
-                        if line:
-                            count += 1
-                            nuevos.append(line)
-                            yield ("comentario", line)
+                        if not line:
+                            continue
+                        clave = _clave(line)
+                        if clave in vistos:
+                            descartados += 1
+                            print(f"[ai] repetido, lo descarto: {line[:60]!r}", flush=True)
+                            # El consumidor venía mostrando esta línea a medida
+                            # que llegaba: hay que decirle que la borre.
+                            yield ("descartado", line)
+                            continue
+                        vistos.add(clave)
+                        count += 1
+                        nuevos.append(line)
+                        yield ("comentario", line)
                 # Los tokens se leen del mensaje final, ya adentro del `with`.
                 # Acá es donde se ve cuánto pesa el thinking: entra en output_tokens.
                 #
@@ -896,9 +971,16 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
         ultimo = _sin_vineta(buffer)
         if ultimo:
-            count += 1
-            nuevos.append(ultimo)
-            yield ("comentario", ultimo)
+            clave = _clave(ultimo)
+            if clave in vistos:
+                descartados += 1
+                print(f"[ai] repetido, lo descarto: {ultimo[:60]!r}", flush=True)
+                yield ("descartado", ultimo)
+            else:
+                vistos.add(clave)
+                count += 1
+                nuevos.append(ultimo)
+                yield ("comentario", ultimo)
 
         total = len(acumulados) + count
 
@@ -907,6 +989,9 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             if total < suficiente:
                 print(f"[ai] tanda entregada corta: {total} de {cantidad_pedida} "
                       f"(se agotaron los {_MAX_INTENTOS} intentos)", flush=True)
+            if descartados:
+                print(f"[ai] {descartados} repetidos descartados en total "
+                      f"({total} comentarios únicos entregados)", flush=True)
             return
 
         # Quedó corta. Si lo que hay ya es aprovechable, se CONSERVA y la vuelta
@@ -915,7 +1000,9 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         # reintenta limpio (el "reset" de arriba avisa al consumidor).
         if total >= _MIN_PARA_COMPLETAR:
             acumulados = acumulados + nuevos
-            prev_motivo = f"tanda corta ({total} de {cantidad_pedida})"
+            prev_motivo = (f"tanda corta ({total} de {cantidad_pedida}"
+                           + (f", {descartados} repetidos descartados" if descartados else "")
+                           + ")")
         else:
             acumulados = []
             prev_motivo = f"generación cortada ({total} líneas)"

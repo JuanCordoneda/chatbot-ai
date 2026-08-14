@@ -1,12 +1,14 @@
 """
-Cifrado simétrico para datos que salen del proceso. Hoy queda un solo uso: la
-cookie que recuerda el usuario para precargar el login. Usamos Fernet (AES-128 +
-HMAC) con una clave tomada de DB_ENCRYPTION_KEY.
+Cifrado simétrico para datos que salen del proceso. Usamos Fernet (AES-128 +
+HMAC) con una clave tomada de DB_ENCRYPTION_KEY. Dos usos hoy:
+  - la cookie que recuerda el usuario para precargar el login;
+  - el respaldo de la contraseña del CRM dentro de la cookie de SESIÓN
+    (`cred_blob`), para que un reinicio del webService no eche al vendedor.
 
-Ojo: esto NO es para contraseñas. La del CRM de Growi no se guarda en ningún
-lado —ni cifrada— porque la clave vive en el mismo entorno que los datos, así
-que quien tiene una tiene la otra. Vive solo en memoria del webService mientras
-el vendedor está logueado.
+Ojo con el segundo: sirve porque el que tiene la cookie NO tiene la clave (vive
+en el server). NO sirve para guardar contraseñas en la base: ahí la clave está
+en el mismo entorno que los datos, así que quien se lleva una se lleva la otra —
+por eso la contraseña del CRM sigue sin persistirse de nuestro lado.
 
 Generar la clave una vez con:
     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

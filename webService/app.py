@@ -261,25 +261,39 @@ def _env_crm_cfg():
     }
 
 
-# ── Contraseñas del CRM: en memoria, nunca en disco ─────────────────────────────
+# ── Contraseñas del CRM: en memoria, con respaldo CIFRADO en la cookie ─────────
 #
-# La contraseña de Growi del vendedor NO se guarda: ni en la DB, ni en la cookie
-# de sesión, ni en la de "recordar usuario". Vive solo acá, en la memoria de este
-# proceso, desde que la tipea al entrar hasta que se desloguea o vence la sesión.
-# Si el proceso se reinicia, se pierde y hay que reloguear — que es exactamente
-# lo que se pidió.
+# La contraseña de Growi del vendedor NO se guarda en disco: ni en la DB, ni en
+# la cookie de "recordar usuario". Vive en la memoria de este proceso desde que
+# la tipea al entrar hasta que se desloguea o vence la sesión.
 #
-# Por qué en memoria y no en la sesión de Flask: `session` es una cookie FIRMADA,
-# no cifrada. Poner la contraseña ahí la mandaría al navegador en algo que
-# cualquiera con la cookie puede leer en claro; sería peor que la DB cifrada que
-# había antes. Lo que viaja en la cookie es `cred_key`, un token aleatorio que no
-# significa nada fuera de esta memoria.
+# Pero la memoria muere con el proceso, y el proceso se reinicia por cualquier
+# deploy o cambio de código (el contenedor corre `flask run --reload`). Eso
+# echaba al vendedor en medio del día de trabajo, sin que hubiera pasado nada
+# raro. Por eso, además de la memoria, la credencial viaja en la propia cookie
+# de sesión CIFRADA con Fernet (`cred_blob`, misma DB_ENCRYPTION_KEY que el
+# resto): cuando el proceso arranca de cero y no encuentra la clave en memoria,
+# la repone desde ahí y la sesión sigue viva.
 #
-# Ojo si algún día esto pasa a correr con varios workers (gunicorn): la memoria
-# no se comparte entre procesos y el vendedor quedaría sin credencial según a qué
-# worker caiga su request. Hoy el web-service corre como un solo proceso.
+# Qué se acepta y qué no con esto:
+#   - La cookie de sesión de Flask está FIRMADA, no cifrada: por eso el password
+#     no va en claro adentro, va como blob Fernet. Con la cookie sola no se lee:
+#     hace falta DB_ENCRYPTION_KEY, que está en el server.
+#   - El costo real: quien ROBE la cookie ya podía operar como el vendedor, pero
+#     ahora esa cookie también sobrevive a un reinicio nuestro. Se mitiga con lo
+#     que ya está: HttpOnly, SameSite=Lax y SESSION_COOKIE_SECURE=1 en prod.
+#   - Sigue sin haber contraseñas guardadas de nuestro lado: si se cae la base o
+#     alguien se lleva un dump, no hay credenciales del CRM adentro.
+#
+# Efecto lateral bueno: si algún día esto corre con varios workers (gunicorn),
+# cada worker puede reponer la credencial desde la cookie en vez de quedarse sin
+# ella según a qué proceso caiga el request.
 _CREDENCIALES = {}
 _credenciales_lock = threading.Lock()
+
+# Versión del blob cifrado. Si algún día cambia el contenido, subir esto invalida
+# los emitidos con el formato viejo (y esos vendedores reloguean una vez).
+_CRED_BLOB_V = 1
 
 
 class CredencialAusente(RuntimeError):
@@ -306,13 +320,80 @@ def _purgar_credenciales(ahora):
 
 
 def _guardar_credencial(account_id, password):
-    """Guarda la contraseña recién tipeada y devuelve la clave para la sesión."""
+    """Guarda la contraseña recién tipeada y devuelve la clave para la sesión.
+
+    Además deja el respaldo cifrado en la sesión, que es lo que permite reponerla
+    después de un reinicio del proceso."""
     clave = secrets.token_urlsafe(32)
     with _credenciales_lock:
         _purgar_credenciales(time.time())
         _CREDENCIALES[clave] = {"account_id": account_id, "password": password,
                                 "ts": time.time()}
+    if has_request_context():
+        session["cred_blob"] = _cifrar_credencial(account_id, password)
     return clave
+
+
+def _cifrar_credencial(account_id, password) -> str:
+    """La credencial como blob Fernet para meterla en la cookie de sesión.
+
+    Si falla el cifrado (falta la clave, cryptography rota) devuelve "" y no
+    rompe nada: el sistema queda como estaba antes, o sea credencial solo en
+    memoria y relogin después de un reinicio.
+    """
+    try:
+        from common.crypto import encrypt as _encrypt
+        return _encrypt(json.dumps({"v": _CRED_BLOB_V, "a": account_id,
+                                    "p": password, "ts": int(time.time())}))
+    except Exception as e:
+        print(f"[login] no pude cifrar la credencial de sesión ({e})", flush=True)
+        return ""
+
+
+def _reponer_credencial(account_id):
+    """Vuelve a poner en memoria la credencial a partir del blob de la cookie.
+
+    Es el camino de después de un reinicio: la cookie sigue viva, la memoria
+    está vacía. Devuelve la contraseña, o "" si el blob no está, no descifra
+    (clave rotada), es de otra cuenta o ya venció.
+    """
+    if not has_request_context():
+        return ""
+    blob = session.get("cred_blob")
+    if not blob:
+        return ""
+    try:
+        from common.crypto import decrypt as _decrypt
+        datos = json.loads(_decrypt(blob) or "{}")
+    except Exception:
+        return ""
+    password = datos.get("p") or ""
+    cuenta = datos.get("a")
+    if datos.get("v") != _CRED_BLOB_V or not password:
+        return ""
+    # Mismo control que en memoria: una cookie de otra cuenta no presta su
+    # contraseña.
+    if account_id and cuenta != account_id:
+        return ""
+    try:
+        emitido = float(datos.get("ts") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if time.time() - emitido > _cred_ttl():
+        return ""
+
+    clave = session.get("cred_key") or secrets.token_urlsafe(32)
+    session["cred_key"] = clave
+    # El blob se re-emite con fecha de hoy: si no, la sesión sería de 30 días
+    # desde el LOGIN y no de 30 días de inactividad, que es la política (ver
+    # PERMANENT_SESSION_LIFETIME + SESSION_REFRESH_EACH_REQUEST).
+    session["cred_blob"] = _cifrar_credencial(cuenta, password)
+    with _credenciales_lock:
+        _purgar_credenciales(time.time())
+        _CREDENCIALES[clave] = {"account_id": cuenta, "password": password,
+                                "ts": time.time()}
+    print(f"[login] credencial repuesta desde la cookie (cuenta {cuenta})", flush=True)
+    return password
 
 
 def _credencial_de_sesion(account_id):
@@ -327,22 +408,31 @@ def _credencial_de_sesion(account_id):
         return ""
     clave = session.get("cred_key")
     if not clave:
-        return ""
+        # Sin clave en la cookie no hay nada en memoria que buscar, pero el blob
+        # puede estar igual (sesión de antes de un reinicio).
+        return _reponer_credencial(account_id)
     with _credenciales_lock:
         entry = _CREDENCIALES.get(clave)
-        if not entry:
-            return ""
-        if time.time() - entry["ts"] > _cred_ttl():
+        if entry and time.time() - entry["ts"] > _cred_ttl():
             del _CREDENCIALES[clave]
+            entry = None
+        if entry and account_id and entry["account_id"] != account_id:
             return ""
-        if account_id and entry["account_id"] != account_id:
-            return ""
-        return entry["password"]
+        if entry:
+            return entry["password"]
+    # No está en memoria: o se reinició el proceso, o se purgó. El blob cifrado
+    # de la cookie la repone sin hacer reloguear al vendedor.
+    return _reponer_credencial(account_id)
 
 
 def _olvidar_credencial():
-    """Borra la contraseña del vendedor que se está deslogueando."""
-    clave = session.get("cred_key") if has_request_context() else None
+    """Borra la contraseña del vendedor que se está deslogueando: la de memoria
+    y el respaldo cifrado de la cookie. Si quedara el blob, el logout no serviría
+    de nada (la próxima visita la repondría)."""
+    if not has_request_context():
+        return
+    session.pop("cred_blob", None)
+    clave = session.pop("cred_key", None)
     if not clave:
         return
     with _credenciales_lock:
@@ -1143,10 +1233,11 @@ def _authenticate_vendedor(email, password):
     if estado == "rejected" or not acc.get("active"):
         return None, MSG_RECHAZADO
 
-    # Credenciales válidas y cuenta habilitada. La password NO se guarda: el
-    # llamador la mete en el almacén en memoria de la sesión (ver
-    # _guardar_credencial). Acá solo se limpia la sesión cacheada vieja de esta
-    # cuenta, para que las próximas operaciones usen la recién validada.
+    # Credenciales válidas y cuenta habilitada. La password no se persiste de
+    # nuestro lado: el llamador la mete en el almacén de la sesión —memoria del
+    # proceso + blob cifrado en la cookie— (ver _guardar_credencial). Acá solo se
+    # limpia la sesión cacheada vieja de esta cuenta, para que las próximas
+    # operaciones usen la recién validada.
     _olvidar_sesion_de_cuenta(acc["id"])
     return {"user_id": None, "account_id": acc["id"],
             "username": acc.get("crm_email") or email, "is_admin": False}, None
@@ -1396,16 +1487,17 @@ def login():
                 session["account_id"] = user["account_id"]
                 session["username"] = user["username"]
                 session["is_admin"] = user["is_admin"]
-                # La contraseña del CRM queda SOLO en memoria del proceso; en la
-                # cookie viaja nada más que la clave que la referencia. Es lo
-                # único que le permite al vendedor operar contra Growi, y muere
-                # con el logout, el vencimiento de la sesión o un reinicio.
+                # La contraseña del CRM va a la memoria del proceso y, cifrada,
+                # a la cookie de sesión (`cred_blob`) para que un reinicio no lo
+                # eche del sistema. Es lo único que le permite operar contra
+                # Growi, y muere con el logout o el vencimiento de la sesión.
                 if user["account_id"]:
                     session["cred_key"] = _guardar_credencial(user["account_id"], password)
                 else:
                     # El admin no tiene cuenta: que no le quede colgada la clave
                     # de la sesión anterior (ahora que el login ya no hace clear).
                     session.pop("cred_key", None)
+                    session.pop("cred_blob", None)
                 # Al entrar, dejamos anotado en la cuenta el ID de vendedor que
                 # el CRM le reconoce. Así el envío de órdenes lo lee de la base y
                 # no depende de volver a parsear las campañas justo cuando el

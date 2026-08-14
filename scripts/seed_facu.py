@@ -11,6 +11,10 @@ Qué crea, todo bajo la cuenta "Growi (Facu)":
 
 Uso (con DATABASE_URL y el .env cargados, tras `alembic upgrade head`):
     python scripts/seed_facu.py
+
+Flags de entorno (opt-in, los dos pisan lo que haya en la DB):
+    RESEED_PROMPTS=1   refresca el prompt de los clientes existentes desde los .txt
+    PROMPT_SOLO_ALL=1  prende "usa solo su prompt" en todos los clientes de la cuenta
 """
 import json
 import os
@@ -24,6 +28,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 
 from common.db import db_available, session_scope  # noqa: E402
 from common.models import Account, User, Client  # noqa: E402
+from common.repository import SYSTEM_IGS  # noqa: E402
 
 
 def _first_existing(*candidates: str) -> str:
@@ -126,6 +131,36 @@ def _seed_clients(s, account: Account):
         print(f"[seed]   cliente creado: @{key} ({display_name})")
 
 
+def _prompt_solo_all(s, account: Account):
+    """PROMPT_SOLO_ALL=1 prende "usa solo su prompt" en TODOS los clientes de la
+    cuenta. Es el UPDATE que la migración 0023 dejó pendiente: el default pasó a
+    venir prendido, pero las fichas anteriores quedaron con el false guardado en
+    su fila y se seguían armando por capas.
+
+    Va detrás de un flag, como RESEED_PROMPTS, porque pisa una decisión que se
+    toma por cliente desde el panel: si no fuera opt-in, cada corrida del seeder
+    volvería a prender los que alguien apagó a mano.
+
+    Los reservados (__generico__, __keyword__) quedan afuera: no son capas de
+    cliente y el flag no los toca nunca al generar."""
+    if os.environ.get("PROMPT_SOLO_ALL", "").strip().lower() not in ("1", "true", "yes"):
+        return
+
+    pendientes = s.query(Client).filter(
+        Client.account_id == account.id,
+        Client.ig_username.notin_(SYSTEM_IGS),
+        Client.prompt_standalone.is_(False),
+    ).all()
+    for c in pendientes:
+        c.prompt_standalone = True
+        # Un cliente sin prompt propio igual cae a la capa genérica al generar
+        # (ver _load_template): el flag queda prendido pero no cambia nada hasta
+        # que se le cargue el prompt.
+        vacio = " (sin prompt cargado: sigue usando el genérico)" if not (c.prompt or "").strip() else ""
+        print(f"[seed]   prompt solo prendido: @{c.ig_username}{vacio}")
+    print(f"[seed] prompt solo: {len(pendientes)} cliente(s) actualizado(s)")
+
+
 def _seed_users(s, account: Account):
     for u in _LEGACY_USERS:
         existing = s.query(User).filter(User.username == u["username"]).first()
@@ -149,6 +184,7 @@ def main():
     with session_scope() as s:
         acc = _get_or_create_account(s)
         _seed_clients(s, acc)
+        _prompt_solo_all(s, acc)
         _seed_users(s, acc)
     print("[seed] listo.")
 

@@ -767,6 +767,11 @@ def procesar_post_web():
                 elif tipo == "comentario":
                     job["comentarios"].append(data)
                     job["current_chunk"] = ""
+                elif tipo == "descartado":
+                    # Comentario repetido: no entra en la tanda. Lo único que hay
+                    # que hacer es limpiar el texto que se venía escribiendo en
+                    # vivo, o quedaría pegado adelante del comentario siguiente.
+                    job["current_chunk"] = ""
                 elif tipo == "reset":
                     # la generación salió cortada y se reintenta: descartamos lo emitido
                     job["comentarios"] = []
