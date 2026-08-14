@@ -1436,6 +1436,7 @@ function _clientFormState() {
   return JSON.stringify([
     v("client-ig"), v("client-name"), v("client-status"), v("client-gender"),
     v("client-quality"), document.getElementById("client-keyword-mode").checked,
+    document.getElementById("client-prompt-standalone").checked,
     v("client-venta"), v("client-prompt"),
     leerRangosDOM(), leerComentariosDOM(),
   ]);
@@ -1488,6 +1489,22 @@ function pintarCabeceraCliente() {
       (pausado ? ' · <span class="ax-pill ax-pill--paused"><span class="ax-pdot"></span>Pausado</span>' : "");
 }
 
+// Qué se le manda al motor depende del switch de "usar solo este prompt", así
+// que la ayuda se repinta en cada cambio y no una sola vez al abrir la ficha:
+// si no, decía que las reglas generales se suman solas justo en el cliente
+// donde no se suman.
+function pintarAyudaPrompt(gen) {
+  const help = document.getElementById("client-prompt-help");
+  if (!help) return;
+  if (gen) {
+    help.innerHTML = "Estas reglas se aplican a <b>todos los clientes</b>, arriba de las instrucciones propias de cada uno. Es el lugar para los arreglos generales (ej: que no todos los comentarios arranquen en minúscula).";
+    return;
+  }
+  help.innerHTML = document.getElementById("client-prompt-standalone").checked
+    ? "Este cliente usa <b>únicamente este prompt</b>: las reglas generales del sistema no se le mandan. Escribí acá todo lo que tenga que cumplir, también lo que en los demás clientes viene del prompt del sistema. El formato de salida lo sigue poniendo la herramienta."
+    : "Acá va <b>solo lo propio de este cliente</b> (rubro, personajes, @menciones, tono). Las reglas generales del prompt de sistema se le suman solas al generar — no hace falta repetirlas. Si algo se contradice, manda lo que escribas acá.";
+}
+
 function updatePromptCount() {
   const txt = document.getElementById("client-prompt").value;
   const palabras = txt.trim() ? txt.trim().split(/\s+/).length : 0;
@@ -1502,6 +1519,12 @@ function updatePromptCount() {
   const kw = document.getElementById("client-keyword-mode").checked;
   document.querySelector("#client-mo .ax-field--editor").classList.toggle("ax-kw-on", kw);
   document.getElementById("client-prompt-teaser-kw").classList.toggle("ax-hidden", !kw);
+  // "Usar solo este prompt" no aplica en las fichas del sistema (el genérico ES
+  // la capa de arriba) ni con palabra clave prendida (ahí no se usa el prompt).
+  const idAbierto = document.getElementById("client-id").value;
+  const gen = !!(idAbierto && (findClient(parseInt(idAbierto)) || {}).reserved);
+  document.getElementById("client-solo-field").classList.toggle("ax-hidden", gen || kw);
+  pintarAyudaPrompt(gen);
   const sucio = clientIsDirty();
   document.getElementById("client-dirty").classList.toggle("ax-on", sucio);
   // Editando sin tocar nada no hay nada que guardar: el botón lo dice en vez de
@@ -1580,7 +1603,11 @@ function openClientModal(id) {
   // Cliente nuevo arranca en estándar: subir a pro es una decisión explícita.
   document.getElementById("client-quality").value = c && c.quality === "pro" ? "pro" : "standard";
   document.getElementById("client-keyword-mode").checked = !!(c && c.keyword_mode);
-  // Las fichas del sistema no son un cliente: no tienen posts propios.
+  // Cliente nuevo nace con su prompt solo (sin la capa genérica arriba); las
+  // fichas ya cargadas muestran lo que tengan guardado.
+  document.getElementById("client-prompt-standalone").checked = c ? !!c.prompt_standalone : true;
+  // Las fichas del sistema no son un cliente: no tienen posts propios. Y el
+  // genérico ES la capa de arriba, así que "usar solo este prompt" no aplica.
   document.getElementById("client-keyword-field").classList.toggle("ax-hidden", gen);
   renderVentaSelect(c ? c.ig_username : document.getElementById("client-ig").value);
   document.getElementById("client-venta").value = c && c.crm_idventa ? c.crm_idventa : "";
@@ -1598,12 +1625,7 @@ function openClientModal(id) {
   }
   // El prompt final del motor son dos capas: el genérico (reglas para todos) +
   // esto. Conviene que quede clarísimo cuál de las dos se está editando.
-  const help = document.getElementById("client-prompt-help");
-  if (help) {
-    help.innerHTML = gen
-      ? "Estas reglas se aplican a <b>todos los clientes</b>, arriba de las instrucciones propias de cada uno. Es el lugar para los arreglos generales (ej: que no todos los comentarios arranquen en minúscula)."
-      : "Acá va <b>solo lo propio de este cliente</b> (rubro, personajes, @menciones, tono). Las reglas generales del prompt de sistema se le suman solas al generar — no hace falta repetirlas. Si algo se contradice, manda lo que escribas acá.";
-  }
+  pintarAyudaPrompt(gen);
   document.getElementById("client-prompt").value = c ? c.prompt : "";
   // Cada ficha arranca sin propuesta de IA pendiente ni pedido asociado: el
   // "Deshacer" de un cliente no puede sobrevivir al abrir otro.
@@ -1694,6 +1716,7 @@ async function saveClient() {
     gender: document.getElementById("client-gender").value,
     quality: document.getElementById("client-quality").value,
     keyword_mode: document.getElementById("client-keyword-mode").checked,
+    prompt_standalone: document.getElementById("client-prompt-standalone").checked,
     ranges,
     prompt: document.getElementById("client-prompt").value,
     // El idvendedor viaja junto al idventa: el CRM imputa la orden a ese par, y
@@ -2513,6 +2536,11 @@ async function runPromptAi() {
       // Cuál de las fichas del sistema: cada una se edita con su propio
       // asistente (el genérico y el de palabra clave no son lo mismo).
       system_key: (abierto && abierto.reserved) ? abierto.ig_username : "",
+      // Con "usar solo este prompt" prendido no hay capa de arriba: el asistente
+      // no tiene que sacar lo que "ya viene del genérico", porque no viene.
+      // Se manda el estado del checkbox, no el guardado: la propuesta se pide
+      // sobre la ficha como está en pantalla.
+      standalone: document.getElementById("client-prompt-standalone").checked,
     });
     aiPromptAnterior = actual;
     document.getElementById("client-prompt").value = d.prompt;

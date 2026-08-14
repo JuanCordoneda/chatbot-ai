@@ -188,6 +188,7 @@ def _client_to_dict(c: Client) -> dict:
         "gender": c.gender,
         "quality": _norm_quality(c.quality),
         "keyword_mode": bool(c.keyword_mode),
+        "prompt_standalone": bool(c.prompt_standalone),
         "ranges": c.ranges or {},
         "crm_idventa": c.crm_idventa or "",
         "crm_idvendedor": c.crm_idvendedor or "",
@@ -266,6 +267,20 @@ def get_client_prompt(ig_username: str, account_id: Optional[int] = None) -> Opt
     return None
 
 
+def get_client_prompt_layer(ig_username: str, account_id: Optional[int] = None) -> tuple[Optional[str], bool]:
+    """Prompt del cliente + si va SOLO (sin la capa genérica arriba).
+
+    Las dos cosas salen de la MISMA fila, así que van juntas: ai_generator las
+    necesita para armar el template y pedirlas por separado eran dos consultas
+    por tanda. El bool es False si no hay DB o el cliente no existe: el default
+    seguro es el armado por capas de siempre."""
+    c = get_client_by_ig_username(ig_username, account_id)
+    if not c:
+        return None, False
+    prompt = c["prompt"] if (c["prompt"] and c["prompt"].strip()) else None
+    return prompt, bool(c["prompt_standalone"])
+
+
 # ── CRUD de clientes (admin self-serve, TAREA 3) ────────────────────────────────
 
 class RepoError(Exception):
@@ -294,7 +309,8 @@ def _norm_ig(ig_username: str) -> str:
 
 def create_client(account_id: int, ig_username: str, display_name: str, prompt: str,
                   status: str = "active", gender=None, quality=None, ranges=None,
-                  crm_idventa=None, crm_idvendedor=None, keyword_mode=False) -> dict:
+                  crm_idventa=None, crm_idvendedor=None, keyword_mode=False,
+                  prompt_standalone=None) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     key = _norm_ig(ig_username)
@@ -320,6 +336,9 @@ def create_client(account_id: int, ig_username: str, display_name: str, prompt: 
             crm_idventa=(crm_idventa or "").strip() or None,
             crm_idvendedor=(crm_idvendedor or "").strip() or None,
             keyword_mode=bool(keyword_mode),
+            # None = no vino en el alta ⇒ el default de fábrica (prendido). Un
+            # False explícito del panel sí se respeta: es alguien que lo apagó.
+            prompt_standalone=True if prompt_standalone is None else bool(prompt_standalone),
         )
         s.add(c)
         s.flush()
@@ -331,7 +350,8 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
                   gender_set=False, quality=None, quality_set=False,
                   ranges=None, ranges_set=False,
                   crm_idventa=None, crm_idvendedor=None,
-                  keyword_mode=None, keyword_mode_set=False) -> dict:
+                  keyword_mode=None, keyword_mode_set=False,
+                  prompt_standalone=None, prompt_standalone_set=False) -> dict:
     if not db_available():
         raise RepoError("Base de datos no disponible")
     with session_scope() as s:
@@ -373,6 +393,8 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
             c.ranges = _norm_ranges(ranges)
         if keyword_mode_set:
             c.keyword_mode = bool(keyword_mode)
+        if prompt_standalone_set:
+            c.prompt_standalone = bool(prompt_standalone)
         # Vaciar el campo = desasignar la venta (vuelve al fallback de la cuenta).
         if crm_idventa is not None:
             c.crm_idventa = crm_idventa.strip() or None
@@ -380,6 +402,48 @@ def update_client(account_id: int, client_id: int, *, display_name=None,
             c.crm_idvendedor = crm_idvendedor.strip() or None
         s.flush()
         return _client_to_dict(c)
+
+
+def fijar_venta_de_cliente(account_id: int, ig_username: str, idventa: str,
+                           idvendedor: str = None) -> bool:
+    """Deja preseteada en la ficha del cliente la campaña con la que SÍ entró una
+    orden. Devuelve True si cambió algo.
+
+    Existe porque la campaña asignada a mano se vence: el cliente queda pegado a
+    una venta sin saldo (o que el CRM ya no lista) y cada envío rebota hasta que
+    alguien se acuerda de entrar a Mis clientes a cambiarla. Cuando el vendedor
+    elige otra campaña en el envío y esa orden entra, la elección se guarda y el
+    próximo envío ya sale bien solo.
+
+    Busca por @usuario, no por id: el envío conoce el perfil de IG del post, no
+    la fila. No toca a los reservados del sistema (el genérico se aplica a los
+    posts de todos los vendedores; fijarle una venta se la impondría a todos).
+    """
+    if not db_available():
+        return False
+    key = _norm_ig(ig_username)
+    idventa = (idventa or "").strip()
+    if not key or not idventa or key in SYSTEM_IGS or account_id is None:
+        return False
+    with session_scope() as s:
+        c = s.query(Client).filter(
+            Client.account_id == account_id,
+            Client.ig_username == key,
+            Client.status == "active",
+        ).first()
+        if not c:
+            return False
+        cambio = False
+        if (c.crm_idventa or "") != idventa:
+            c.crm_idventa = idventa
+            cambio = True
+        # El idvendedor solo se completa si falta: es el mismo número para toda
+        # la cuenta y pisarlo con el de una campaña suelta no aporta nada.
+        idvendedor = (idvendedor or "").strip()
+        if idvendedor and not (c.crm_idvendedor or "").strip():
+            c.crm_idvendedor = idvendedor
+            cambio = True
+        return cambio
 
 
 def delete_client(account_id: int, client_id: int) -> bool:

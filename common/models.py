@@ -227,6 +227,15 @@ class Client(Base):
     # para que el bot del creador le mande el recurso. La palabra sale del
     # caption de cada post; acá solo se decide que el cliente trabaja así.
     keyword_mode = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Prompt sin capa genérica: este cliente usa SOLO su prompt, sin las reglas
+    # generales de la agencia arriba. Para cuentas cuyo estilo pelea con el
+    # genérico y donde escribir "ignorá lo anterior" era el único recurso (y
+    # pagaba igual los tokens de la capa de arriba en cada tanda).
+    #
+    # Viene PRENDIDO de fábrica (0023): un cliente nuevo nace con su prompt solo.
+    # Las fichas anteriores a ese cambio tienen el false guardado en su fila y
+    # siguen armándose por capas hasta que alguien las prenda a mano.
+    prompt_standalone = Column(Boolean, nullable=False, default=True, server_default="true")
     # Rangos min-max de cantidades por producto (TAREA 6). Ej:
     # Cada tipo es una LISTA de entradas, porque un mismo post puede llevar dos
     # calidades del mismo producto con rangos distintos. Ej:

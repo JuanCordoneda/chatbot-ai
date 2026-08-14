@@ -2,8 +2,10 @@ from flask import Flask, request
 import requests
 import json
 import os
+import re
 import threading
 import time
+import unicodedata
 
 app = Flask(__name__)
 
@@ -102,6 +104,125 @@ def estado_ventana():
             "fallos_ultima_hora": len(fallos)}
 
 
+# ── Pedido de comentarios por WhatsApp ───────────────────────────────────────
+#
+# El vendedor le manda al bot UN mensaje con todos los comentarios pegados y el
+# bot se los devuelve de a uno, cada uno en su propio mensaje. Desde ahí los
+# reenvía al grupo con la selección múltiple de WhatsApp, igual que con el botón
+# de la app.
+#
+# Pedirlo por acá tiene una ventaja que el botón no puede tener: escribirle al
+# bot ABRE la ventana de 24h de Meta. O sea que el pedido nunca puede rebotar
+# por ventana cerrada — el mismo mensaje que lo pide es el que la abre.
+
+MAX_COMENTARIOS = 40
+
+# APAGADO a propósito. El código va a prod pero no se usa hasta que se lo
+# prenda a mano con WHATSAPP_PEDIDO_COMENTARIOS=1 en el .env (y recrear el
+# servicio). Con la bandera apagada el mensaje sigue de largo al modelo, o sea
+# que el bot se comporta EXACTAMENTE como antes de esto: es un agregado que
+# todavía no está atado, no un cambio de lo que ya funciona.
+#
+# Además hoy no habría forma de probarlo en prod: todo el camino entrante
+# depende del webhook de Meta, que todavía no está configurado.
+PEDIDO_ACTIVO = os.environ.get('WHATSAPP_PEDIDO_COMENTARIOS', '0').strip().lower() \
+    in ('1', 'true', 'si', 'sí')
+
+# Meta reintenta el webhook cuando no le contestamos rápido, y repartir 20
+# mensajes tarda bastante más que eso. Sin recordar qué mensajes ya atendimos,
+# cada reintento mandaría la tanda entera de nuevo.
+_pedidos_hechos = []
+_pedidos_lock = threading.Lock()
+
+
+def _ya_procesado(mid):
+    if not mid:
+        return False
+    with _pedidos_lock:
+        if mid in _pedidos_hechos:
+            return True
+        _pedidos_hechos.append(mid)
+        del _pedidos_hechos[:-200]
+    return False
+
+
+def _sin_acentos(s):
+    return "".join(c for c in unicodedata.normalize("NFD", s or "")
+                   if unicodedata.category(c) != "Mn").lower()
+
+
+# El comentario se reenvía TAL CUAL al post, así que la numeración con la que
+# venía pegado no puede viajar adentro: "1. qué lindo" terminaría comentado con
+# el "1." puesto.
+_NUMERACION = re.compile(r"^\s*(?:\d+\s*[.)\-–]|[-–•*])\s+")
+
+
+def _parsear_pedido(texto):
+    """¿Es un pedido de reparto? Devuelve (url, comentarios) o None si no lo es.
+
+    El disparador es la PRIMERA línea: alcanza con que hable de comentarios
+    ("enviame estos comentarios", "mandame los comentarios", "comentarios"). Se
+    exige además al menos una línea más, para no secuestrar la charla normal:
+    una sola línea preguntando algo sobre comentarios sigue yendo al modelo.
+    """
+    lineas = [l.strip() for l in (texto or "").splitlines()]
+    lineas = [l for l in lineas if l]
+    if len(lineas) < 2 or "coment" not in _sin_acentos(lineas[0]):
+        return None
+
+    resto = lineas[1:]
+    url = ""
+    if _sin_acentos(resto[0]).startswith(("http://", "https://")):
+        url = resto.pop(0)
+
+    return url, [c for c in (_NUMERACION.sub("", l) for l in resto) if c]
+
+
+def _repartir_en_segundo_plano(numero, mensajes):
+    enviados, fallidos = _mandar_tanda(numero, mensajes)
+    print(f"[pedido] repartidos {enviados}/{len(mensajes)} a {numero}", flush=True)
+    # El vendedor está mirando el chat: si algo no salió tiene que verlo ahí
+    # mismo, no quedarse esperando mensajes que nunca van a llegar.
+    if fallidos:
+        _enviar_texto(numero, f"Te mandé {enviados} de {len(mensajes)}. "
+                              f"El resto falló: {fallidos[0]['detalle']}")
+
+
+def _atender_pedido(numero, texto, mid):
+    """Atiende un pedido de reparto. Devuelve True si lo tomó, y en ese caso el
+    mensaje NO va al modelo: es una orden, no una charla."""
+    # Apagado: no se toca nada y el mensaje sigue su curso normal hacia el
+    # modelo. Devolver False acá es lo que mantiene el bot igual que antes.
+    if not PEDIDO_ACTIVO:
+        return False
+    pedido = _parsear_pedido(texto)
+    if pedido is None:
+        return False
+    if _ya_procesado(mid):
+        print(f"[pedido] {mid} repetido (reintento de Meta), lo ignoro", flush=True)
+        return True
+
+    url, comentarios = pedido
+    if not comentarios:
+        _enviar_texto(numero, "Pegame los comentarios abajo del pedido, uno por línea.")
+        return True
+    if len(comentarios) > MAX_COMENTARIOS:
+        _enviar_texto(numero, f"Son {len(comentarios)} comentarios y el máximo es "
+                              f"{MAX_COMENTARIOS}. Mandámelos en dos tandas.")
+        return True
+
+    # Mismo formato que /send-bulk y que el botón de la app: primero
+    # "Comentarios" con el link, y después cada comentario pelado.
+    mensajes = ([f"Comentarios\n{url}"] if url else []) + comentarios
+
+    # Va en un hilo aparte porque la tanda tarda más de lo que Meta espera por el
+    # webhook, y si no le contestamos enseguida lo reintenta.
+    threading.Thread(target=_repartir_en_segundo_plano,
+                     args=(numero, mensajes), daemon=True).start()
+    print(f"[pedido] {len(mensajes)} mensajes en camino a {numero}", flush=True)
+    return True
+
+
 @app.route("/whatsapp", methods=["POST"])
 def received_message():
     body = request.get_json(silent=True) or {}
@@ -128,6 +249,12 @@ def received_message():
                     if not texto:
                         continue
                     print(f"El texto recibido del usuario es: {texto}", flush=True)
+                    # Primero el reparto: un pedido de comentarios es una orden
+                    # concreta y mandarlo al modelo lo haría contestar sobre los
+                    # comentarios en vez de devolverlos.
+                    if _atender_pedido(normalizar_numero(numero), texto,
+                                       message.get("id")):
+                        continue
                     if OPENAI_SERVICE_URL:
                         if whatsapp_service(enviar_mensaje(texto, numero)):
                             print("Mensaje enviado correctamente.")
@@ -224,6 +351,22 @@ def send_bulk():
     if len(mensajes) > 40:
         return {"error": f"Demasiados mensajes ({len(mensajes)}). El máximo es 40."}, 400
 
+    enviados, fallidos = _mandar_tanda(numero, mensajes)
+
+    # 207: se mandó parte. El front necesita distinguirlo de un fallo total para
+    # decirle al vendedor cuáles reintentar en vez de repetir toda la tanda.
+    status = 200 if not fallidos else (207 if enviados else 502)
+    return {"enviados": enviados, "total": len(mensajes), "fallidos": fallidos}, status
+
+
+def _mandar_tanda(numero, mensajes):
+    """Manda los mensajes de a uno y devuelve (enviados, fallidos).
+
+    Está acá afuera porque la tanda sale por dos caminos —el botón de la app y
+    el pedido por WhatsApp— y tienen que mandar EXACTAMENTE lo mismo, con la
+    misma pausa. Duplicar el reparto es lo que hace que el grupo empiece a
+    recibir dos formatos distintos según por dónde se haya pedido.
+    """
     enviados, fallidos = 0, []
     for i, texto in enumerate(mensajes):
         ok, detalle = _enviar_texto(numero, texto)
@@ -236,11 +379,7 @@ def send_bulk():
         # número, y perder el número es perder el bot y las alertas del CRM.
         if i < len(mensajes) - 1:
             time.sleep(SEND_BULK_DELAY)
-
-    # 207: se mandó parte. El front necesita distinguirlo de un fallo total para
-    # decirle al vendedor cuáles reintentar en vez de repetir toda la tanda.
-    status = 200 if not fallidos else (207 if enviados else 502)
-    return {"enviados": enviados, "total": len(mensajes), "fallidos": fallidos}, status
+    return enviados, fallidos
 
 
 def _enviar_texto(numero, texto):

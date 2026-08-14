@@ -2222,6 +2222,52 @@ def _enviar_ordenes_crm(ordenes, *, post_url="", cliente_ig="", **kw):
                                         cliente_ig=cliente_ig, **kw)
 
 
+def _recordar_campana_del_cliente(account_id, cliente_ig, fondos):
+    """Deja preseteada en la ficha del cliente la campaña con la que la orden
+    ENTRÓ, si no es la que ya tenía.
+
+    El problema que arregla: la campaña asignada a mano se vence (se queda sin
+    saldo, o el CRM deja de listarla) y a partir de ahí todos los envíos de ese
+    cliente rebotan. El vendedor elige otra en el momento y sale, pero la ficha
+    sigue apuntando a la vieja, así que el siguiente envío vuelve a rebotar.
+    Guardando la elección, el rebote pasa a ser uno solo y no una serie.
+
+    Solo se guarda lo que es decisión sobre ESE cliente:
+      - "elegida" con cambio_real: el vendedor mandó una campaña distinta de la
+        que le tocaba. La preselección del paso de órdenes NO cuenta: manda la
+        misma que ya resolvía sola, y guardarla convertiría en fijo a un cliente
+        que hoy sigue solo la última campaña de su perfil.
+      - "auto" con el preseteo vencido: la asignada ya no existe y se usó la
+        última del perfil; se repisa para que la ficha no siga mostrando una
+        campaña muerta.
+    La campaña por defecto de la cuenta no se pinea: no es del cliente, y
+    fijársela lo dejaría atado a ella cuando aparezca una campaña suya.
+
+    Se llama DESPUÉS de que el CRM aceptó: preseteamos campañas que sabemos que
+    funcionan, no las que estamos por probar.
+    """
+    if _repo is None or account_id is None:
+        return
+    ig = (cliente_ig or "").strip().lstrip("@").lower()
+    idventa = (fondos.get("idventa") or "").strip()
+    if not ig or not idventa:
+        return
+    origen = fondos.get("origen")
+    cambio = ((origen == "elegida" and fondos.get("cambio_real"))
+              or (origen == "auto" and fondos.get("pin_vencido")))
+    if not cambio:
+        return
+    try:
+        if _repo.fijar_venta_de_cliente(account_id, ig, idventa,
+                                        fondos.get("idvendedor")):
+            print(f"[fondos] @{ig}: queda preseteada la campaña #{idventa} "
+                  f"({origen})", flush=True)
+    except Exception as e:
+        # Que no se caiga un envío que YA entró por no poder guardar la
+        # preferencia: como mucho el próximo vuelve a resolverla sola.
+        print(f"[fondos] no pude presetear la campaña #{idventa} de @{ig}: {e!r}", flush=True)
+
+
 def _enviar_ordenes_crm_impl(ordenes, *, post_url="", cliente_ig="", idventa_elegida="",
                              disponible=None, account_id=None, user_id=None,
                              username=None, origen="web"):
@@ -2388,6 +2434,10 @@ def _enviar_ordenes_crm_impl(ordenes, *, post_url="", cliente_ig="", idventa_ele
             raise RuntimeError(
                 f"El CRM respondió algo inesperado (no es JSON): {resp.text[:200]}"
             )
+        # La orden entró con ESTA campaña: si es otra que la que tenía la ficha,
+        # queda preseteada para los próximos envíos del cliente.
+        if isinstance(data, dict) and data.get("success"):
+            _recordar_campana_del_cliente(account_id, cliente_ig, fondos)
         return data, resp.text, resp.status_code
 
 
@@ -2887,6 +2937,9 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
         "origen": "default",
         "detalle": "campaña por defecto de la cuenta",
         "saldo": None,
+        # "la campaña que el cliente tenía asignada ya no está en el CRM". Lo lee
+        # el envío para repisar el preseteo con la campaña que sí funcionó.
+        "pin_vencido": False,
     }
 
     # refrescar=True lo usa el ENVÍO: el saldo va cacheado 5 minutos, y mandarle
@@ -2898,40 +2951,59 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
     except Exception as e:
         print(f"[fondos] no pude leer las campañas ({e!r}); uso la de por defecto", flush=True)
 
-    # 0) Elegida a mano en este envío. Se valida contra las campañas de la cuenta
-    #    para que nadie pueda descontarle a una venta que no es suya.
-    elegida = str(idventa_elegida or "").strip()
-    if elegida:
-        v = next((x for x in ventas if x["idventa"] == elegida), None)
-        if v:
-            return {
-                "idventa": v["idventa"],
-                "idvendedor": idvendedor_cuenta or v["idvendedor"] or default["idvendedor"],
-                "origen": "elegida",
-                "detalle": f"campaña #{v['idventa']} ({v['nombre']}) elegida en el envío",
-                "saldo": _venta_saldo(v),
-            }
-        print(f"[fondos] la campaña elegida #{elegida} no es de esta cuenta; sigo con la resolución normal", flush=True)
-
-    # 1) Asignación manual: manda siempre, pero solo si la campaña sigue existiendo.
+    # La campaña que la ficha del cliente tiene asignada hoy. Se lee una sola vez:
+    # la usan tanto la regla 1 como la comparación de la regla 0.
+    cli, manual = None, ""
     if _repo is not None and ig:
         try:
             cli = _repo.get_client_by_ig_username(ig, account_id)
         except Exception:
             cli = None
         manual = (cli or {}).get("crm_idventa") or ""
-        if manual:
-            v = next((x for x in ventas if x["idventa"] == manual), None)
-            if v or not ventas:
-                return {
-                    "idventa": manual,
-                    "idvendedor": (idvendedor_cuenta or (v or {}).get("idvendedor")
-                                   or (cli or {}).get("crm_idvendedor") or default["idvendedor"]),
-                    "origen": "manual",
-                    "detalle": f"campaña #{manual} asignada al cliente",
-                    "saldo": _venta_saldo(v) if v else None,
-                }
-            print(f"[fondos] la campaña #{manual} de @{ig} ya no existe; busco la última", flush=True)
+
+    # 0) Elegida a mano en este envío. Se valida contra las campañas de la cuenta
+    #    para que nadie pueda descontarle a una venta que no es suya.
+    elegida = str(idventa_elegida or "").strip()
+    if elegida:
+        v = next((x for x in ventas if x["idventa"] == elegida), None)
+        if v:
+            # ¿Es un cambio DE VERDAD o el front mandó de vuelta la que ya
+            # correspondía? El paso de órdenes preselecciona la campaña resuelta,
+            # así que casi todos los envíos llegan con `idventa`; sin esta
+            # comparación, "elegida" no distingue al vendedor cambiando la
+            # campaña de la preselección automática, y terminaríamos pineándole
+            # una campaña a cada cliente que hoy resuelve solo.
+            ya_tenia = manual or ((_ultima_campana(ventas, ig) or {}).get("idventa") or "")
+            return {
+                "idventa": v["idventa"],
+                "idvendedor": idvendedor_cuenta or v["idvendedor"] or default["idvendedor"],
+                "origen": "elegida",
+                "detalle": f"campaña #{v['idventa']} ({v['nombre']}) elegida en el envío",
+                "saldo": _venta_saldo(v),
+                "pin_vencido": False,
+                # ya_tenia vacío = el cliente no tiene campaña asignada y su
+                # perfil tampoco tiene ninguna: la elección del vendedor es lo
+                # único que hay, y guardarla evita caer en la de por defecto.
+                "cambio_real": elegida != ya_tenia,
+            }
+        print(f"[fondos] la campaña elegida #{elegida} no es de esta cuenta; sigo con la resolución normal", flush=True)
+
+    # 1) Asignación manual: manda siempre, pero solo si la campaña sigue existiendo.
+    pin_vencido = False
+    if manual:
+        v = next((x for x in ventas if x["idventa"] == manual), None)
+        if v or not ventas:
+            return {
+                "idventa": manual,
+                "idvendedor": (idvendedor_cuenta or (v or {}).get("idvendedor")
+                               or (cli or {}).get("crm_idvendedor") or default["idvendedor"]),
+                "origen": "manual",
+                "detalle": f"campaña #{manual} asignada al cliente",
+                "saldo": _venta_saldo(v) if v else None,
+                "pin_vencido": False,
+            }
+        pin_vencido = True
+        print(f"[fondos] la campaña #{manual} de @{ig} ya no existe; busco la última", flush=True)
 
     # 2) Última campaña del propio perfil.
     v = _ultima_campana(ventas, ig)
@@ -2942,10 +3014,11 @@ def resolver_venta(account_id, ig_username, idventa_elegida=None, refrescar=Fals
             "origen": "auto",
             "detalle": f"última campaña de @{ig} (#{v['idventa']}, {v['nombre']})",
             "saldo": _venta_saldo(v),
+            "pin_vencido": pin_vencido,
         }
 
     # 3) Sin similitudes: la de por defecto.
-    return default
+    return {**default, "pin_vencido": pin_vencido}
 
 
 @app.route("/api/ventas", methods=["GET"])
@@ -3063,6 +3136,7 @@ def admin_clients_create():
         crm_idventa=d.get("crm_idventa"),
         crm_idvendedor=d.get("crm_idvendedor"),
         keyword_mode=d.get("keyword_mode"),
+        prompt_standalone=d.get("prompt_standalone"),
     )
     return jsonify({"client": c}), 201
 
@@ -3104,6 +3178,8 @@ def admin_clients_update(client_id):
         crm_idvendedor=d.get("crm_idvendedor"),
         keyword_mode=d.get("keyword_mode"),
         keyword_mode_set=("keyword_mode" in d),
+        prompt_standalone=d.get("prompt_standalone"),
+        prompt_standalone_set=("prompt_standalone" in d),
     )
     return jsonify({"client": c})
 
@@ -3643,14 +3719,23 @@ def prompt_ai():
             "Devolvé el prompt general completo ya modificado, sin nada alrededor."
         )
     else:
+        # Cliente con "usar solo este prompt": no se le manda el genérico al
+        # generar, así que tampoco va acá. Pasárselo haría lo contrario de lo
+        # que hace falta: el asistente sacaría del prompt lo que "ya viene de
+        # las reglas generales", justo en el único cliente donde no viene.
+        solo = bool(d.get("standalone"))
         base = ""
-        if _repo is not None:
+        if _repo is not None and not solo:
             try:
                 base = _repo.get_generic_prompt() or ""
             except Exception as e:
                 print(f"[prompt-ai] no pude leer el prompt genérico ({e})", flush=True)
         sistema = _AI_SYSTEM
         contexto = f"Cliente: {nombre}\n\n" if nombre else ""
+        if solo:
+            contexto += ("Este cliente NO recibe las reglas generales de la agencia: su "
+                         "prompt va solo. Todo lo que tenga que cumplir tiene que estar "
+                         "escrito acá adentro; no des nada por sobreentendido.\n\n")
         bloque_base = (f"REGLAS GENERALES (contexto: ya se aplican solas, NO las repitas "
                        f"en tu salida):\n<<<\n{base}\n>>>\n\n") if base.strip() else ""
         user_msg = (

@@ -34,6 +34,12 @@ Variables de Entorno: Configura las siguientes variables de entorno en tu sistem
 - GOOGLE_APPLICATION_CREDENTIALS: La ruta al archivo de credenciales de tu cuenta de Google Cloud.
   - Ejemplo local: `GOOGLE_APPLICATION_CREDENTIALS=/Users/abc/Desktop/CROW/chatbot-ai/admin-key.json`
 
+- WHATSAPP_PEDIDO_COMENTARIOS: prende el pedido de comentarios por WhatsApp
+  (mandarle al bot un mensaje con todos los comentarios pegados y recibirlos de
+  a uno). **Apagado por defecto.** Se prende con `=1` y recreando el servicio.
+  Apagado, el bot se comporta igual que antes: el mensaje va al modelo.
+  Ojo: depende del webhook de Meta, que todavía no está configurado.
+
 Modelos de IA (opcionales — si no se setean, valen los defaults):
 
 - CROW_MODEL_PRO: modelo de los clientes marcados **Pro** en el admin. Default `claude-opus-4-8`.

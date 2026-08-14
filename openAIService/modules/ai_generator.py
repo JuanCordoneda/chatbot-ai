@@ -168,6 +168,11 @@ KEYWORD_REPETICIONES = int(os.environ.get("CROW_KEYWORD_REPETICIONES", "15"))
 # cada cliente. Con las capas se escribe una vez en el genérico.
 #
 # La capa del cliente va ABAJO y manda: si se contradicen, gana lo específico.
+#
+# Excepción: la ficha del cliente tiene un switch ("usa solo su prompt") que
+# saca la capa genérica entera. Es para las cuentas cuyo estilo es lo contrario
+# de las reglas generales, donde la única salida era escribir "ignorá todo lo
+# anterior" y pagar igual los tokens del genérico en cada tanda.
 _LAYER_SEP = (
     "\n\n"
     "════════════════════════════════════════════════════════════════\n"
@@ -249,20 +254,25 @@ def _keyword_prompt(keyword: str, evitar: list[str] | None = None) -> str:
     return prompt
 
 
-def _client_layer(client_id: str, account_id: int | None) -> str:
-    """La capa propia del cliente: DB primero, si no el .txt de la imagen."""
+def _client_layer(client_id: str, account_id: int | None) -> tuple[str, bool]:
+    """La capa propia del cliente: DB primero, si no el .txt de la imagen.
+
+    Devuelve (texto, solo). `solo` es la ficha con "usa solo su prompt" prendido:
+    ese cliente no lleva la capa genérica arriba. Los .txt de la imagen no tienen
+    dónde guardar el flag, así que ese camino siempre arma por capas (que es lo
+    que hacían antes de que existiera el switch)."""
     if _repo is not None:
         try:
-            db_prompt = _repo.get_client_prompt(client_id, account_id)
+            db_prompt, solo = _repo.get_client_prompt_layer(client_id, account_id)
             if db_prompt:
-                return db_prompt
+                return db_prompt, solo
         except Exception as e:
             print(f"[ai] prompt DB no disponible, uso archivo ({e})", flush=True)
     client_key = client_id.lower().replace(" ", "")
     client_prompt = _PROMPTS_DIR / "clients" / f"{client_key}.txt"
     if client_prompt.exists():
-        return client_prompt.read_text(encoding="utf-8")
-    return ""
+        return client_prompt.read_text(encoding="utf-8"), False
+    return "", False
 
 
 def _load_template(client_id: str | None, account_id: int | None = None) -> str:
@@ -270,13 +280,20 @@ def _load_template(client_id: str | None, account_id: int | None = None) -> str:
 
     Sin cliente (o cliente genérico) va solo la base. Si el cliente no tiene
     prompt propio, también va solo la base: es mejor default que el default.txt,
-    que quedó como último recurso por si no hay genérico cargado."""
-    base = _generic_base()
+    que quedó como último recurso por si no hay genérico cargado.
 
+    Con "usa solo su prompt" prendido en la ficha, el genérico no se arma: va la
+    capa del cliente sola. Si además está sin prompt cargado, igual cae a la
+    base — es preferible eso a mandar un template vacío."""
     if not client_id or client_id == GENERIC_CLIENT_ID:
-        return base or (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
+        return _generic_base() or (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
 
-    especifico = (_client_layer(client_id, account_id) or "").strip()
+    especifico_raw, solo = _client_layer(client_id, account_id)
+    especifico = (especifico_raw or "").strip()
+    if especifico and solo:
+        return especifico
+
+    base = _generic_base()
     if not especifico:
         return base or (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
     if not base.strip():
