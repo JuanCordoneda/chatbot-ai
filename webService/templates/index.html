@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786880000" />
+  <link rel="stylesheet" href="/static/style.css?v=1786990004" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -307,12 +307,15 @@
             <div class="skeleton-row"><span class="skeleton-px skeleton-px--num"></span><span class="skeleton-px skeleton-px--chk"></span><span class="skeleton-px skeleton-px--txt" style="width:80%"></span><span class="skeleton-px skeleton-px--sw"></span></div>
           </div>
 
-          <!-- La elección se hace en 3 etapas, una pantalla por servicio: primero
+          <!-- La elección se hace en etapas, una pantalla por servicio: primero
                los VERIFICADOS sobre toda la tanda generada; después los COMUNES,
-               eligiendo entre lo que sobró de la etapa 1; y por último (opcional)
-               la tanda de WHATSAPP sobre lo que sobró de las dos. Antes las dos
-               listas convivían en la misma pantalla y había que ir y venir con el
-               switch V/NV comentario por comentario. -->
+               eligiendo entre lo que sobró de la etapa 1; y por último los pasos
+               de reparto sobre lo que sobró de las dos. Antes las dos listas
+               convivían en la misma pantalla y había que ir y venir con el
+               switch V/NV comentario por comentario.
+               Los pasos de reparto son uno o dos según la pregunta de Telegram,
+               así que el nombre del 3 y la existencia del 4 las decide
+               renderEtapa() con ETAPAS; acá va el molde. -->
           <div id="etapa-stepper" class="etapa-stepper hidden">
             <div class="etapa-paso etapa-paso--activo" data-etapa="1">
               <span class="ep-num">1</span>
@@ -326,6 +329,11 @@
             <span class="etapa-sep"></span>
             <div class="etapa-paso" data-etapa="3">
               <span class="ep-num">3</span>
+              <span class="ep-txt"><b>WhatsApp</b><small class="ep-sub">opcional</small></span>
+            </div>
+            <span class="etapa-sep" data-sep-etapa="4"></span>
+            <div class="etapa-paso" data-etapa="4">
+              <span class="ep-num">4</span>
               <span class="ep-txt"><b>WhatsApp</b><small class="ep-sub">opcional</small></span>
             </div>
           </div>
@@ -712,16 +720,21 @@
     <div class="overlay-card repartir-card">
       <div class="repartir-head">
         <div>
-          <p class="overlay-title">Repartir por WhatsApp</p>
+          <!-- El título dice por qué app se está repartiendo: el mismo modal se
+               abre una vez por cada paso de reparto (Telegram y/o WhatsApp), y
+               sin esto no hay forma de saber en cuál estás. Lo fija
+               abrirRepartirCon(). -->
+          <p class="overlay-title" id="repartir-titulo">Repartir por WhatsApp</p>
           <p class="intervalo-subtitle" id="repartir-sub">El link primero, después un comentario por mensaje.</p>
         </div>
         <span class="repartir-progreso" id="repartir-progreso">0 / 0</span>
       </div>
 
-      <!-- La vía MANUAL es la principal: un toque por mensaje y va DIRECTO al
-           chat que elijas, incluido el grupo del cliente. No necesita bot, ni
-           número dado de alta, ni la ventana de 24h de Meta. -->
-      <p class="repartir-guia">
+      <!-- En WhatsApp la vía manual es la principal: un toque por mensaje y va
+           DIRECTO al chat que elijas, incluido el grupo del cliente. En Telegram
+           no hay envío de a uno — va todo al bot en un mensaje — así que el
+           texto lo reescribe renderRepartir() según la app. -->
+      <p class="repartir-guia" id="repartir-guia">
         Tocá <b>Enviar</b> y elegís el chat: el mensaje ya va escrito.
       </p>
 
@@ -732,7 +745,7 @@
            ventana de 24h: es el mismo deep link de siempre, con más texto. -->
       <button type="button" class="repartir-uno" id="repartir-uno" onclick="mandarTodoEnUno()">
         <span aria-hidden="true">📄</span>
-        <span>Mandarme <b id="repartir-uno-n">0</b> en un solo mensaje</span>
+        <span id="repartir-uno-label">Mandarme <b>0</b> en un solo mensaje</span>
       </button>
       <p class="repartir-uno-hint" id="repartir-uno-hint">
         Un mensaje con todos, cada uno con su link para reenviarlo.
@@ -774,20 +787,47 @@
         <div id="repartir-bulk-msg" class="repartir-bulk-msg hidden"></div>
       </div>
 
-      <!-- "Cerrar" vuelve a la lista de comentarios de WhatsApp (paso 3), NO a
-           las órdenes: cerrar el modal no puede decidir por vos que terminaste.
-           Para seguir está el botón de abajo, explícito. -->
+      <!-- "Cerrar" vuelve a la lista de comentarios del paso, NO a las órdenes:
+           cerrar el modal no puede decidir por vos que terminaste. Para seguir
+           está el botón de abajo, explícito. -->
       <div class="intervalo-actions">
         <button type="button" class="header-action-btn" onclick="cerrarRepartir()">← Cerrar y volver a elegir</button>
       </div>
 
+      <!-- El texto lo fija abrirRepartirCon(): desde el paso de Telegram esto
+           NO va a las órdenes, va al paso de WhatsApp con lo que quedó sin
+           elegir. -->
       <div class="repartir-continuar-row">
-        <button type="button" class="btn-publish repartir-continuar" onclick="continuarAOrdenes()">
+        <button type="button" class="btn-publish repartir-continuar" id="repartir-continuar"
+                onclick="continuarDelReparto()">
           Listo, continuar a las órdenes →
         </button>
-        <span class="repartir-continuar-hint">
+        <span class="repartir-continuar-hint" id="repartir-continuar-hint">
           Podés seguir aunque no hayas mandado nada por WhatsApp: es un paso opcional.
         </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- La pregunta que parte el flujo en 3 o 4 pasos. Se hace al salir de los
+       comunes y no antes: es la última decisión que se puede tomar sin rehacer
+       ninguna selección. -->
+  <div id="tg-pregunta-overlay" class="overlay hidden">
+    <div class="overlay-card tgp-card">
+      <span class="tgp-ico" aria-hidden="true">✈️</span>
+      <p class="overlay-title">¿Vas a mandar mensajes por Telegram?</p>
+      <p class="intervalo-subtitle">
+        Si decís que sí, el <b>paso 3</b> es para elegir los de Telegram y el
+        <b>paso 4</b> queda para WhatsApp, con lo que no hayas elegido.
+        Ningún comentario se manda por los dos lados.
+      </p>
+      <div class="tgp-acciones">
+        <button type="button" class="btn-publish tgp-si" onclick="_responderTelegram(true)">
+          Sí, también por Telegram
+        </button>
+        <button type="button" class="header-action-btn tgp-no" onclick="_responderTelegram(false)">
+          No, solo WhatsApp
+        </button>
       </div>
     </div>
   </div>
@@ -811,7 +851,7 @@
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
   <script src="/static/header-menu.js?v=1786880000"></script>
-  <script src="/static/app.js?v=1786880000"></script>
+  <script src="/static/app.js?v=1786990008"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>

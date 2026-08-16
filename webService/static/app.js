@@ -53,46 +53,86 @@ let tipoForzado = null;
 
 // ── Etapas de selección ──────────────────────────────────────────────────────
 // Una pantalla por servicio, en orden: 1) verificados sobre TODA la tanda
-// generada, 2) comunes sobre lo que quedó SIN elegir en la 1, 3) (opcional) la
-// tanda de WhatsApp sobre lo que sobró de las dos. Al pasar de etapa, lo elegido
+// generada, 2) comunes sobre lo que quedó SIN elegir en la 1, y después los
+// pasos de reparto sobre lo que sobró de las dos. Al pasar de etapa, lo elegido
 // se guarda y sale de la lista; lo no elegido se muda al panel de la etapa que
 // sigue. Así el vendedor nunca ve dos veces el mismo comentario disponible.
 // Los textos son largos a propósito: los usa gente que no conoce el sistema y
 // tiene que quedar imposible confundirse de qué se elige en cada paso y qué pasa
 // con lo que NO se elige.
-const ETAPAS = [
-  null,
-  {
-    tipo: "verificado", label: "Verificados", tag: "verificados",
-    paso: "PASO 1 DE 3",
-    titulo: "Elegí SOLO los comentarios VERIFICADOS",
-    desc: "De toda la lista de abajo, marcá únicamente los que querés mandar como <b>Comentarios Reales Verificados</b>. Los comunes NO se eligen acá.",
-    tranqui: "👉 Lo que NO marques no se pierde: pasa al paso 2 para elegir los comunes.",
-    subPaso: "de toda la tanda",
-    siguiente: "Listo, ir al PASO 2: comunes →",
-  },
-  {
-    tipo: "noverif", label: "Comunes", tag: "comunes",
-    paso: "PASO 2 DE 3 · OPCIONAL",
-    titulo: "Ahora elegí SOLO los comentarios COMUNES",
-    desc: "Abajo quedaron únicamente los que <b>no</b> elegiste en el paso 1. Marcá los que querés mandar como <b>Comentarios Reales</b> (comunes, no verificados).",
-    tranqui: "👉 Los verificados del paso 1 ya están guardados: acá no los volvés a ver. Este paso también es opcional: si el cliente no lleva comunes, tocá “Saltar”.",
-    subPaso: "de lo que sobró",
-    siguiente: "Listo, ir al PASO 3: WhatsApp →",
-  },
-  {
+//
+// Los pasos de reparto pueden ser UNO o DOS. Al terminar los comunes se
+// pregunta si esta tanda va también por Telegram: si sí, el paso 3 es Telegram
+// y el 4 WhatsApp, con lo que sobró del 3. Si no, el paso 3 es WhatsApp y no
+// hay 4 — exactamente el flujo de antes. Cada comentario cae en UN destino
+// porque el que se elige en un paso desaparece del siguiente, igual que pasa
+// entre verificados y comunes.
+let ETAPAS = [];
+// ¿Esta tanda tiene paso de Telegram? Lo decide la pregunta del paso 3.
+let repartoTelegram = false;
+
+function _armarEtapas() {
+  const conTg = repartoTelegram;
+  const et = [
+    null,
+    {
+      tipo: "verificado", label: "Verificados", tag: "verificados",
+      titulo: "Elegí SOLO los comentarios VERIFICADOS",
+      desc: "De toda la lista de abajo, marcá únicamente los que querés mandar como <b>Comentarios Reales Verificados</b>. Los comunes NO se eligen acá.",
+      tranqui: "👉 Lo que NO marques no se pierde: pasa al paso 2 para elegir los comunes.",
+      subPaso: "de toda la tanda",
+    },
+    {
+      tipo: "noverif", label: "Comunes", tag: "comunes",
+      titulo: "Ahora elegí SOLO los comentarios COMUNES",
+      desc: "Abajo quedaron únicamente los que <b>no</b> elegiste en el paso 1. Marcá los que querés mandar como <b>Comentarios Reales</b> (comunes, no verificados).",
+      tranqui: "👉 Los verificados del paso 1 ya están guardados: acá no los volvés a ver. Este paso también es opcional: si el cliente no lleva comunes, tocá “Saltar”.",
+      subPaso: "de lo que sobró",
+    },
+  ];
+  if (conTg) {
+    et.push({
+      tipo: "tg", label: "Telegram", tag: "para Telegram",
+      titulo: "¿Cuáles mandás por Telegram?",
+      desc: "Abajo está lo que sobró de los pasos 1 y 2. Marcá los que van por <b>Telegram</b>.",
+      tranqui: "👉 Los que NO marques pasan al paso 4, para WhatsApp: ningún comentario se manda dos veces.",
+      subPaso: "opcional",
+    });
+  }
+  et.push({
     tipo: "wa", label: "WhatsApp", tag: "para WhatsApp",
-    paso: "PASO 3 DE 3 · OPCIONAL",
     titulo: "¿Querés mandar algunos por WhatsApp?",
-    desc: "Abajo está lo que sobró de los pasos 1 y 2. Marcá los que quieras repartir por WhatsApp, uno por mensaje.",
+    desc: conTg
+      ? "Abajo quedó lo que <b>no</b> elegiste para Telegram. Marcá los que quieras repartir por WhatsApp, uno por mensaje."
+      : "Abajo está lo que sobró de los pasos 1 y 2. Marcá los que quieras repartir por WhatsApp, uno por mensaje.",
     tranqui: "👉 Este paso es opcional: si no hace falta, tocá “Saltar, ir a las órdenes”.",
     subPaso: "opcional",
-    siguiente: "📲 Repartir por WhatsApp",
-  },
-];
+  });
+
+  // La numeración y el botón de avance salen de la posición, no se escriben a
+  // mano: con dos armados posibles, un "PASO 3 DE 3" hardcodeado mentiría en la
+  // mitad de los casos.
+  const total = et.length - 1;
+  et.forEach((e, n) => {
+    if (!e) return;
+    e.paso = `PASO ${n} DE ${total}${n >= 2 ? " · OPCIONAL" : ""}`;
+    // Los pasos de reparto no avanzan: abren el reparto de SU app.
+    e.siguiente = e.tipo === "tg" ? "✈️ Repartir por Telegram"
+                : e.tipo === "wa" ? "📲 Repartir por WhatsApp"
+                : `Listo, ir al PASO ${n + 1}: ${et[n + 1].label.toLowerCase()} →`;
+  });
+  ETAPAS = et;
+}
+_armarEtapas();
+
+// Los pasos de reparto (los que abren el modal) contra los de selección.
+function _esEtapaDeReparto(n) { return ETAPAS[n]?.tipo === "tg" || ETAPAS[n]?.tipo === "wa"; }
+function _ultimaEtapa() { return ETAPAS.length - 1; }
+
 let etapa = 1;
-// Índices elegidos en cada etapa (etapaSel[1] = verificados, [2] = comunes, [3] = WA).
-let etapaSel = { 1: [], 2: [], 3: [] };
+// Índices elegidos en cada etapa (etapaSel[1] = verificados, [2] = comunes, y
+// los de reparto según cómo haya quedado armada la tanda).
+let etapaSel = { 1: [], 2: [], 3: [], 4: [] };
 // Los items ya consumidos por una etapa salen del DOM visible pero se conservan
 // acá con su estado, para poder volver atrás sin regenerar nada.
 let _guardaItems = null;
@@ -435,9 +475,12 @@ function manejarEvento(evento) {
     tiposGenerados = [];
     asignadosV = 0;
     asignadosNV = 0;
-    // Se reinicia la tanda entera: volvemos a la etapa 1 sin nada elegido.
+    // Se reinicia la tanda entera: volvemos a la etapa 1 sin nada elegido y sin
+    // el paso de Telegram, que se vuelve a preguntar cuando llegue el momento.
     etapa = 1;
-    etapaSel = { 1: [], 2: [], 3: [] };
+    etapaSel = { 1: [], 2: [], 3: [], 4: [] };
+    repartoTelegram = false;
+    _armarEtapas();
     if (_guardaItems) _guardaItems.innerHTML = "";
     renderEtapa();
     pendingComentarios = [];
@@ -859,6 +902,7 @@ const _SECCIONES = [
 const _TIPOS_PANEL = [
   { key: "verificado", label: "Marcá acá los VERIFICADOS", icon: "✅", corto: "V" },
   { key: "noverif",    label: "Marcá acá los COMUNES",     icon: "💬", corto: "NV" },
+  { key: "tg",         label: "Marcá acá los de TELEGRAM", icon: "✈️", corto: "TG" },
   { key: "wa",         label: "Marcá acá los de WHATSAPP", icon: "📲", corto: "WA" },
 ];
 const _TIPOS_ORDEN = _TIPOS_PANEL.map(t => t.key);
@@ -890,7 +934,7 @@ function _panelTipo(tipo) {
       </div>
       <div class="tp-progreso hidden"><span></span></div>
       <div class="tipo-panel-items"></div>`;
-    // Orden fijo: verificados → comunes → WhatsApp (el mismo de las etapas).
+    // Orden fijo: verificados → comunes → Telegram → WhatsApp (el de las etapas).
     const pos = _TIPOS_ORDEN.indexOf(key);
     const siguiente = [...lista.querySelectorAll(".tipo-panel")]
       .find(p => _TIPOS_ORDEN.indexOf(p.dataset.tipo) > pos);
@@ -901,10 +945,11 @@ function _panelTipo(tipo) {
 
 function _seccionItems(genero, tipo) {
   const tipoKey = _tipoKey(tipo);
-  // WhatsApp va en UNA lista sola: el género define a qué cuenta se le asigna
-  // cada comentario en el CRM, y al grupo se manda todo junto igual. Separarlo
-  // en dos columnas era ruido en un paso que solo copia texto.
-  const key = tipoKey === "wa"
+  // Los pasos de reparto (WhatsApp y Telegram) van en UNA lista sola: el género
+  // define a qué cuenta se le asigna cada comentario en el CRM, y al grupo se
+  // manda todo junto igual. Separarlo en dos columnas era ruido en un paso que
+  // solo copia texto.
+  const key = (tipoKey === "wa" || tipoKey === "tg")
     ? "otros"
     : ((genero === "hombres" || genero === "mujeres") ? genero : "otros");
   const lista = _panelTipo(tipoKey).querySelector(".tipo-panel-items");
@@ -976,8 +1021,9 @@ function _refrescarSecciones() {
   lista.querySelectorAll(".tipo-panel-items").forEach((cont) => {
     const hayH = cont.querySelector('.genero-seccion[data-genero="hombres"]:not(.hidden)');
     const hayM = cont.querySelector('.genero-seccion[data-genero="mujeres"]:not(.hidden)');
-    // La lista de WhatsApp nunca va en 2 columnas: no se separa por género.
-    const dos = cont.closest('.tipo-panel[data-tipo="wa"]')
+    // Las listas de reparto (WhatsApp y Telegram) nunca van en 2 columnas: no
+    // se separan por género.
+    const dos = cont.closest('.tipo-panel[data-tipo="wa"], .tipo-panel[data-tipo="tg"]')
       ? false
       : (esMixto || !!(hayH && hayM));
     cont.classList.toggle("lista-2col", dos);
@@ -1375,9 +1421,34 @@ function copiarComentario(e, index) {
 let repartoItems = [];
 let repartoEnviados = new Set();
 
-// La lista a repartir la arma la ETAPA 3 (avanzarEtapa): son los comentarios
-// que sobraron de las etapas 1 y 2 y que el vendedor eligió mandar al grupo.
-function abrirRepartirCon(textos) {
+// Por qué app se está repartiendo AHORA: lo fija la etapa que abrió el modal
+// ("tg" o "wa"), no una marca por comentario. Cada paso reparte lo suyo.
+let repartoDestino = "wa";
+
+// El bot de Telegram al que se le manda la tanda. Es el equivalente exacto de
+// WHATSAPP_NUMERO_BOT: un bot que YA existe, al que se le pega el bloque y él lo
+// reparte. Nosotros no lo corremos, así que acá no hace falta ningún token: lo
+// único que hacemos es abrirte su chat con el mensaje ya escrito.
+// El backend lo tiene en TELEGRAM_BOT_USER; si algún día lo inyecta en la
+// página, ese gana.
+const TG_BOT = (typeof window !== "undefined" && window.TELEGRAM_BOT) || "growisupbot";
+
+// Abre el chat DEL BOT con el texto ya cargado, igual que wa.me/<numero>?text=.
+// No es t.me/share/url (el selector de chats): ahí habría que elegir el bot a
+// mano cada vez, y el destino de esto siempre es el mismo.
+function _linkTg(texto) {
+  return `https://t.me/${TG_BOT}?text=${encodeURIComponent(texto)}`;
+}
+function _linkWa(texto) { return `https://wa.me/?text=${encodeURIComponent(texto)}`; }
+function _linkDestino(texto) {
+  return repartoDestino === "tg" ? _linkTg(texto) : _linkWa(texto);
+}
+function _appDestino() { return repartoDestino === "tg" ? "Telegram" : "WhatsApp"; }
+
+// La lista a repartir la arma la etapa de reparto (avanzarEtapa): son los
+// comentarios que el vendedor marcó para ESTA app.
+function abrirRepartirCon(textos, destino) {
+  repartoDestino = destino === "tg" ? "tg" : "wa";
 
   // Mismo formato que manda el bot (ver /api/repartir-wa): "Comentarios" + el
   // link, y después cada comentario pelado. Los dos caminos tienen que mandar
@@ -1390,6 +1461,21 @@ function abrirRepartirCon(textos) {
     : { tipo: "comentario", texto: t.texto, incluido: t.incluido }));
   repartoEnviados = new Set();
 
+  // La pantalla entera se pinta del destino de esta etapa: título, guía, botón
+  // y el pie (que en el paso de Telegram no lleva a las órdenes sino al de
+  // WhatsApp). Sin esto, el mismo modal repetido dos veces no se distingue.
+  const tg = repartoDestino === "tg";
+  document.getElementById("repartir-overlay").classList.toggle("repartir--tg", tg);
+  const tit = document.getElementById("repartir-titulo");
+  if (tit) tit.textContent = `Repartir por ${_appDestino()}`;
+  const cont = document.getElementById("repartir-continuar");
+  const contHint = document.getElementById("repartir-continuar-hint");
+  const sigue = ETAPAS[etapa + 1];
+  if (cont) cont.textContent = sigue
+    ? `Listo, seguir al PASO ${etapa + 1}: ${sigue.label} →`
+    : "Listo, continuar a las órdenes →";
+  if (contHint) contHint.textContent = `Podés seguir aunque no hayas mandado nada por ` +
+    `${_appDestino()}: es un paso opcional.`;
 
   // El bloque del bot arranca plegado y NO se consulta nada suyo hasta que se
   // abre: la vía manual no depende del bot, y pedirle el teléfono a alguien que
@@ -1471,18 +1557,28 @@ function cerrarRepartir() {
   _repartoSigueAOrdenes = false;
 }
 
-// Pie del modal: termina el paso 3 (haya mandado o no) y va a las órdenes.
-function continuarAOrdenes() {
+// Pie del modal: cierra el paso de reparto (haya mandado o no). Si abajo hay
+// otro paso de reparto —el de WhatsApp cuando este era el de Telegram— sigue
+// ahí con lo que NO se eligió acá; si era el último, va a las órdenes.
+function continuarDelReparto() {
   document.getElementById("repartir-overlay").classList.add("hidden");
   _repartoSigueAOrdenes = false;
+  if (etapa < _ultimaEtapa()) return _pasarA(etapa + 1);
   irAOrdenes();
 }
 
 function renderRepartir() {
   const lista = document.getElementById("repartir-lista");
+  // Por Telegram NO se manda de a uno: la tanda entera va en un mensaje al bot y
+  // es él el que la reparte. Mandar de a uno acá sería pegarle al bot comentario
+  // por comentario, que es justo el trabajo que el bot viene a sacar. Entonces
+  // en Telegram la lista es para MIRAR y destildar, sin botón por fila.
+  const deAUno = repartoDestino !== "tg";
   // El primero sin enviar. Se resalta para no perder el hilo a mitad de una
   // tanda de 20, que es donde el reparto de a uno se vuelve confuso.
-  const proximo = repartoItems.findIndex((it, i) => it.incluido && !repartoEnviados.has(i));
+  const proximo = deAUno
+    ? repartoItems.findIndex((it, i) => it.incluido && !repartoEnviados.has(i))
+    : -1;
   let n = 0;
   lista.innerHTML = repartoItems.map((it, i) => {
     const enviado = repartoEnviados.has(i);
@@ -1512,9 +1608,10 @@ function renderRepartir() {
         ${it.tipo === "link" ? `<span class="repartir-tag">${etiqueta}</span>` : ""}
         <span class="repartir-texto">${escapeHtml(it.texto)}</span>
       </div>
-      <button type="button" class="repartir-enviar" onclick="enviarWa(${i})"${it.incluido ? "" : " disabled"}>
+      ${deAUno ? `<button type="button" class="repartir-enviar"
+              onclick="enviarUno(${i})"${it.incluido ? "" : " disabled"}>
         ${enviado ? "Reenviar" : "Enviar"}
-      </button>
+      </button>` : ""}
     </div>`;
   }).join("");
 
@@ -1528,6 +1625,14 @@ function renderRepartir() {
   const sub = document.getElementById("repartir-sub");
   if (sub) sub.textContent = `El link del post y ${incluidos - 1} ` +
     `comentario${incluidos === 2 ? "" : "s"} elegido${incluidos === 2 ? "" : "s"}.`;
+
+  const guia = document.getElementById("repartir-guia");
+  if (guia) {
+    guia.innerHTML = deAUno
+      ? "Tocá <b>Enviar</b> y elegís el chat: el mensaje ya va escrito."
+      : `Va todo en <b>un mensaje al bot</b>. Destildá acá abajo lo que no quieras mandar.`;
+  }
+
   _pintarTodoEnUno();
   _marcarFinDeLista();
 }
@@ -1573,7 +1678,61 @@ function _sinEmoji(t) {
   return limpio || String(t || "");
 }
 
+// El bloque único, armado para el destino que toca.
+//
+// En Telegram va SIN los links de reenvío de adentro, y no es por gusto: cada
+// link lleva el comentario codificado por segunda vez (y doble-escapado, porque
+// va adentro de otra URL), así que triplica el largo del bloque. El share de
+// Telegram viaja ENTERO en la URL y su nginx corta la URI cerca de los 8 KB: con
+// 46 comentarios el link daba 11.000 caracteres y contestaba "400 Bad Request"
+// antes de abrir nada. Sin los links el mismo bloque entra cómodo.
+//
+// Lo que se pierde es el reenvío de un toque desde el mensaje. En Telegram eso
+// se hace con "Responder → Reenviar" sobre el bloque, o mandando los comentarios
+// de a uno con los botones de la lista, que ahí sí abren un share por comentario
+// (URLs cortas, sin problema de largo).
 function _textoTodoEnUno() {
+  const tg = repartoDestino === "tg";
+  // El bloque de Telegram va EXACTAMENTE en el formato que espera el bot, que no
+  // es el de lectura:
+  //
+  //   Comentarios
+  //                      <- dos renglones en blanco
+  //   <link del post>
+  //                      <- dos renglones en blanco
+  //   comentario 1
+  //                      <- dos renglones en blanco
+  //   comentario 2
+  //
+  // La primera línea "Comentarios" NO es decorativa: es el DISPARADOR. Es lo que
+  // le dice al bot que esto es una tanda para cortar, y por eso no hay que
+  // elegir "dividir texto" en su menú — llega ya elegido. Sin esa línea, el bot
+  // lo trata como una charla cualquiera.
+  //
+  // El espaciado es el del mensaje que ya funcionó a mano (el bot contestó
+  // "Listo ✅"), copiado tal cual: no sabemos si corta por bloque en blanco o
+  // por renglón exacto, así que se reproduce lo conocido en vez de adivinar.
+  // Si algún día el bot dice otro conteo de mensajes, el separador es esto.
+  const SEP_BOT = "\n\n\n";
+  if (tg) {
+    // Cada comentario va en UNA sola línea: como el corte es por renglones, un
+    // salto adentro lo partiría en dos mensajes, y lo que se publica en el post
+    // es exactamente lo que le llega al bot.
+    const unaLinea = t => String(t || "").replace(/\s+/g, " ").trim();
+    return ["Comentarios", currentUrl]
+      .concat(repartoItems
+        .filter(it => it.tipo === "comentario" && it.incluido)
+        // Los emoji van tal cual: el que los rompía era el deep link de
+        // WhatsApp, Telegram los pasa enteros.
+        .map(it => unaLinea(it.texto)))
+      .filter(Boolean)
+      .join(SEP_BOT);
+  }
+  // De acá para abajo es SOLO WhatsApp (el de Telegram ya salió arriba).
+  const link = _linkWa;
+  // La limpieza de emoji es un parche del deep link de WhatsApp, no una regla
+  // de estilo: es ÉL el que los convierte en el rombo de "carácter desconocido".
+  const leible = _sinEmoji;
   const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
   // El encabezado también lleva su link de reenvío: es el primer mensaje que va
   // al grupo y sin esto había que copiarlo a mano, que era el único paso del
@@ -1585,7 +1744,7 @@ function _textoTodoEnUno() {
   // cuadradito de "no soportado" al pasar por el deep link de WhatsApp — el
   // archivo y la respuesta HTTP salen bien en UTF-8, así que se pierde del otro
   // lado. Con "->" no hay nada que negociar: llega igual en todos lados.
-  const partes = [`${textoCabecera}\n\n-> https://wa.me/?text=${encodeURIComponent(textoCabecera)}`];
+  const partes = [`${textoCabecera}\n\n-> ${link(textoCabecera)}`];
   // Los emoji van TAL CUAL. Se probó limpiarlos del preview porque en WhatsApp
   // Desktop llegan como el rombo de "carácter desconocido", pero eso deja los
   // comentarios sin sus emoji, que es peor. En el celular puede que se vean
@@ -1601,9 +1760,7 @@ function _textoTodoEnUno() {
     // El número NO va como "1. ": WhatsApp lo toma como lista numerada, le
     // aplica su propio formato y mete word-joiners invisibles en el medio. Con
     // el encabezado en su renglón aparte el texto llega tal cual se armó.
-    partes.push(`${n + 1} de ${coms.length}\n` +
-                `${_sinEmoji(it.texto)}\n\n` +
-                `-> https://wa.me/?text=${encodeURIComponent(it.texto)}`);
+    partes.push(`${n + 1} de ${coms.length}\n${leible(it.texto)}\n\n-> ${link(it.texto)}`);
   });
   return partes.join("\n\n");
 }
@@ -1612,26 +1769,59 @@ function mandarTodoEnUno() {
   const texto = _textoTodoEnUno();
   // Se abre en otra pestaña: navegar en la misma recargaría el generador y se
   // perderían los comentarios.
-  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+  window.open(_linkDestino(texto), "_blank", "noopener");
 }
 
-// El botón muestra cuántos van y avisa si el mensaje se está yendo de largo.
-// WhatsApp corta en 4096 caracteres, pero el problema real aparece antes: el
-// deep link viaja en una URL y las muy largas fallan en algunos navegadores.
+// El botón muestra cuántos van y decide si el bloque se puede mandar.
 function _pintarTodoEnUno() {
+  const tg = repartoDestino === "tg";
   const btn = document.getElementById("repartir-uno");
   const hint = document.getElementById("repartir-uno-hint");
-  const nEl = document.getElementById("repartir-uno-n");
-  if (!btn || !nEl) return;
+  const lbl = document.getElementById("repartir-uno-label");
+  if (!btn || !lbl) return;
+
   const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
-  nEl.textContent = coms.length;
-  btn.disabled = coms.length === 0;
-  const largo = _textoTodoEnUno().length;
+  lbl.innerHTML = tg
+    ? `Mandarle los <b>${coms.length}</b> al bot`
+    : `Mandarme <b>${coms.length}</b> en un solo mensaje`;
+  btn.classList.toggle("repartir-uno--tg", tg);
+
+  const texto = _textoTodoEnUno();
+  const largo = texto.length;
+  // Lo que decide si esto funciona NO es el largo del mensaje: es el de la URL
+  // del deep link, que lleva el texto codificado (y los emoji ocupan hasta 12
+  // caracteres cada uno una vez escapados). El server del otro lado corta la
+  // URI antes de mirar nada — Telegram devuelve un "400 Bad Request" de nginx,
+  // que no dice nada de tamaños y parece que el link estuviera roto.
+  const largoUrl = (tg ? _linkTg(texto) : _linkWa(texto)).length;
+  const app = tg ? "Telegram" : "WhatsApp";
+  // Dos techos distintos, y pega el que llegue primero: el mensaje se corta en
+  // 4096 caracteres (las dos apps) y la URI del deep link cerca de los 8 KB
+  // (7000 deja margen). Antes esto era solo un aviso y dejaba mandar igual: con
+  // 46 comentarios el mensaje pasaba los 4096 y los últimos se perdían sin que
+  // nada lo dijera.
+  const pasaMsg = largo > 4096;
+  const noEntra = pasaMsg || largoUrl > 7000;
+
+  btn.disabled = coms.length === 0 || noEntra;
   if (hint) {
-    hint.textContent = largo > 3500
-      ? `El mensaje quedaría de ${largo} caracteres y WhatsApp corta en 4096: destildá algunos o mandalos de a uno.`
-      : "Un mensaje con todos, cada uno con su link para reenviarlo.";
-    hint.classList.toggle("repartir-uno-hint--warn", largo > 3500);
+    // En Telegram no existe el envío de a uno, así que la salida es destildar y
+    // mandar el resto en una segunda vuelta.
+    const salida = tg
+      ? "Destildá algunos y mandá el resto en otra tanda."
+      : "Destildá algunos o mandalos de a uno acá abajo.";
+    hint.textContent = noEntra
+      ? (pasaMsg
+          ? `Son demasiados para un solo mensaje: quedaría de ${largo} caracteres y ` +
+            `${app} corta en 4096. ${salida}`
+          : `Son demasiados para un solo mensaje: el link a ${app} quedaría de ` +
+            `${largoUrl} caracteres y se corta en 8000. ${salida}`)
+      : (largo > 3500
+          ? `El mensaje quedaría de ${largo} caracteres y ${app} corta en 4096: ${salida}`
+          : (tg
+              ? `Se abre el chat de @${TG_BOT} con el bloque ya escrito: tocá enviar y él te los devuelve de a uno.`
+              : "Un mensaje con todos, cada uno con su link para reenviarlo."));
+    hint.classList.toggle("repartir-uno-hint--warn", noEntra || largo > 3500);
   }
 }
 
@@ -1641,12 +1831,13 @@ function toggleIncluido(i) {
   renderRepartir();
 }
 
-function enviarWa(i) {
+// Manda ESTE comentario por la app del paso en curso.
+function enviarUno(i) {
   const it = repartoItems[i];
   if (!it) return;
   // Se abre en otra pestaña: si navegáramos en la misma, volver al generador
   // recargaría la página y se perderían los comentarios generados.
-  window.open(`https://wa.me/?text=${encodeURIComponent(it.texto)}`, "_blank", "noopener");
+  window.open(_linkDestino(it.texto), "_blank", "noopener");
   // Se marca al abrir, no al confirmar: no hay forma de saber si el mensaje se
   // mandó de verdad. Por eso el botón queda como "Reenviar" y no desaparece.
   repartoEnviados.add(i);
@@ -2123,8 +2314,10 @@ function actualizarConteo() {
     if (mostrar) {
       document.getElementById("etapa-vacia-txt").textContent =
         `No sobró ningún comentario para el paso ${etapa}: los elegiste todos en los pasos anteriores. ` +
-        (etapa === 3
-          ? "Podés saltar este paso e ir directo a las órdenes."
+        (_esEtapaDeReparto(etapa)
+          ? (ETAPAS[etapa + 1]
+              ? `Podés saltar este paso e ir al de ${ETAPAS[etapa + 1].label}.`
+              : "Podés saltar este paso e ir directo a las órdenes.")
           : "Generá más, o volvé al paso anterior y sacá algunos.");
     }
   }
@@ -2336,10 +2529,36 @@ function _indiceDe(item) {
 function renderEtapa() {
   const meta = ETAPAS[etapa];
 
+  // El stepper se dibuja acá y no en el HTML: la cantidad de pasos depende de si
+  // la tanda lleva Telegram, y un stepper fijo de 3 chips mentiría en el flujo
+  // de 4 (o dejaría el chip de WhatsApp con el nombre de Telegram).
+  const stepper = document.getElementById("etapa-stepper");
+  if (stepper && stepper.dataset.pasos !== String(_ultimaEtapa())) {
+    stepper.dataset.pasos = String(_ultimaEtapa());
+    stepper.innerHTML = ETAPAS.slice(1).map((e, k) => {
+      const n = k + 1;
+      return `${n > 1 ? '<span class="etapa-sep"></span>' : ""}
+        <div class="etapa-paso" data-etapa="${n}">
+          <span class="ep-num">${n}</span>
+          <span class="ep-txt"><b>${e.label}</b><small class="ep-sub">${e.subPaso}</small></span>
+        </div>`;
+    }).join("");
+  }
+
   document.getElementById("etapa-stepper")?.classList.remove("hidden");
+  // El separador del paso 4 se va con él: si no, con tres pasos queda una raya
+  // suelta colgando al final.
+  document.querySelector("#etapa-stepper [data-sep-etapa='4']")
+    ?.classList.toggle("hidden", !ETAPAS[4]);
   document.querySelectorAll("#etapa-stepper .etapa-paso").forEach((p) => {
     const n = parseInt(p.dataset.etapa, 10);
     const hecho = n < etapa;
+    // Con tres pasos el 4 no existe, y el 3 puede ser Telegram o WhatsApp según
+    // la respuesta: el nombre del chip sale de ETAPAS, no del HTML.
+    p.classList.toggle("hidden", !ETAPAS[n]);
+    if (!ETAPAS[n]) return;
+    const nombre = p.querySelector(".ep-txt b");
+    if (nombre) nombre.textContent = ETAPAS[n].label;
     p.classList.toggle("etapa-paso--activo", n === etapa);
     p.classList.toggle("etapa-paso--hecho", hecho);
     // Un paso ya cerrado muestra CUÁNTOS quedaron elegidos: es la única forma de
@@ -2365,16 +2584,16 @@ function renderEtapa() {
     const saltarCartel = document.getElementById("btn-cartel-saltar");
     if (saltarCartel) {
       saltarCartel.classList.toggle("hidden", etapa === 1);
-      saltarCartel.textContent = etapa === 2
-        ? "Saltar, ir al PASO 3: WhatsApp →"
+      saltarCartel.textContent = etapa === 2 ? "Saltar, ir al PASO 3 →"
+        : ETAPAS[etapa + 1] ? `Saltar, ir al PASO ${etapa + 1}: ${ETAPAS[etapa + 1].label} →`
         : "Saltar, ir a las órdenes →";
     }
   }
 
   const titulo = document.getElementById("reparto-titulo");
   if (titulo) {
-    titulo.textContent = etapa === 3
-      ? "¿Cuántos mando por WhatsApp?"
+    titulo.textContent = _esEtapaDeReparto(etapa)
+      ? `¿Cuántos mando por ${meta.label}?`
       : `¿Cuántos ${meta.tag} mando?`;
   }
   // El título de la tarjeta también dice la etapa: en mobile el cartel puede
@@ -2396,7 +2615,9 @@ function renderEtapa() {
   const saltar = document.getElementById("btn-etapa-saltar");
   if (saltar) {
     saltar.classList.toggle("hidden", etapa === 1);
-    saltar.textContent = etapa === 2 ? "Saltar, ir a WhatsApp" : "Saltar, ir a las órdenes";
+    saltar.textContent = etapa === 2 ? "Saltar, ir al PASO 3"
+      : ETAPAS[etapa + 1] ? `Saltar, ir a ${ETAPAS[etapa + 1].label}`
+      : "Saltar, ir a las órdenes";
   }
   const btn = document.getElementById("btn-publicar");
   if (btn) btn.textContent = meta.siguiente;
@@ -2478,36 +2699,66 @@ function avanzarEtapa() {
         ? `En una sola tanda podés mandar hasta ${TURNO_MAX} comunes (tope de un turno). Tenés ${n} — sacá ${n - TURNO_MAX} o destildá "una sola tanda".`
         : `Podés mandar hasta ${TURNOS_MAX} comunes por día (40 + 40). Tenés ${n} seleccionados — sacá ${n - TURNOS_MAX}.`);
     }
-    return _pasarA(3);
+    // Antes de entrar al reparto hay que saber si esta tanda va por una app o
+    // por dos: de eso depende si el paso 3 es Telegram o WhatsApp.
+    return preguntarTelegram();
   }
 
-  // Etapa 3: la tanda de WhatsApp. Al cerrar el reparto sigue solo a las órdenes.
-  const textos = _itemsEtapa()
-    .filter(it => it.querySelector("input[type=checkbox]")?.checked)
+  // Etapa de reparto (Telegram o WhatsApp): no avanza, abre el modal de SU app.
+  const destino = ETAPAS[etapa].tipo;
+  const app = destino === "tg" ? "Telegram" : "WhatsApp";
+  const elegidos = _itemsEtapa().filter(it => it.querySelector("input[type=checkbox]")?.checked);
+  const textos = elegidos
     .map(it => ({ texto: comentariosGenerados[_indiceDe(it)], incluido: true }))
     .filter(t => t.texto);
   if (!textos.length) {
-    return _errorEtapa("Elegí los comentarios que querés repartir por WhatsApp, o tocá “Saltar”.");
+    return _errorEtapa(`Elegí los comentarios que querés repartir por ${app}, o tocá “Saltar”.`);
   }
-  etapaSel[3] = _itemsEtapa()
-    .filter(it => it.querySelector("input[type=checkbox]")?.checked)
-    .map(_indiceDe);
+  etapaSel[etapa] = elegidos.map(_indiceDe);
   _repartoSigueAOrdenes = true;
-  abrirRepartirCon(textos);
+  abrirRepartirCon(textos, destino);
 }
 
-// En los pasos opcionales (2 y 3), si ya hay comentarios marcados "Saltar" no
-// tiene sentido: saltear los tiraría a la basura. Con selección el mismo botón
-// pasa a ser el de avanzar (paso 2 → WhatsApp, paso 3 → mandar la tanda), y
-// vuelve a "Saltar" si se destilda todo.
+// ── La pregunta del paso 3 ───────────────────────────────────────────────────
+//
+// Se pregunta una vez por tanda, al salir de los comunes, porque es acá donde
+// cambia la forma del resto del flujo: con Telegram son cuatro pasos (3 =
+// Telegram, 4 = WhatsApp con lo que sobre) y sin Telegram son los tres de
+// siempre. Preguntarlo después obligaría a rehacer la selección.
+function preguntarTelegram() {
+  const ov = document.getElementById("tg-pregunta-overlay");
+  if (!ov) return _responderTelegram(false);   // sin el modal, el flujo de siempre
+  ov.classList.remove("hidden");
+}
+
+function _responderTelegram(conTelegram) {
+  repartoTelegram = !!conTelegram;
+  _armarEtapas();
+  document.getElementById("tg-pregunta-overlay")?.classList.add("hidden");
+  _pasarA(3);
+}
+
+// En los pasos opcionales, si ya hay comentarios marcados "Saltar" no tiene
+// sentido: saltear los tiraría a la basura. Con selección el mismo botón pasa a
+// ser el de avanzar (o el de mandar la tanda, en los pasos de reparto), y vuelve
+// a "Saltar" si se destilda todo.
 function _syncSaltar(sel) {
   const avanzar = etapa >= 2 && sel > 0;
+  // A dónde lleva saltear: al paso siguiente si hay, y si no a las órdenes. En
+  // el paso 2 el 3 todavía no tiene app — la define la pregunta de Telegram — así
+  // que se nombra sin prometer cuál.
+  const sigue = ETAPAS[etapa + 1];
+  const aDonde = etapa === 2 ? "al PASO 3"
+               : sigue ? `al PASO ${etapa + 1}: ${sigue.label}`
+               : "a las órdenes";
+  const app = ETAPAS[etapa].tipo === "tg" ? "Telegram" : "WhatsApp";
+  const icono = ETAPAS[etapa].tipo === "tg" ? "✈️" : "📲";
   const txtNav = etapa === 2
-    ? (avanzar ? "Seguir al PASO 3: WhatsApp" : "Saltar, ir a WhatsApp")
-    : (avanzar ? "📲 Enviar por WhatsApp" : "Saltar, ir a las órdenes");
+    ? (avanzar ? `Seguir ${aDonde}` : `Saltar, ir ${aDonde}`)
+    : (avanzar ? `${icono} Enviar por ${app}` : `Saltar, ir ${aDonde}`);
   const txtCartel = etapa === 2
-    ? (avanzar ? "Seguir con los elegidos al PASO 3: WhatsApp →" : "Saltar, ir al PASO 3: WhatsApp →")
-    : (avanzar ? "📲 Enviar los elegidos por WhatsApp →" : "Saltar, ir a las órdenes →");
+    ? (avanzar ? `Seguir con los elegidos ${aDonde} →` : `Saltar, ir ${aDonde} →`)
+    : (avanzar ? `${icono} Enviar los elegidos por ${app} →` : `Saltar, ir ${aDonde} →`);
 
   // Con selección, el botón principal de la barra ("Listo, ir al PASO 3…") ya
   // hace exactamente lo mismo: dejar los dos deja dos botones idénticos pegados.
@@ -2529,18 +2780,19 @@ function saltarOEnviar() {
   saltarEtapa();
 }
 
-// Los pasos 2 y 3 son opcionales: "Saltar" avanza sin elegir nada. Desde los
-// comunes va al paso 3; desde WhatsApp, derecho a las órdenes.
+// Del paso 2 en adelante todo es opcional: "Saltar" avanza sin elegir nada.
+// Desde los comunes se pasa por la pregunta de Telegram; desde un paso de
+// reparto, al siguiente si lo hay (Telegram → WhatsApp) o a las órdenes.
 function saltarEtapa() {
   if (etapa === 2) {
     deseleccionarTodos();
-    return _pasarA(3);
+    return preguntarTelegram();
   }
-  return saltarEtapaWa();
-}
-
-function saltarEtapaWa() {
-  etapaSel[3] = [];
+  etapaSel[etapa] = [];
+  if (etapa < _ultimaEtapa()) {
+    deseleccionarTodos();
+    return _pasarA(etapa + 1);
+  }
   irAOrdenes();
 }
 
@@ -2697,8 +2949,8 @@ function _turnoUnicoSpec() {
 
 async function irAOrdenes() {
   // La selección ya la fijaron las etapas 1 y 2 (por índice, no por posición del
-  // DOM: la lista se muestra mezclada visualmente). La etapa 3 es solo WhatsApp
-  // y no genera órdenes.
+  // DOM: la lista se muestra mezclada visualmente). Los pasos de reparto
+  // (Telegram y WhatsApp) solo copian texto: no generan órdenes.
   const idxVerif   = (etapaSel[1] || []).filter(i => !Number.isNaN(i));
   const idxNoVerif = (etapaSel[2] || []).filter(i => !Number.isNaN(i));
   if (idxVerif.length === 0 && idxNoVerif.length === 0) return;

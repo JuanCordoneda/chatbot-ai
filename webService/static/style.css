@@ -4668,6 +4668,75 @@ input:focus-visible {
 .tanda-unica--on { background: var(--yellow-lo); border-color: var(--yellow); }
 .tanda-unica--on .tanda-unica-ico { background: var(--surface2); }
 
+/* ── Perilla de doble envío (Telegram + WhatsApp) ─────────────────────────────
+   Reusa el switch de .tanda-unica (mismo .tu-track/.tu-knob) pero en el celeste
+   de Telegram: el amarillo es el color de "esta orden sale distinto" y usarlo
+   acá haría que dos cosas sin relación se leyeran como la misma. */
+.reparto-destino {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.reparto-destino:hover { border-color: #2aabee; }
+.rd-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: rgba(42,171,238,0.14);
+  font-size: 1rem;
+}
+.rd-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rd-titulo { font-size: 0.88rem; color: var(--text); }
+.rd-titulo b { color: #2aabee; font-weight: 800; }
+.rd-hint { font-size: 0.76rem; color: var(--muted); }
+
+.reparto-destino .tanda-unica-sw input:checked ~ .tu-track { background: #2aabee; }
+.reparto-destino .tanda-unica-sw input:focus-visible ~ .tu-track { outline-color: #2aabee; }
+.reparto-destino--on { background: rgba(42,171,238,0.10); border-color: #2aabee; }
+.reparto-destino--on .rd-ico { background: var(--surface2); }
+
+/* ── Reparto por Telegram ─────────────────────────────────────────────────────
+   El modal es el mismo para las dos apps; lo único que cambia es el color, para
+   que el paso 3 (Telegram) y el 4 (WhatsApp) no se confundan entre sí. */
+.repartir--tg .repartir-item:hover { border-color: rgba(42,171,238,0.35); }
+.repartir--tg .repartir-enviar {
+  color: #2aabee;
+  border-color: rgba(42,171,238,0.5);
+}
+.repartir--tg .repartir-enviar:hover:not(:disabled),
+.repartir--tg .repartir-item--next .repartir-enviar {
+  background: #2aabee;
+  border-color: #2aabee;
+  color: #04283a;
+}
+.repartir-uno--tg { background: #2aabee; color: #04283a; }
+
+/* La pregunta que decide si la tanda lleva paso de Telegram. */
+.tgp-card { max-width: 430px; text-align: center; }
+.tgp-ico {
+  display: block;
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+.tgp-acciones {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+.tgp-si { background: #2aabee; color: #04283a; }
+.tgp-no { justify-content: center; }
+
 /* ══════════════════════════════════════════════════════════════════════════
    HOME (#step-input) — pulido visual
    ══════════════════════════════════════════════════════════════════════════ */

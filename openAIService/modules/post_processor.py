@@ -11,6 +11,10 @@ import requests as req
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Idioma del contenido (descripción visual + transcripción). Definición única en
+# common/idioma.py, compartida con ai_generator.
+from common import idioma as _idioma
+
 
 @dataclass
 class PostData:
@@ -104,9 +108,9 @@ _whisper_load_lock = threading.Lock()
 _whisper_sem = threading.BoundedSemaphore(int(os.environ.get("WHISPER_CONCURRENCIA", "2")))
 # Cores por transcripción: acotado para que N transcripciones no se peleen por la CPU.
 _WHISPER_THREADS = int(os.environ.get("WHISPER_THREADS", "4"))
-# Idioma de los videos. Vacío = autodetección, que es el default: NO se traduce
-# ni se fuerza idioma. Estaba fijo en "es" y con un cliente que habla inglés
-# whisper decodificaba inglés como español y devolvía un engendro
+# Idioma HABLADO en los videos (el de entrada, no el de salida). Vacío =
+# autodetección, que es el default. Estaba fijo en "es" y con un cliente que
+# habla inglés whisper decodificaba inglés como español y devolvía un engendro
 # ("Si estás cansado de un mejor proceso de practicar, con vías o sellos") que
 # después alimentaba los comentarios. Poner WHISPER_LANGUAGE=es|en solo si hace
 # falta forzar una cuenta puntual.
@@ -115,8 +119,17 @@ _WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "").strip() or None
 # el idioma): con audio de cancha, música o viento la detección se va a cualquier
 # lado y el modelo inventa frases. Si la confianza no llega a este piso, se
 # transcribe en el idioma de respaldo en vez de creerle a la detección.
+# El respaldo es el idioma de contenido (inglés de fábrica): un audio ruidoso de
+# una cuenta en inglés se estaba decodificando como español porque el default
+# acá era "es".
 _WHISPER_LANG_MIN_PROB = float(os.environ.get("WHISPER_LANG_MIN_PROB", "0.5"))
-_WHISPER_LANG_FALLBACK = os.environ.get("WHISPER_LANG_FALLBACK", "es").strip() or None
+_WHISPER_LANG_FALLBACK = (os.environ.get("WHISPER_LANG_FALLBACK", _idioma.IDIOMA_CONTENIDO)
+                          .strip() or None)
+# Salida SIEMPRE en el idioma de contenido: si el video se habla en otro idioma,
+# whisper lo traduce (task="translate", que traduce solo hacia el inglés). Con un
+# idioma de contenido que no sea inglés no hay traducción posible y la
+# transcripción queda literal, en el idioma del video.
+_WHISPER_TASK = "translate" if _idioma.TRADUCE_TRANSCRIPCION else "transcribe"
 # Tamaño del modelo. "small" transcribe bastante mejor que "base" y ocupa ~500MB
 # (vs ~150MB): si el server queda corto de RAM, WHISPER_MODEL=base.
 _WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
@@ -192,12 +205,13 @@ def _transcribe_video(video_path: str) -> str:
             if espera > 0.5:
                 print(f"[whisper] esperó {espera:.1f}s por turno (otra transcripción en curso)", flush=True)
             audio = _preparar_audio(video_path)
-            # task="transcribe" explícito: la transcripción va SIEMPRE en el idioma
-            # que se habla en el video. No se traduce a español ni a nada.
+            # task: la transcripción sale SIEMPRE en el idioma de contenido. Con
+            # "translate" whisper entrega en inglés lo que se habla en cualquier
+            # idioma; el `language` de abajo sigue siendo el idioma HABLADO.
             # vad_filter: recorta los tramos sin voz. Sin esto, whisper "rellena"
             # el ruido ambiente con texto alucinado ("I don't know...") que después
             # se le mostraba al vendedor como si fuera lo que dice el video.
-            opciones = dict(task="transcribe", vad_filter=True,
+            opciones = dict(task=_WHISPER_TASK, vad_filter=True,
                             condition_on_previous_text=False,   # corta el loop de repetir la última frase
                             beam_size=_WHISPER_BEAM)
             segments, info = model.transcribe(audio, language=_WHISPER_LANGUAGE, **opciones)

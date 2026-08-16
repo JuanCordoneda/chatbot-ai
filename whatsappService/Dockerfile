@@ -5,6 +5,7 @@ WORKDIR /app
 COPY app.py /app
 COPY Dockerfile /app
 COPY requirements.txt /app
+COPY privacy.html /app
 
 RUN pip install -r requirements.txt
 

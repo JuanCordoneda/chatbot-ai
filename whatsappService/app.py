@@ -1,5 +1,7 @@
-from flask import Flask, request
+from flask import Flask, request, send_from_directory
 import requests
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -22,6 +24,18 @@ SEND_BULK_DELAY = float(os.environ.get('SEND_BULK_DELAY', '1'))
 @app.route("/saludar", methods=["GET"])
 def saludar():
     return "Hola"
+
+
+@app.route("/privacy", methods=["GET"])
+def privacy():
+    """Política de privacidad, pública y sin login.
+
+    Meta la exige para poder publicar la app, y el revisor la abre sin cuenta.
+    Se sirve desde acá y no desde el webService porque este servicio se deploya
+    solo (railway up), así que la URL queda viva sin esperar un push del resto.
+    """
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)),
+                               "privacy.html")
 
 @app.route("/whatsapp", methods=["GET"])
 def verify_token():
@@ -223,8 +237,47 @@ def _atender_pedido(numero, texto, mid):
     return True
 
 
+# ── Que el webhook sea de Meta y no de cualquiera ────────────────────────────
+#
+# Este endpoint tiene que estar abierto a internet para que Meta lo alcance, y
+# procesarlo dispara envíos. O sea que sin firma, cualquiera que descubra la URL
+# puede hacer que el bot mande una tanda: gasta plata y, peor, le baja la
+# calidad al número (y perder el número es perder el bot).
+#
+# Meta firma cada webhook con el secreto de la app. El secreto sale de Meta →
+# Configuración de la app → Básica → Clave secreta.
+APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '').strip()
+
+if not APP_SECRET:
+    print("[wa] OJO: sin WHATSAPP_APP_SECRET no se verifica la firma del "
+          "webhook. Cualquiera que sepa la URL puede dispararlo.", flush=True)
+
+
+def _firma_valida(crudo):
+    """¿El cuerpo viene firmado por Meta? Sin secreto configurado no se valida
+    nada y se acepta: prefiero que ande sin firma a que el webhook muera en
+    silencio y nadie entienda por qué el bot dejó de contestar."""
+    if not APP_SECRET:
+        return True
+    firma = request.headers.get("X-Hub-Signature-256", "")
+    if not firma.startswith("sha256="):
+        return False
+    esperada = hmac.new(APP_SECRET.encode(), crudo, hashlib.sha256).hexdigest()
+    # compare_digest y no ==: comparar de a un byte filtra, por lo que tarda,
+    # cuál es el prefijo correcto de la firma.
+    return hmac.compare_digest(firma[7:], esperada)
+
+
 @app.route("/whatsapp", methods=["POST"])
 def received_message():
+    # El crudo ANTES de parsear: la firma se calcula sobre los bytes exactos que
+    # mandó Meta, y cualquier reserialización del JSON los cambia.
+    crudo = request.get_data()
+    if not _firma_valida(crudo):
+        print("[webhook] firma inválida, lo descarto", flush=True)
+        # 403 y no 200: esto no es Meta, así que no hay reintento que cuidar.
+        return "firma inválida", 403
+
     body = request.get_json(silent=True) or {}
 
     # El webhook trae DOS cosas distintas: mensajes entrantes y estados de
@@ -480,4 +533,8 @@ def send_template():
         return {"error": str(e)}, 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8501, debug=False)  # Cambia debug a False para producción
+    # Railway asigna el puerto por PORT y rutea el dominio público ahí; si se
+    # queda fijo en 8501 el servicio levanta pero el dominio contesta 502 y
+    # parece que el deploy falló. En local no hay PORT y sigue siendo el 8501
+    # de siempre, que es el que mapea el docker-compose.
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8501)), debug=False)

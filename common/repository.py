@@ -939,6 +939,35 @@ def get_wa_phone(account_id: int) -> str:
         return (a.wa_phone or "") if a else ""
 
 
+def set_tg_chat_id(account_id: int, chat_id) -> str:
+    """Guarda el chat de Telegram del vendedor.
+
+    A diferencia del WhatsApp, esto NO lo tipea nadie: lo devuelve Telegram
+    cuando el vendedor le da /start al bot. Igual se valida, porque un chat_id
+    mal guardado se descubre recién cuando una tanda no llega.
+    """
+    if not db_available():
+        raise RepoError("Base de datos no disponible")
+    n = str(chat_id or "").strip()
+    # Los grupos vienen en negativo, de ahí el lstrip("-").
+    if not n or not n.lstrip("-").isdigit():
+        raise RepoError("Telegram devolvió un chat inválido")
+    with session_scope() as s:
+        a = s.query(Account).filter(Account.id == account_id).first()
+        if not a:
+            raise RepoError("Cuenta no encontrada")
+        a.tg_chat_id = n
+    return n
+
+
+def get_tg_chat_id(account_id: int) -> str:
+    if not db_available() or not account_id:
+        return ""
+    with session_scope() as s:
+        a = s.query(Account).filter(Account.id == account_id).first()
+        return (a.tg_chat_id or "") if a else ""
+
+
 def _unique_slug(s, base: str) -> str:
     slug = base
     n = 2

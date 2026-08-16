@@ -5,6 +5,12 @@ import unicodedata
 import anthropic
 from pathlib import Path
 
+# Quién decide qué es un encabezado de género lo sabe common/ordenes: es el
+# mismo criterio con el que después se arman las órdenes del CRM. Solo usa
+# `random`, no arrastra la capa de datos (por eso no va en el try de más abajo).
+from common.ordenes import es_header_genero
+from common import idioma as _idioma
+
 # max_retries alto: el SDK reintenta solo los 429/529 (overloaded) al abrir el stream
 _client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"), max_retries=4)
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
@@ -22,6 +28,12 @@ _MODEL_STANDARD = os.environ.get("CROW_MODEL_STANDARD", "claude-sonnet-5")
 # oraciones lo que se ve en una imagen no mejora con el modelo caro, y es una
 # llamada por post. Va siempre en el liviano.
 _MODEL_VISION = os.environ.get("CROW_MODEL_VISION", _MODEL_STANDARD)
+
+# Idioma del contenido que producimos sobre el post (descripción visual y
+# transcripción). La definición vive en common/idioma.py: la comparte
+# post_processor, que es quien transcribe.
+IDIOMA_CONTENIDO_NOMBRE = _idioma.NOMBRE
+_ETIQUETA_CONJUNTO = _idioma.ETIQUETA_CONJUNTO
 
 
 # ── Contabilidad de tokens ────────────────────────────────────────────────────
@@ -490,27 +502,29 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     if transcription and not transcription.strip().startswith("("):
         prompt += f"\n\nTranscripción del audio del video:\n---\n{transcription}\n---"
 
-    # La descripción visual la escribimos NOSOTROS en español (es para que la lea
-    # el vendedor), pero el modelo la tomaba como si fuera texto del post y copiaba
-    # las palabras tal cual: en una tanda en inglés salieron "the mesa negra setup",
-    # "the banda en la cabeza is the real MVP", "the mesa oscura reflection". Un
-    # comentario real de ese post nunca diría eso.
-    # La transcripción, en cambio, sí viene en el idioma del video (no se traduce).
+    # La descripción visual la escribimos NOSOTROS (es una nota para el vendedor),
+    # pero el modelo la tomaba como si fuera texto del post y copiaba las palabras
+    # tal cual: cuando la nota estaba en español, en una tanda en inglés salieron
+    # "the mesa negra setup", "the banda en la cabeza is the real MVP". Un
+    # comentario real de ese post nunca diría eso. La aclaración sigue haciendo
+    # falta aunque hoy la nota vaya en inglés (IDIOMA_CONTENIDO): el post puede
+    # estar en otro idioma.
     if photo_description:
         prompt += (
             "\n\nLA DESCRIPCIÓN VISUAL DE ARRIBA ES UNA NOTA INTERNA NUESTRA, escrita "
-            "en español. No es el post ni lo que se lee en pantalla.\n"
+            f"en {IDIOMA_CONTENIDO_NOMBRE}. No es el post ni lo que se lee en pantalla.\n"
             "- Los comentarios van en el idioma del post, no en el de esa nota.\n"
-            "- PROHIBIDO copiar palabras o frases en español de esa nota dentro de un "
-            "comentario que no es en español. Si comentás un detalle, nombralo en el "
-            "idioma del post.\n"
+            f"- PROHIBIDO copiar palabras o frases en {IDIOMA_CONTENIDO_NOMBRE} de esa "
+            "nota dentro de un comentario que no está en ese idioma. Si comentás un "
+            "detalle, nombralo en el idioma del post.\n"
             "- Nunca menciones que existe una descripción."
         )
     if transcription and not transcription.strip().startswith("("):
         prompt += (
-            "\n\nLa transcripción es el audio real del video, en el idioma en el que "
-            "se habla. Si un tramo quedó cortado o no se entiende, ignoralo: no "
-            "comentes sobre eso ni lo completes inventando."
+            f"\n\nLa transcripción es lo que se dice en el video, en {IDIOMA_CONTENIDO_NOMBRE} "
+            "(si el video se habla en otro idioma, viene traducida). Si un tramo quedó "
+            "cortado o no se entiende, ignoralo: no comentes sobre eso ni lo completes "
+            "inventando."
         )
 
     if has_image:
@@ -589,6 +603,100 @@ def _sin_vineta(linea: str) -> str:
     limpio = _VINETA_RE.sub("", linea, count=1).strip()
     # Si la línea era SOLO la viñeta, no la vaciamos: que decida el llamador.
     return limpio or linea.strip()
+
+
+# Markdown que ENVUELVE la línea entera: "**Comentarios:**", "__hombres:__",
+# "### Comentarios", "*qué capo*". Mismo problema que las viñetas: el FORMATO DE
+# SALIDA pide "sin títulos de categoría" y el modelo igual encabeza la tanda,
+# así que la etiqueta se publicaba como el comentario número 1.
+#
+# Tiene que envolver la línea COMPLETA a propósito: un asterisco o un guión bajo
+# sueltos en el medio son parte del comentario, y sobre todo son parte de las
+# @menciones (@juan_perez no puede quedar como @juanperez).
+_ENVOLTURA_MD_RE = re.compile(
+    r"^\s*(?:\#{1,6}\s+(?P<h>.+?)|(?P<m>\*\*|__|\*|_)(?P<t>.+?)(?P=m))\s*$")
+
+
+# Variantes del encabezado de género que el modelo escribe igual aunque el
+# FORMATO DE SALIDA pida la palabra exacta ("Men:", "mujer :", "MALE:"). El
+# front ya las tolera (generoDeHeader en app.js); acá hacen falta por el filtro
+# de preámbulo de abajo, que si no se llevaría puesto un header mal escrito —
+# y sin header todos los comentarios caen en una sola sección.
+# El par canónico no se redefine acá: lo pone common/ordenes, que es quien
+# después arma las órdenes del CRM.
+_HEADER_ALIAS = {
+    "mujer": "mujeres:", "women": "mujeres:", "female": "mujeres:",
+    "hombre": "hombres:", "men": "hombres:", "male": "hombres:",
+}
+# La línea COMPLETA tiene que ser el marcador (una palabra + ":"), no un
+# comentario que arranque con esa palabra.
+_HEADER_RE = re.compile(r"^([a-zñáéíóú]+)\s*:$")
+
+
+def _header_genero(texto: str) -> str:
+    """El encabezado de sección en su forma canónica ("hombres:" / "mujeres:"),
+    o "" si la línea no es un encabezado."""
+    t = (texto or "").strip().lower()
+    if es_header_genero(t):
+        return t
+    m = _HEADER_RE.match(t)
+    return _HEADER_ALIAS.get(m.group(1), "") if m else ""
+
+
+def _es_preambulo(texto: str) -> bool:
+    """¿Es algo que el modelo dijo ANTES de arrancar, y no un comentario?
+
+    Son dos formas, las dos con dos puntos:
+      - la etiqueta sola ("comentarios:", "output:"), sin nada debajo;
+      - la lectura del post en voz alta ("lectura de tono: post de operator/CEO,
+        Cadence entrando fuerte a retail...").
+
+    Que la etiqueta con contenido tenga que ser de VARIAS palabras no es un
+    detalle: "pov: se lo bancó" o "day 3: sigo igual" son comentarios de verdad
+    y arrancan igual. Aun así este criterio es agresivo, y por eso el llamador
+    lo aplica solo mientras no aceptó nada todavía (ver `preambulo`).
+    """
+    etiqueta, sep, resto = texto.partition(":")
+    if not sep or len(etiqueta) > 60:
+        return False
+    if not resto.strip():
+        return True
+    return len(etiqueta.split()) >= 2
+
+
+def _limpiar_linea(linea: str, preambulo: bool = False) -> str:
+    """Una línea del stream -> el comentario listo para publicar, o "" si hay
+    que descartarla.
+
+    Saca la viñeta, desenvuelve el markdown y tira las ETIQUETAS: una línea que
+    el modelo resaltó y que termina en dos puntos es un título de sección, no un
+    comentario. Si está resaltada pero NO termina en dos puntos es un comentario
+    al que le puso énfasis: se queda, sin las marcas (nadie escribe "**qué
+    capo**" abajo de un post).
+
+    `preambulo` = todavía no se aceptó ninguna línea de esta generación. Ahí
+    entra además el filtro de _es_preambulo, que saca lo que el modelo escribe
+    antes de empezar. Se apaga con la primera línea buena porque no hay forma de
+    distinguir esas etiquetas de un comentario que arranca igual, y en el medio
+    de la tanda el comentario es lo probable.
+
+    Excepción en todos los casos: "hombres:" / "mujeres:" son parte del formato
+    y el CRM los necesita para saber el género de cada bloque, así que vuelven
+    canónicos en vez de descartarse.
+    """
+    base = _sin_vineta(linea)
+    m = _ENVOLTURA_MD_RE.match(base)
+    if m:
+        base = (m.group("h") or m.group("t")).strip()
+        if base.endswith(":") and not _header_genero(base):
+            return ""
+    header = _header_genero(base)
+    if header:
+        return header
+    if preambulo and _es_preambulo(base):
+        print(f"[ai] preámbulo del modelo, lo descarto: {base[:70]!r}", flush=True)
+        return ""
+    return base
 
 
 # Todo lo que no sea letra, número o espacio: emojis, puntuación, comillas. Dos
@@ -890,6 +998,9 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
         count = 0
         buffer = ""
+        # Arranca en True en CADA vuelta: el reintento genera de cero y trae su
+        # propio preámbulo. Se apaga con la primera línea que se acepta.
+        preambulo = True
         nuevos: list[str] = []      # lo de ESTA vuelta (por si hay que conservarlo)
         # Se rearma en cada vuelta a partir de lo que el consumidor TIENE en
         # pantalla: si hubo "reset" (acumulados vacío), lo de la vuelta anterior
@@ -919,9 +1030,10 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                     lines = buffer.split("\n")
                     buffer = lines.pop()
                     for line in lines:
-                        line = _sin_vineta(line)
+                        line = _limpiar_linea(line, preambulo)
                         if not line:
                             continue
+                        preambulo = False
                         clave = _clave(line)
                         if clave in vistos:
                             descartados += 1
@@ -969,7 +1081,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             hubo_error = True
             continue
 
-        ultimo = _sin_vineta(buffer)
+        ultimo = _limpiar_linea(buffer, preambulo)
         if ultimo:
             clave = _clave(ultimo)
             if clave in vistos:
@@ -1016,8 +1128,9 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
                      shortcode: str = "", account_id=None, user_id=None,
                      client_id: str | None = None) -> str:
     """Describe textualmente la imagen de un post (para mostrarla al usuario como
-    si fuera el pie de página). Llamada de visión corta, en español. Devuelve ""
-    ante cualquier problema (el llamador simplemente no muestra descripción)."""
+    si fuera el pie de página). Llamada de visión corta, en el idioma de contenido
+    (IDIOMA_CONTENIDO, inglés por default). Devuelve "" ante cualquier problema
+    (el llamador simplemente no muestra descripción)."""
     if not image_b64:
         return ""
     qué_mirar = (
@@ -1036,7 +1149,7 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
                 "cronológico (la 1 es el principio, la última es el final)"
             )
             unidad, conjunto = "captura", (
-                "Al final agregá una última línea que empiece con \"En conjunto:\" "
+                f"Al final agregá una última línea que empiece con \"{_ETIQUETA_CONJUNTO}\" "
                 "contando en 1 o 2 oraciones qué pasa en el video de principio a "
                 "fin (cómo evoluciona la escena)."
             )
@@ -1046,14 +1159,14 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
                 "carrusel de Instagram, en orden"
             )
             unidad, conjunto = "foto", (
-                "Al final agregá una última línea que empiece con \"En conjunto:\" "
+                f"Al final agregá una última línea que empiece con \"{_ETIQUETA_CONJUNTO}\" "
                 "resumiendo de qué se trata el carrusel en 1 oración."
             )
         instruccion = (
             f"{qué_es}, ordenadas de izquierda a derecha y de arriba hacia abajo, "
             "cada una con su número arriba a la izquierda (el número está "
             "sobreimpreso por nosotros, no forma parte de la imagen).\n"
-            f"Describí en español CADA {unidad} por separado: {qué_mirar}.\n"
+            f"Describí en {IDIOMA_CONTENIDO_NOMBRE} CADA {unidad} por separado: {qué_mirar}.\n"
             f"Formato EXACTO, una línea por {unidad} y nada más:\n"
             f"1. <descripción de la {unidad} 1, 1 o 2 oraciones>\n"
             f"2. <descripción de la {unidad} 2, 1 o 2 oraciones>\n"
@@ -1064,7 +1177,7 @@ def describir_imagen(image_b64: str, image_media_type: str = "", caption: str = 
         )
     else:
         instruccion = (
-            "Describí en español, en 2 a 5 oraciones, qué se ve en esta imagen de "
+            f"Describí en {IDIOMA_CONTENIDO_NOMBRE}, en 2 a 5 oraciones, qué se ve en esta imagen de "
             f"Instagram (puede ser una foto, o la portada/preview de un video): {qué_mirar}. "
             "Concreto y fiel a lo que se ve. Devolvé SOLO la descripción, sin "
             "preámbulos ni comillas."

@@ -34,6 +34,13 @@ Variables de Entorno: Configura las siguientes variables de entorno en tu sistem
 - GOOGLE_APPLICATION_CREDENTIALS: La ruta al archivo de credenciales de tu cuenta de Google Cloud.
   - Ejemplo local: `GOOGLE_APPLICATION_CREDENTIALS=/Users/abc/Desktop/CROW/chatbot-ai/admin-key.json`
 
+- WHATSAPP_APP_SECRET: la clave secreta de la app (Meta → Configuración de la
+  app → Básica). Con esto se verifica que el webhook lo mandó Meta y no
+  cualquiera que haya descubierto la URL. **Setearla antes de exponer
+  `/whatsapp` a internet**: procesar el webhook dispara envíos, así que sin
+  firma la URL es un botón de "mandá una tanda" abierto al público. Si no está,
+  el servicio avisa al arrancar y acepta igual (para no matar el webhook en
+  instalaciones que todavía no la setearon).
 - WHATSAPP_PEDIDO_COMENTARIOS: prende el pedido de comentarios por WhatsApp
   (mandarle al bot un mensaje con todos los comentarios pegados y recibirlos de
   a uno). **Apagado por defecto.** Se prende con `=1` y recreando el servicio.

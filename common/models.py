@@ -56,6 +56,11 @@ class Account(Base):
     # cambiar después. Es de la CUENTA y no del User porque los vendedores entran
     # con sus credenciales de Growi y no tienen fila en `users`.
     wa_phone = Column(String(30), nullable=True)
+    # Lo mismo pero para Telegram: el chat al que el bot le manda las tandas. No
+    # se carga a mano, sale del /start que el vendedor le da al bot (ver
+    # /api/vincular-telegram). Es un entero con signo que Telegram puede hacer
+    # bastante largo (los grupos son negativos), así que se guarda como texto.
+    tg_chat_id = Column(String(40), nullable=True)
     crm_disponible = Column(String(50), nullable=True)  # se guarda como texto, se castea a float al usar
 
     users = relationship("User", back_populates="account", cascade="all, delete-orphan")
