@@ -419,6 +419,28 @@ def _system_output_format(client_gender, cantidad: int = 0) -> str:
     )
 
 
+def _trae_formato_propio(template: str) -> bool:
+    """¿El prompt ya trae embebido el bloque de FORMATO DE SALIDA, y entonces el
+    sistema no tiene que agregar el suyo?
+
+    La marca NO puede ser solo la frase "formato de salida". Un cliente escribió
+    su prompt en markdown con una sección "## 📋 Formato de Salida" que habla del
+    largo de los comentarios, y esa coincidencia de palabras apagaba el bloque
+    del sistema ENTERO. Con él se iban los encabezados de género (el CRM se queda
+    sin saber de quién es cada comentario), la cantidad a generar, y las reglas
+    que prohíben numeración, títulos de categoría, @handles inventados y
+    explicaciones. Sin esas reglas el modelo encabezaba la tanda con
+    "comentarios:" o con una lectura del post en voz alta, y eso terminaba
+    publicado como el comentario número 1.
+
+    Lo que hace que un prompt REEMPLACE al bloque del sistema es que defina los
+    encabezados de género: son lo único de ese bloque que no se puede perder, así
+    que un prompt que no los nombra no puede estar reemplazándolo.
+    """
+    t = (template or "").lower()
+    return "formato de salida" in t and ("hombres:" in t or "mujeres:" in t)
+
+
 def _load_prompt(caption: str, comentarios_existentes: list[str], client_id: str | None = None, transcription: str = "", photo_description: str = "", is_video: bool = False, evitar: list[str] | None = None, account_id: int | None = None, has_image: bool = False, client_gender=None, n_imagenes: int = 1, keyword: str = "", cantidad: int = 0) -> str:
     """El prompt completo, en un solo string. Es lo que se usaba siempre; hoy
     quedó como envoltorio de _load_prompt_partes para no romper llamadores."""
@@ -580,9 +602,9 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
         )
 
     # Formato de salida: SIEMPRE lo pone el sistema según el género del cliente.
-    # No es editable desde el panel. Solo se agrega si el prompt no lo trae ya
-    # embebido (prompts viejos con "FORMATO DE SALIDA" adentro siguen funcionando).
-    if "formato de salida" not in template.lower():
+    # No es editable desde el panel. Solo se saltea si el prompt ya lo trae
+    # embebido (prompts viejos con el bloque adentro siguen funcionando).
+    if not _trae_formato_propio(template):
         prompt += _system_output_format(client_gender, cantidad)
 
     # Un template con marcadores lleva el caption adentro: deja de ser estable
@@ -971,6 +993,19 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
     semilla = set() if modo_keyword else {_clave(c) for c in (evitar or []) if c.strip()}
     descartados = 0
 
+    # ANCLA DEL ENCABEZADO. El FORMATO DE SALIDA obliga a que la PRIMERA línea
+    # sea "hombres:" / "mujeres:", así que todo lo que llegue antes no es un
+    # comentario: es el modelo hablando. Es un ancla estructural y no depende de
+    # adivinar la forma del preámbulo, que es lo que _es_preambulo no puede
+    # cubrir: la tanda real de un cliente arrancó con "WOW no ese es el enunciado
+    # del prompt..." (el modelo copiando un ejemplo del prompt y frenándose) y
+    # después "Genero los comentarios:", y las dos líneas se publicaron.
+    # En modo keyword no hay encabezado, así que no hay ancla.
+    pide_header = not modo_keyword
+    # Si el modelo NO emite encabezado, lo retenido son comentarios de verdad: se
+    # sueltan al pasar este tope (o al terminar el stream), nunca se pierden.
+    _MAX_ANTES_HEADER = 5
+
     prev_motivo = None
     hubo_error = False   # la vuelta anterior falló por API (≠ entregó de menos)
     for intento in range(1, _MAX_INTENTOS + 1):
@@ -998,10 +1033,40 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
         count = 0
         buffer = ""
-        # Arranca en True en CADA vuelta: el reintento genera de cero y trae su
-        # propio preámbulo. Se apaga con la primera línea que se acepta.
+        # Arrancan así en CADA vuelta: el reintento genera de cero y trae su
+        # propio preámbulo. `preambulo` se apaga con la primera línea aceptada.
         preambulo = True
+        esperando_header = pide_header
+        retenidas: list[str] = []   # llegaron antes del encabezado (ver el ancla)
         nuevos: list[str] = []      # lo de ESTA vuelta (por si hay que conservarlo)
+
+        def _aceptar(texto: str):
+            """Dedup + contabilidad de una línea ya limpia. Es un generador: el
+            llamador hace `yield from`."""
+            nonlocal count, descartados
+            clave = _clave(texto)
+            if clave in vistos:
+                descartados += 1
+                print(f"[ai] repetido, lo descarto: {texto[:60]!r}", flush=True)
+                # El consumidor venía mostrando esta línea a medida que llegaba:
+                # hay que decirle que la borre.
+                yield ("descartado", texto)
+                return
+            vistos.add(clave)
+            count += 1
+            nuevos.append(texto)
+            yield ("comentario", texto)
+
+        def _soltar_retenidas(motivo: str):
+            """El encabezado no llegó: lo retenido eran comentarios."""
+            nonlocal esperando_header
+            esperando_header = False
+            if not retenidas:
+                return
+            print(f"[ai] {motivo}: suelto {len(retenidas)} línea(s) retenida(s)", flush=True)
+            pendientes, retenidas[:] = retenidas[:], []
+            for t in pendientes:
+                yield from _aceptar(t)
         # Se rearma en cada vuelta a partir de lo que el consumidor TIENE en
         # pantalla: si hubo "reset" (acumulados vacío), lo de la vuelta anterior
         # ya no existe para nadie y volver a generarlo es legítimo. Si no se
@@ -1034,18 +1099,24 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                         if not line:
                             continue
                         preambulo = False
-                        clave = _clave(line)
-                        if clave in vistos:
-                            descartados += 1
-                            print(f"[ai] repetido, lo descarto: {line[:60]!r}", flush=True)
-                            # El consumidor venía mostrando esta línea a medida
-                            # que llegaba: hay que decirle que la borre.
-                            yield ("descartado", line)
-                            continue
-                        vistos.add(clave)
-                        count += 1
-                        nuevos.append(line)
-                        yield ("comentario", line)
+                        if esperando_header:
+                            if _header_genero(line):
+                                # Llegó el ancla: lo de antes era el modelo
+                                # hablando y se va.
+                                esperando_header = False
+                                if retenidas:
+                                    print(f"[ai] {len(retenidas)} línea(s) antes del "
+                                          f"encabezado, las descarto: "
+                                          f"{retenidas[0][:70]!r}", flush=True)
+                                    retenidas.clear()
+                            else:
+                                retenidas.append(line)
+                                if len(retenidas) <= _MAX_ANTES_HEADER:
+                                    continue
+                                yield from _soltar_retenidas(
+                                    f"sin encabezado tras {_MAX_ANTES_HEADER} líneas")
+                                continue
+                        yield from _aceptar(line)
                 # Los tokens se leen del mensaje final, ya adentro del `with`.
                 # Acá es donde se ve cuánto pesa el thinking: entra en output_tokens.
                 #
@@ -1081,18 +1152,14 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
             hubo_error = True
             continue
 
+        # El stream terminó sin encabezado: lo retenido no era preámbulo, eran
+        # comentarios. Van ANTES del último (ese es el orden en que llegaron).
+        if esperando_header:
+            yield from _soltar_retenidas("el stream terminó sin encabezado")
+
         ultimo = _limpiar_linea(buffer, preambulo)
         if ultimo:
-            clave = _clave(ultimo)
-            if clave in vistos:
-                descartados += 1
-                print(f"[ai] repetido, lo descarto: {ultimo[:60]!r}", flush=True)
-                yield ("descartado", ultimo)
-            else:
-                vistos.add(clave)
-                count += 1
-                nuevos.append(ultimo)
-                yield ("comentario", ultimo)
+            yield from _aceptar(ultimo)
 
         total = len(acumulados) + count
 
