@@ -687,6 +687,15 @@ def _cache_get(shortcode: str):
         return None
     if not fila:
         return None
+    # Fila degradada: se guardó mientras el scrape estaba roto (sesión de IG
+    # caída), así que no tiene ni imagen ni descripción. Servirla es peor que no
+    # tener caché — el post sale pelado y el TTL la deja pegada tres días.
+    # Tratarla como miss hace que el próximo intento la re-scrapee y la pise.
+    if not (fila.get("image_b64") or fila.get("photo_description")):
+        print(f"[cache] {shortcode} ignorado: la fila cacheada está vacía "
+              f"(se guardó con el scrape roto), lo vuelvo a bajar", flush=True)
+        return None
+
     data = PostData(comments=[], descripcion_error="",
                     **{k: v for k, v in fila.items() if k != "hits"})
     with _scrape_cache_lock:           # se sube a L1 para los próximos hits
@@ -986,7 +995,16 @@ def scrape_post(url: str, max_comments: int = 0, ligero: bool = False,
     # Se cachea solo si el post salió completo: un video sin transcripción por un
     # error transitorio NO se guarda, así el siguiente intento vuelve a probar.
     transcripcion_fallada = transcription.startswith("(transcripción no disponible")
-    if not transcripcion_fallada and not ligero:
+    # `transcripcion_fallada` no alcanza: si la API de Instagram falla, un reel
+    # con URL /p/ queda marcado como foto (el og:type público dice "article"),
+    # nunca entra en la rama de transcripción, y se cacheaba como una foto sin
+    # nada adentro. Miramos el error de la API y la falta de imagen, que es lo
+    # que de verdad indica que el scrape salió incompleto.
+    scrape_degradado = bool(slow.get("_error")) or not image_b64
+    if scrape_degradado:
+        print(f"[cache] {shortcode} no se persiste: scrape incompleto "
+              f"({slow.get('_error') or 'sin imagen'})", flush=True)
+    if not transcripcion_fallada and not scrape_degradado and not ligero:
         _cache_put(shortcode, resultado)
     print(f"[TIMING] scrape_post total: {time.time()-t0:.2f}s", flush=True)
     return resultado
