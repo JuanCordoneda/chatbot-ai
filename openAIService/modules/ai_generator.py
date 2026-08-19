@@ -805,6 +805,16 @@ _PROMPT_CACHE = os.environ.get("CROW_PROMPT_CACHE", "1").strip() not in ("0", "f
 _THINKING = os.environ.get("CROW_THINKING", "adaptive").strip().lower()
 _EFFORT = os.environ.get("CROW_EFFORT", "medium").strip().lower()
 
+# Cupo de salida por llamada. OJO: el thinking sale de ACÁ, no de un presupuesto
+# aparte. Con 8192 y effort medium, opus-4.8 planificando una tanda de 100+
+# comentarios se comía el cupo entero PENSANDO y el stream terminaba con 0
+# líneas de texto: se leía como "generación cortada", se quemaban los 4 intentos
+# (~8 minutos y ~$0.85) y el vendedor no recibía nada. Los modelos actuales
+# aceptan hasta 128k de salida y acá siempre se llama por stream, así que no hay
+# riesgo de timeout HTTP. No es gasto extra: se paga la salida REAL, esto es
+# solo el techo.
+_MAX_TOKENS = int(os.environ.get("CROW_MAX_TOKENS", "32000"))
+
 # ¿Se le manda la imagen también a la generación, o alcanza con la descripción
 # visual en texto que ya generó la llamada de visión? Mandarla cuesta ~1100
 # tokens por intento. En 1 se comporta como siempre; en 0 se ahorra eso a costa
@@ -1008,6 +1018,10 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
 
     prev_motivo = None
     hubo_error = False   # la vuelta anterior falló por API (≠ entregó de menos)
+    # Se puede degradar en caliente (ver el corte por max_tokens más abajo): si
+    # una vuelta se fue entera en thinking, la siguiente piensa menos en vez de
+    # repetir el mismo fracaso otras tres veces.
+    extra_intento = extra
     for intento in range(1, _MAX_INTENTOS + 1):
         if intento > 1:
             print(f"[ai] {prev_motivo}, reintento {intento}/{_MAX_INTENTOS}"
@@ -1076,9 +1090,8 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
         try:
             with _client.messages.stream(
                 model=modelo,
-                # max_tokens subido: con thinking prendido, el "pensar" también
-                # consume de este cupo; con 4096 podría cortar la tanda de ~70.
-                max_tokens=8192,
+                # El "pensar" también consume de este cupo — ver _MAX_TOKENS.
+                max_tokens=_MAX_TOKENS,
                 messages=[{"role": "user", "content": content}],
                 # thinking/effort: el modelo planea la distribución de largos y
                 # voces ANTES de escribir, para bajar el "bot-feel". Es el ítem
@@ -1087,7 +1100,7 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                 # redeploy — ver _extra_body.
                 # Va por extra_body porque el SDK pineado (anthropic 0.54.0) no
                 # expone estos kwargs; extra_body los inyecta en el body.
-                extra_body=extra,
+                extra_body=extra_intento,
             ) as stream:
                 for text in stream.text_stream:
                     buffer += text
@@ -1142,6 +1155,24 @@ def generar_comentarios_stream(caption: str, comentarios_existentes: list[str], 
                     raise _Rechazo(
                         "La IA rechazó generar comentarios para este post. "
                         "Probá con otro post o avisá al administrador.")
+                # El cupo se fue entero en thinking: el stream cerró en
+                # max_tokens sin una sola línea de texto. Reintentar igual da el
+                # mismo resultado (mismo prompt, misma profundidad), así que la
+                # vuelta siguiente piensa menos. Sin esto se queman los 4
+                # intentos con ~2 minutos cada uno para no entregar nada.
+                if (stop == "max_tokens" and count == 0 and not acumulados
+                        and extra_intento.get("thinking", {}).get("type") == "adaptive"):
+                    if extra_intento.get("output_config", {}).get("effort") != "low":
+                        print("[ai] el thinking se comió el cupo de salida "
+                              f"({_MAX_TOKENS} tokens, 0 líneas): bajo el effort "
+                              "a low para el reintento", flush=True)
+                        extra_intento = {**extra_intento,
+                                         "output_config": {"effort": "low"}}
+                    else:
+                        print("[ai] cupo de salida agotado en thinking incluso "
+                              "con effort low: apago el thinking para el "
+                              "reintento", flush=True)
+                        extra_intento = {"thinking": {"type": "disabled"}}
         except _Rechazo:
             raise
         except Exception as e:
