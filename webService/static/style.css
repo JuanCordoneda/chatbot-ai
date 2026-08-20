@@ -372,6 +372,10 @@ body.light .header::after {
 
 /* ── Main ── */
 .main {
+  /* El respiro lateral de la columna, como variable: lo que quiera salirse del
+     contenedor (full-bleed en mobile) lo compensa con margin negativo sin tener
+     que repetir el número a mano. */
+  --main-pad: 28px;
   flex: 1;
   max-width: 780px;
   width: 100%;
@@ -379,7 +383,7 @@ body.light .header::after {
   /* El header es fixed (fuera del flujo): arriba va su alto (~72px con el zoom
      de .app) + un respiro. Antes había 147px, que empujaba el formulario del
      home fuera de la primera pantalla. */
-  padding: 96px 28px 72px;
+  padding: 96px var(--main-pad) 72px;
 }
 
 #step-comentarios,
@@ -3826,7 +3830,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 
   /* ── Main layout ── */
   .main {
-    padding: 0 18px 100px;
+    --main-pad: 18px;
+    padding: 0 var(--main-pad) 100px;
     display: flex;
     flex-direction: column;
     min-height: calc(100dvh - 46px);   /* 46px = alto del header sticky */
@@ -4544,6 +4549,10 @@ input:focus-visible {
 .tp-progreso--over span { background: rgb(226,152,54); }
 .tp-icon { font-size: 1rem; }
 .tp-label { font-weight: 800; font-size: .98rem; letter-spacing: -0.01em; }
+/* Dos versiones del mismo nombre: la frase entera en desktop y el nombre solo
+   en mobile (ver el bloque MOBILE de más abajo). Lo mismo con el botón del
+   dado: "🎲 Marcar al azar" en desktop, "🎲 Azar" en mobile. */
+.tp-lbl-corta, .tp-rnd-corta { display: none; }
 .tp-count {
   font-size: .74rem; font-weight: 800; color: var(--muted);
   background: var(--surface3); border-radius: 20px; padding: 2px 9px;
@@ -5870,3 +5879,175 @@ body.light .genero-seccion { box-shadow: 0 2px 10px -6px rgba(0,0,0,0.18); }
   color: var(--faint);
 }
 .fallido-nota--error { color: #ff8a8a; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE — elegir comentarios ES la pantalla (sin contenedor)
+   En un teléfono la tarjeta de comentarios era una caja redondeada metida
+   adentro del padding de .main: ~18px muertos a cada lado, más su propio
+   marco, más el del cartel de etapa. Todo ese ancho se lo restaba al texto
+   del comentario, que es lo único que hay que leer para elegir.
+   Acá la tarjeta se sale del contenedor y pasa a ser la página: borde a
+   borde, sin esquinas y sin marcos laterales. El marco vuelve solo en
+   desktop (≥769px), que es donde sobra el ancho.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* La tarjeta ocupa el ancho completo del viewport (se come el padding de
+     .main con margin negativo) y pierde el marco: sin borde lateral, sin
+     esquinas redondeadas y sin sombra de card. */
+  #step-comentarios .card,
+  #step-comentarios .comments-card {
+    margin-left: calc(var(--main-pad) * -1);
+    margin-right: calc(var(--main-pad) * -1);
+    width: auto;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  /* La regla general de `.card` en mobile (padding 20px 18px) también le pegaba
+     a la de comentarios y se sumaba al padding de .main: 36px muertos de cada
+     lado. Acá el padding lo pone cada parte (encabezado, panel, fila), que es
+     la que sabe cuánto aire necesita. */
+  #step-comentarios .comments-card { padding: 0; }
+
+  /* La card de arriba (cliente / pie de página / transcripción) se aplana
+     igual: si queda flotando redondeada arriba de una lista a borde completo,
+     la pantalla se ve partida en dos diseños distintos. */
+  #step-comentarios .scrape-card { padding: 16px var(--main-pad); }
+
+  /* El cartel de la etapa es lo primero que se lee: se queda como bloque de
+     color a todo el ancho, pero sin esquinas ni bordes laterales para que sea
+     una franja de la misma página y no otra cajita adentro de la caja. */
+  #step-comentarios .etapa-cartel,
+  #step-comentarios .tanda-unica {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+  #step-comentarios .etapa-cartel { padding: 14px var(--main-pad); }
+  #step-comentarios .tanda-unica { padding: 12px var(--main-pad); }
+
+  /* El cartel de "no sobró nada" es el único que conserva forma de caja (es un
+     estado vacío, no contenido), pero con aire propio para no pegarse al borde. */
+  #step-comentarios .etapa-vacia { margin: 0 var(--main-pad); }
+
+  /* La lista arranca a borde completo (así la barra del paso, que es sticky,
+     cruza toda la pantalla) y el aire lo pone la fila: sin él, el número de la
+     izquierda y el lápiz de la derecha quedaban pegados al vidrio. */
+  #step-comentarios #lista-comentarios { padding: 0; }
+  #step-comentarios .comentario-item { padding-left: 8px; padding-right: 14px; }
+  #step-comentarios .comentario-item::after { left: 8px; right: 14px; }
+
+  /* Los pasos del stepper ya venían a full width; sin la card que los
+     contenía necesitan su propio respiro lateral. */
+  #step-comentarios .etapa-stepper { padding: 0 var(--main-pad); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE — segunda pasada: menos alto perdido arriba y contexto que no se va
+   Con la tarjeta ya a borde completo, lo que sobraba era alto: el stepper
+   ocupaba tres renglones, el cartel de la etapa media pantalla, y el
+   encabezado del paso (el que dice si estás marcando WhatsApp o Telegram)
+   se iba para arriba al primer scroll porque el sticky estaba roto.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* El `overflow: hidden` de la card (estaba para recortar las esquinas) creaba
+     un contenedor de scroll y anulaba TODOS los sticky de adentro. Sin esquinas
+     que recortar ya no hace falta: el encabezado del paso y la barra de avanzar
+     vuelven a pegarse de verdad. */
+  #step-comentarios .comments-card { overflow: visible; }
+
+  /* Contrapartida: la barra de acciones se pegaba abajo (era el diseño de
+     desktop) y en un teléfono mide media pantalla — botones, reparto, aviso de
+     turnos y el bloque de avanzar. Pegada, taparía justo la lista que estás
+     marcando, así que en mobile se queda en el flujo, al final de la lista. */
+  #step-comentarios .comments-actions-bar {
+    position: static;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: transparent;
+    box-shadow: none;
+  }
+  #step-comentarios .etapa-nav-resumen { font-size: 0.78rem; }
+
+  /* ── Stepper: de tres renglones a una fila ──
+     El paso activo es el único que necesita nombre; los otros quedan en su
+     número (verde = ya hecho), que es lo que se mira de reojo. */
+  #step-comentarios .etapa-stepper {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin: 2px 0 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #step-comentarios .etapa-stepper::-webkit-scrollbar { display: none; }
+  #step-comentarios .etapa-paso {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-radius: 10px;
+    gap: 7px;
+  }
+  /* Los pasos que no son el actual quedan en su número: el verde ya dice que
+     está hecho y el detalle ("12 elegidos") se lee al volver a ese paso. */
+  #step-comentarios .etapa-paso:not(.etapa-paso--activo) .ep-txt { display: none; }
+  #step-comentarios .ep-num { width: 20px; height: 20px; font-size: .7rem; }
+  #step-comentarios .ep-txt small { font-size: .66rem; white-space: nowrap; }
+
+  /* ── Cartel de la etapa: mismo texto, la mitad de alto ── */
+  #step-comentarios .etapa-cartel { padding: 12px var(--main-pad) 14px; margin-bottom: 12px; }
+  #step-comentarios .ec-titulo { margin: 8px 0 5px; font-size: 1.02rem; }
+  #step-comentarios .ec-desc { font-size: .85rem; line-height: 1.45; }
+  #step-comentarios .ec-tranqui { margin-top: 7px; font-size: .8rem; }
+  #step-comentarios .ec-saltar { margin-top: 10px; }
+
+  /* El encabezado del paso queda pegado abajo del header de la app: con 40
+     comentarios en pantalla es lo único que dice qué se está marcando. */
+  #step-comentarios .tipo-panel-header { top: 46px; z-index: 12; gap: 5px; padding: 9px 11px; }
+  #step-comentarios .tipo-panel { margin-bottom: 12px; }
+
+  /* ── Que la barra del paso ENTRE en el ancho ──
+     Tenía ícono + nombre + total + elegidos + tres botones en una línea: se
+     cortaba contra el borde (el "🎲" y el "+ más" quedaban fuera de pantalla) y
+     el nombre se partía en tres renglones. Ahora el nombre se recorta con
+     puntos suspensivos y los botones van en su versión corta. */
+  #step-comentarios .tp-label {
+    min-width: 0;
+    font-size: .82rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* El nombre corto ("WHATSAPP") en vez de la frase entera: lo escribe el JS,
+     acá sólo se elige cuál de los dos se ve. */
+  #step-comentarios .tp-lbl-larga { display: none; }
+  #step-comentarios .tp-lbl-corta { display: inline; }
+  #step-comentarios .tp-count { font-size: .65rem; padding: 2px 7px; }
+  #step-comentarios .tp-sel { flex-shrink: 0; font-size: .65rem; }
+  #step-comentarios .tp-mas { padding: 5px 8px; }
+  #step-comentarios .tp-mas::after { font-size: .68rem; }
+  #step-comentarios .tp-all { font-size: 0; padding: 5px 8px; }
+  /* El texto real lo sigue escribiendo el JS (cambia con el estado): acá sólo
+     se muestra corto, y el data-todos dice si el botón marca o desmarca. */
+  #step-comentarios .tp-all::after { content: "Todos"; font-size: .68rem; font-weight: 700; }
+  #step-comentarios .tp-all[data-todos="1"]::after { content: "Ninguno"; }
+
+  /* El dado NO se dibuja desde el CSS (un emoji en `content` depende del
+     charset con el que se sirva la hoja y en el teléfono quedaba invisible):
+     vive en el HTML y acá sólo se cambia la palabra que lo acompaña. */
+  #step-comentarios .tp-rnd { padding: 5px 8px; font-size: .68rem; }
+  #step-comentarios .tp-rnd-larga { display: none; }
+  #step-comentarios .tp-rnd-corta { display: inline; }
+}
+
+/* En un teléfono (no en una tablet) la palabra al lado del dado le sacaba el
+   ancho al nombre del paso, que es lo que hay que leer: queda el dado solo. */
+@media (max-width: 430px) {
+  #step-comentarios .tp-rnd-corta { display: none; }
+  #step-comentarios .tp-rnd { font-size: .9rem; line-height: 1; }
+
+  /* El @cuenta largo estiraba la grilla de arriba fuera de la pantalla. */
+  #step-comentarios .scrape-item { min-width: 0; }
+  #step-comentarios .scrape-value { overflow-wrap: break-word; font-size: .95rem; }
+}

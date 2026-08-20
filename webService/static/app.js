@@ -788,6 +788,14 @@ function mostrarScrape(data) {
   ultimoEsVideo = !!data.is_video;
   scrapeRecibido = true;
   _ordenarBloquesContexto(ultimoEsVideo);
+  // En un teléfono los tres bloques de contexto abiertos (pie de página,
+  // transcripción y descripción) empujaban la lista de comentarios casi dos
+  // pantallas para abajo. Arrancan cerrados y se abren de a uno con el dedo;
+  // en desktop siguen abiertos, que es donde hay alto de sobra.
+  if (window.matchMedia("(max-width: 768px)").matches) {
+    document.querySelectorAll("#step-comentarios .scrape-details[open]")
+      .forEach((d) => d.removeAttribute("open"));
+  }
 
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
   // cada tipo con rango (likes/views/shares/reposts/saves/reach) con un valor random.
@@ -900,10 +908,13 @@ const _SECCIONES = [
 // Panel de la lista de una etapa (verificados / comunes / WhatsApp). Cada una
 // acumula sus propias secciones de género y tiene su "+ generar más".
 const _TIPOS_PANEL = [
-  { key: "verificado", label: "Marcá acá los VERIFICADOS", icon: "✅", corto: "V" },
-  { key: "noverif",    label: "Marcá acá los COMUNES",     icon: "💬", corto: "NV" },
-  { key: "tg",         label: "Marcá acá los de TELEGRAM", icon: "✈️", corto: "TG" },
-  { key: "wa",         label: "Marcá acá los de WHATSAPP", icon: "📲", corto: "WA" },
+  // `nombre` es el mismo label sin la instrucción: en mobile la barra del paso
+  // es sticky y tiene que entrar en una línea junto al contador y los botones,
+  // y ahí el "Marcá acá los de" ya lo dice el cartel de arriba.
+  { key: "verificado", label: "Marcá acá los VERIFICADOS", nombre: "VERIFICADOS", icon: "✅", corto: "V" },
+  { key: "noverif",    label: "Marcá acá los COMUNES",     nombre: "COMUNES",     icon: "💬", corto: "NV" },
+  { key: "tg",         label: "Marcá acá los de TELEGRAM", nombre: "TELEGRAM",    icon: "✈️", corto: "TG" },
+  { key: "wa",         label: "Marcá acá los de WHATSAPP", nombre: "WHATSAPP",    icon: "📲", corto: "WA" },
 ];
 const _TIPOS_ORDEN = _TIPOS_PANEL.map(t => t.key);
 
@@ -925,11 +936,11 @@ function _panelTipo(tipo) {
     panel.innerHTML = `
       <div class="tipo-panel-header">
         <span class="tp-icon">${meta.icon}</span>
-        <span class="tp-label">${meta.label}</span>
+        <span class="tp-label"><span class="tp-lbl-larga">${meta.label}</span><span class="tp-lbl-corta">${meta.nombre}</span></span>
         <span class="tp-count">0</span>
         <span class="tp-sel hidden">0 elegidos</span>
         <button type="button" class="tp-all" onclick="togglePanel('${key}')">Marcar todos</button>
-        <button type="button" class="tp-rnd" onclick="elegirAlAzar('${key}')">🎲 Marcar al azar</button>
+        <button type="button" class="tp-rnd" title="Marcar al azar" onclick="elegirAlAzar('${key}')">🎲<span class="tp-rnd-larga"> Marcar al azar</span><span class="tp-rnd-corta"> Azar</span></button>
         <button type="button" class="tp-mas" onclick="cargarMas('${key}')">+ generar más</button>
       </div>
       <div class="tp-progreso hidden"><span></span></div>
@@ -1870,6 +1881,9 @@ function _refrescarConteoPaneles() {
     if (btn) {
       const todos = checks.length > 0 && sel === checks.length;
       btn.textContent = todos ? "Desmarcar todos" : "Marcar todos";
+      // En mobile el botón se muestra corto ("Todos" / "Ninguno") desde el CSS,
+      // que no puede leer el texto: el estado se lo pasa este data-.
+      btn.dataset.todos = todos ? "1" : "0";
       btn.disabled = checks.length === 0;
     }
     // Barra de avance hacia lo que pide la ficha del cliente: el número solo
