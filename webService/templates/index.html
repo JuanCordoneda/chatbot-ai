@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1786990004" />
+  <link rel="stylesheet" href="/static/style.css?v=1787080000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- Preview al compartir el link (WhatsApp, Slack, X, etc.) -->
   <meta property="og:type" content="website" />
@@ -730,62 +730,26 @@
         <span class="repartir-progreso" id="repartir-progreso">0 / 0</span>
       </div>
 
-      <!-- En WhatsApp la vía manual es la principal: un toque por mensaje y va
-           DIRECTO al chat que elijas, incluido el grupo del cliente. En Telegram
-           no hay envío de a uno — va todo al bot en un mensaje — así que el
-           texto lo reescribe renderRepartir() según la app. -->
+      <!-- La tanda entera va en UN mensaje al bot (WhatsApp o Telegram) y es él
+           el que la reparte, un comentario por mensaje. Acá no se manda de a
+           uno: la lista de abajo es para mirar y destildar. -->
       <p class="repartir-guia" id="repartir-guia">
-        Tocá <b>Enviar</b> y elegís el chat: el mensaje ya va escrito.
+        Va todo en <b>un mensaje al bot</b>. Destildá acá abajo lo que no quieras mandar.
       </p>
 
-      <!-- Todo en UN mensaje, sin bot: se abre WhatsApp con el bloque entero ya
-           escrito (cada comentario con su propio link wa.me) y elegís a quién
-           mandárselo, normalmente a vos mismo. Después, desde ese chat, cada
-           link reenvía su comentario. No necesita número dado de alta ni la
-           ventana de 24h: es el mismo deep link de siempre, con más texto. -->
+      <!-- Abre el chat DEL BOT con el bloque ya escrito: tocás enviar y él te
+           devuelve un mensaje por comentario. El deep link no necesita número
+           dado de alta ni la ventana de 24h de Meta, porque el que inicia la
+           conversación sos vos. -->
       <button type="button" class="repartir-uno" id="repartir-uno" onclick="mandarTodoEnUno()">
         <span aria-hidden="true">📄</span>
-        <span id="repartir-uno-label">Mandarme <b>0</b> en un solo mensaje</span>
+        <span id="repartir-uno-label">Mandarle los <b>0</b> al bot</span>
       </button>
       <p class="repartir-uno-hint" id="repartir-uno-hint">
-        Un mensaje con todos, cada uno con su link para reenviarlo.
+        Se abre el chat del bot con el bloque ya escrito: tocá enviar y él te los devuelve de a uno.
       </p>
 
       <div id="repartir-lista" class="repartir-lista"></div>
-
-      <!-- El envío por bot quedó fuera de la pantalla: necesitaba configuración y
-           el ritual diario de la ventana de 24h de Meta. El bloque sigue acá
-           (oculto) porque el JS lo usa; sin el toggle no hay forma de abrirlo. -->
-      <div class="repartir-bulk hidden" id="repartir-bulk">
-        <div id="repartir-ventana" class="repartir-ventana hidden"></div>
-
-        <!-- El vendedor carga SU número acá, la primera vez. Queda guardado en
-             su cuenta; después solo se muestra, con "cambiar". -->
-        <div id="repartir-tel" class="repartir-tel hidden">
-          <label for="repartir-tel-input">¿A qué WhatsApp te los mando?</label>
-          <div class="repartir-tel-row">
-            <input type="tel" id="repartir-tel-input" class="repartir-tel-input"
-                   placeholder="+54 9 223 340 7778" autocomplete="tel"
-                   onkeydown="if(event.key==='Enter')guardarMiWhatsapp()" />
-            <button type="button" class="repartir-tel-btn" onclick="guardarMiWhatsapp()">Guardar</button>
-          </div>
-          <div id="repartir-tel-error" class="repartir-tel-error hidden"></div>
-        </div>
-        <div id="repartir-tel-ok" class="repartir-tel-ok hidden"></div>
-        <button type="button" class="repartir-bulk-btn" id="repartir-bulk-btn" onclick="mandarTandaWa()">
-          <span aria-hidden="true">⚡</span> <span>Mandarme los <b id="repartir-bulk-n">0</b> a mi WhatsApp</span></button>
-        <p class="repartir-bulk-hint">
-          Llegan sueltos a tu WhatsApp y de ahí los reenviás con selección múltiple.
-          <!-- WhatsApp solo entrega texto libre si le escribiste al bot en las
-               últimas 24h. Con la ventana cerrada Meta acepta el envío igual y
-               descarta los mensajes en silencio: por eso esto va a la vista y no
-               escondido en un error que nunca se dispara. -->
-          <br/>Si no te llegan, apretá
-          <button type="button" class="repartir-activar" onclick="activarWa()">mandame un mensaje al bot</button>
-          y respondelo.
-        </p>
-        <div id="repartir-bulk-msg" class="repartir-bulk-msg hidden"></div>
-      </div>
 
       <!-- "Cerrar" vuelve a la lista de comentarios del paso, NO a las órdenes:
            cerrar el modal no puede decidir por vos que terminaste. Para seguir
@@ -825,7 +789,7 @@
         <button type="button" class="btn-publish tgp-si" onclick="_responderTelegram(true)">
           Sí, también por Telegram
         </button>
-        <button type="button" class="header-action-btn tgp-no" onclick="_responderTelegram(false)">
+        <button type="button" class="btn-publish tgp-no" onclick="_responderTelegram(false)">
           No, solo WhatsApp
         </button>
       </div>
@@ -851,7 +815,7 @@
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
   <script src="/static/header-menu.js?v=1786880000"></script>
-  <script src="/static/app.js?v=1786990008"></script>
+  <script src="/static/app.js?v=1787070000"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>

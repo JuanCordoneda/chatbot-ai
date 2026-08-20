@@ -1433,15 +1433,28 @@ let repartoDestino = "wa";
 // página, ese gana.
 const TG_BOT = (typeof window !== "undefined" && window.TELEGRAM_BOT) || "growisupbot";
 
+// El número del bot de WhatsApp, en el formato que acepta wa.me (sin + ni
+// espacios). Es el equivalente de TG_BOT. El backend lo tiene en
+// WHATSAPP_NUMERO_BOT; si algún día lo inyecta en la página, ese gana.
+const WA_BOT = (typeof window !== "undefined" && window.WHATSAPP_BOT) || "34637663519";
+
 // Abre el chat DEL BOT con el texto ya cargado, igual que wa.me/<numero>?text=.
 // No es t.me/share/url (el selector de chats): ahí habría que elegir el bot a
 // mano cada vez, y el destino de esto siempre es el mismo.
 function _linkTg(texto) {
   return `https://t.me/${TG_BOT}?text=${encodeURIComponent(texto)}`;
 }
-function _linkWa(texto) { return `https://wa.me/?text=${encodeURIComponent(texto)}`; }
-function _linkDestino(texto) {
-  return repartoDestino === "tg" ? _linkTg(texto) : _linkWa(texto);
+// Con número: abre el chat DEL BOT, igual que el de Telegram. El bot de
+// WhatsApp sí lo corremos nosotros (whatsappService), y espera exactamente el
+// mismo bloque disparado por la primera línea "Comentarios".
+function _linkWaBot(texto) {
+  return `https://wa.me/${WA_BOT}?text=${encodeURIComponent(texto)}`;
+}
+
+// El destino de la tanda: siempre el bot de la app que toque, nunca un selector
+// de chats. Es el único envío que existe en esta pantalla.
+function _linkTanda(texto) {
+  return repartoDestino === "tg" ? _linkTg(texto) : _linkWaBot(texto);
 }
 function _appDestino() { return repartoDestino === "tg" ? "Telegram" : "WhatsApp"; }
 
@@ -1450,11 +1463,9 @@ function _appDestino() { return repartoDestino === "tg" ? "Telegram" : "WhatsApp
 function abrirRepartirCon(textos, destino) {
   repartoDestino = destino === "tg" ? "tg" : "wa";
 
-  // Mismo formato que manda el bot (ver /api/repartir-wa): "Comentarios" + el
-  // link, y después cada comentario pelado. Los dos caminos tienen que mandar
-  // exactamente lo mismo, si no el grupo recibe dos formatos distintos según
-  // por dónde se haya repartido.
-  // El link siempre va: es lo que le da contexto al resto.
+  // La primera fila es el link del post y no se puede destildar: es lo que le
+  // da contexto a los comentarios sueltos cuando llegan al grupo. El armado
+  // final del mensaje lo hace _textoTodoEnUno().
   repartoItems = [{ tipo: "link", texto: `Comentarios\n${currentUrl}`, incluido: true }];
   textos.forEach(t => repartoItems.push(typeof t === "string"
     ? { tipo: "comentario", texto: t, incluido: true }
@@ -1477,16 +1488,6 @@ function abrirRepartirCon(textos, destino) {
   if (contHint) contHint.textContent = `Podés seguir aunque no hayas mandado nada por ` +
     `${_appDestino()}: es un paso opcional.`;
 
-  // El bloque del bot arranca plegado y NO se consulta nada suyo hasta que se
-  // abre: la vía manual no depende del bot, y pedirle el teléfono a alguien que
-  // solo quiere mandar de a uno es fricción sin motivo.
-  document.getElementById("repartir-bulk").classList.add("hidden");
-  document.getElementById("repartir-toggle")?.classList.remove("repartir-toggle--abierto");
-  _botCargado = false;
-  const msg = document.getElementById("repartir-bulk-msg");
-  msg.className = "repartir-bulk-msg hidden";
-  msg.textContent = "";
-
   renderRepartir();
   document.getElementById("repartir-overlay").classList.remove("hidden");
   // Ya visible: recién ahora la lista tiene alto real y se puede saber si sobra
@@ -1494,64 +1495,6 @@ function abrirRepartirCon(textos, destino) {
   _marcarFinDeLista();
 }
 
-// Un click: el bot manda los mensajes sueltos al WhatsApp configurado. De ahí
-// se reenvían con la selección múltiple de WhatsApp, que es lo que reemplaza al
-// copiar-pegar de a uno.
-async function mandarTandaWa() {
-  const btn = document.getElementById("repartir-bulk-btn");
-  const msg = document.getElementById("repartir-bulk-msg");
-  if (btn.disabled) return;
-  const textoOriginal = btn.innerHTML;
-  btn.disabled = true;
-  btn.textContent = "Mandando…";
-  msg.className = "repartir-bulk-msg hidden";
-
-  try {
-    const r = await fetch("/api/repartir-wa", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: currentUrl,
-        comentarios: repartoItems.filter(it => it.tipo === "comentario" && it.incluido)
-                                 .map(it => it.texto),
-        client: window._clientIg || "",
-      }),
-    });
-    const data = await r.json().catch(() => ({}));
-
-    if (r.ok) {
-      marcarTodoRepartido();
-      // "Salieron", NO "llegaron". Meta devuelve 200 aunque después descarte los
-      // mensajes por la ventana de 24h vencida, y avisa por un webhook que no
-      // escuchamos. Prometer la entrega acá era el peor error posible: el
-      // vendedor veía el tilde verde y no llegaba nada.
-      msg.textContent = `Salieron ${data.enviados} mensajes. Si en unos segundos no ` +
-        `los ves en WhatsApp, apretá "Activar WhatsApp" acá arriba y reintentá.`;
-      msg.className = "repartir-bulk-msg repartir-bulk-msg--ok";
-    } else if (r.status === 207) {
-      // Salió parte. Lo importante es cuántos faltan, no el detalle técnico:
-      // reintentar toda la tanda duplicaría los que sí llegaron.
-      const detalle = (data.fallidos || [])[0]?.detalle || "";
-      msg.textContent = `Se mandaron ${data.enviados} de ${data.total}. ` +
-        `Los que faltan mandalos de a uno con los botones de abajo.` + (detalle ? ` (${detalle})` : "");
-      msg.className = "repartir-bulk-msg repartir-bulk-msg--warn";
-    } else {
-      const detalle = data.error || (data.fallidos || [])[0]?.detalle || "";
-      msg.textContent = detalle || "No se pudieron mandar los mensajes.";
-      msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
-    }
-  } catch (e) {
-    msg.textContent = "No se pudo contactar al servidor. Probá de nuevo.";
-    msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = textoOriginal;
-  }
-}
-
-// Cerrar el modal NO avanza: devuelve a la lista de comentarios del paso 3, por
-// si quiere cambiar la selección y repartir otra tanda. Para seguir a las
-// órdenes está el botón explícito del pie del modal.
 function cerrarRepartir() {
   document.getElementById("repartir-overlay").classList.add("hidden");
   _repartoSigueAOrdenes = false;
@@ -1569,16 +1512,19 @@ function continuarDelReparto() {
 
 function renderRepartir() {
   const lista = document.getElementById("repartir-lista");
-  // Por Telegram NO se manda de a uno: la tanda entera va en un mensaje al bot y
-  // es él el que la reparte. Mandar de a uno acá sería pegarle al bot comentario
-  // por comentario, que es justo el trabajo que el bot viene a sacar. Entonces
-  // en Telegram la lista es para MIRAR y destildar, sin botón por fila.
-  const deAUno = repartoDestino !== "tg";
-  // El primero sin enviar. Se resalta para no perder el hilo a mitad de una
-  // tanda de 20, que es donde el reparto de a uno se vuelve confuso.
-  const proximo = deAUno
-    ? repartoItems.findIndex((it, i) => it.incluido && !repartoEnviados.has(i))
-    : -1;
+  // NO se manda de a uno: la tanda entera va en un mensaje al bot y es él el que
+  // la reparte. Mandar de a uno sería pegarle al bot comentario por comentario,
+  // que es justo el trabajo que el bot viene a sacar. La lista es para MIRAR y
+  // destildar, sin botón por fila.
+  //
+  // Los DOS destinos tienen bot propio, así que la pantalla es una sola: la
+  // lista para destildar y UN botón que le manda la tanda al bot.
+  //
+  // El envío "de a uno" (un botón Enviar por fila, que abría el selector de
+  // chats de WhatsApp) era el rodeo de cuando WhatsApp no tenía bot: había que
+  // mandarse el bloque a uno mismo y reenviar comentario por comentario. Ya no
+  // hace falta, y tenerlo solo de un lado hacía que el mismo paso se viera y se
+  // operara distinto según la app.
   let n = 0;
   lista.innerHTML = repartoItems.map((it, i) => {
     const enviado = repartoEnviados.has(i);
@@ -1586,11 +1532,9 @@ function renderRepartir() {
     // y numerar los comentarios aparte dejaba dos numeraciones distintas en la
     // misma fila (el círculo 2 sobre "Comentario 1", porque el link va primero).
     const etiqueta = it.tipo === "link" ? "Link del post" : "Comentario";
-    const siguiente = !enviado && i === proximo;
     if (it.incluido) n++;
     const clases = ["repartir-item",
       enviado ? "repartir-item--ok" : "",
-      siguiente ? "repartir-item--next" : "",
       it.incluido ? "" : "repartir-item--fuera"].filter(Boolean).join(" ");
     // El link no se puede destildar: sin él, los comentarios sueltos que llegan
     // al grupo no se sabe a qué post pertenecen.
@@ -1608,10 +1552,6 @@ function renderRepartir() {
         ${it.tipo === "link" ? `<span class="repartir-tag">${etiqueta}</span>` : ""}
         <span class="repartir-texto">${escapeHtml(it.texto)}</span>
       </div>
-      ${deAUno ? `<button type="button" class="repartir-enviar"
-              onclick="enviarUno(${i})"${it.incluido ? "" : " disabled"}>
-        ${enviado ? "Reenviar" : "Enviar"}
-      </button>` : ""}
     </div>`;
   }).join("");
 
@@ -1620,17 +1560,13 @@ function renderRepartir() {
   const incluidos = repartoItems.filter(it => it.incluido).length;
   const hechos = repartoItems.filter((it, i) => it.incluido && repartoEnviados.has(i)).length;
   document.getElementById("repartir-progreso").textContent = `${hechos} / ${incluidos}`;
-  const nBot = document.getElementById("repartir-bulk-n");
-  if (nBot) nBot.textContent = incluidos;
   const sub = document.getElementById("repartir-sub");
   if (sub) sub.textContent = `El link del post y ${incluidos - 1} ` +
     `comentario${incluidos === 2 ? "" : "s"} elegido${incluidos === 2 ? "" : "s"}.`;
 
   const guia = document.getElementById("repartir-guia");
   if (guia) {
-    guia.innerHTML = deAUno
-      ? "Tocá <b>Enviar</b> y elegís el chat: el mensaje ya va escrito."
-      : `Va todo en <b>un mensaje al bot</b>. Destildá acá abajo lo que no quieras mandar.`;
+    guia.innerHTML = "Va todo en <b>un mensaje al bot</b>. Destildá acá abajo lo que no quieras mandar.";
   }
 
   _pintarTodoEnUno();
@@ -1667,16 +1603,6 @@ function _marcarFinDeLista() {
 //
 // Se limpia únicamente lo que está fuera del plano básico de Unicode (emoji y
 // poco más). Las tildes y la ñ son de 2 bytes, viajan bien y NO se tocan.
-function _sinEmoji(t) {
-  const limpio = String(t || "")
-    .replace(/[\u{10000}-\u{10FFFF}]/gu, "")
-    .replace(/[\u{FE0F}\u{20E3}\u{200D}]/gu, "")
-    .replace(/ {2,}/g, " ")
-    .trim();
-  // Un comentario que era SOLO emoji quedaría en blanco: ahí el rombo, feo y
-  // todo, dice más que un renglón vacío.
-  return limpio || String(t || "");
-}
 
 // El bloque único, armado para el destino que toca.
 //
@@ -1692,9 +1618,8 @@ function _sinEmoji(t) {
 // de a uno con los botones de la lista, que ahí sí abren un share por comentario
 // (URLs cortas, sin problema de largo).
 function _textoTodoEnUno() {
-  const tg = repartoDestino === "tg";
-  // El bloque de Telegram va EXACTAMENTE en el formato que espera el bot, que no
-  // es el de lectura:
+  // El bloque va EXACTAMENTE en el formato que esperan los bots, que no es el
+  // de lectura:
   //
   //   Comentarios
   //                      <- dos renglones en blanco
@@ -1706,70 +1631,39 @@ function _textoTodoEnUno() {
   //
   // La primera línea "Comentarios" NO es decorativa: es el DISPARADOR. Es lo que
   // le dice al bot que esto es una tanda para cortar, y por eso no hay que
-  // elegir "dividir texto" en su menú — llega ya elegido. Sin esa línea, el bot
-  // lo trata como una charla cualquiera.
+  // elegir nada en su menú — llega ya elegido. Sin esa línea el bot lo trata
+  // como una charla cualquiera y contesta con el modelo.
   //
-  // El espaciado es el del mensaje que ya funcionó a mano (el bot contestó
-  // "Listo ✅"), copiado tal cual: no sabemos si corta por bloque en blanco o
-  // por renglón exacto, así que se reproduce lo conocido en vez de adivinar.
-  // Si algún día el bot dice otro conteo de mensajes, el separador es esto.
+  // Telegram y WhatsApp comparten este armado A PROPÓSITO: los dos bots cortan
+  // por renglones y descartan los vacíos, así que un formato sirve para los dos.
+  // Tener uno distinto por destino era lo que hacía que el grupo recibiera cosas
+  // diferentes según por dónde se hubiera repartido.
+  //
+  // El espaciado es el del mensaje que ya funcionó a mano contra el bot de
+  // Telegram (contestó "Listo ✅"), copiado tal cual: no sabemos si corta por
+  // bloque en blanco o por renglón exacto, así que se reproduce lo conocido en
+  // vez de adivinar.
   const SEP_BOT = "\n\n\n";
-  if (tg) {
-    // Cada comentario va en UNA sola línea: como el corte es por renglones, un
-    // salto adentro lo partiría en dos mensajes, y lo que se publica en el post
-    // es exactamente lo que le llega al bot.
-    const unaLinea = t => String(t || "").replace(/\s+/g, " ").trim();
-    return ["Comentarios", currentUrl]
-      .concat(repartoItems
-        .filter(it => it.tipo === "comentario" && it.incluido)
-        // Los emoji van tal cual: el que los rompía era el deep link de
-        // WhatsApp, Telegram los pasa enteros.
-        .map(it => unaLinea(it.texto)))
-      .filter(Boolean)
-      .join(SEP_BOT);
-  }
-  // De acá para abajo es SOLO WhatsApp (el de Telegram ya salió arriba).
-  const link = _linkWa;
-  // La limpieza de emoji es un parche del deep link de WhatsApp, no una regla
-  // de estilo: es ÉL el que los convierte en el rombo de "carácter desconocido".
-  const leible = _sinEmoji;
-  const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
-  // El encabezado también lleva su link de reenvío: es el primer mensaje que va
-  // al grupo y sin esto había que copiarlo a mano, que era el único paso del
-  // reparto que seguía siendo manual.
-  const cabecera = repartoItems.find(it => it.tipo === "link");
-  const textoCabecera = cabecera ? cabecera.texto : `Comentarios\n${currentUrl}`;
-  // Los símbolos del ARMADO van en ASCII puro. Se probaron caracteres
-  // tipográficos ("↪", "▸") y emoji ("👉", "📌") y los dos llegaron como el
-  // cuadradito de "no soportado" al pasar por el deep link de WhatsApp — el
-  // archivo y la respuesta HTTP salen bien en UTF-8, así que se pierde del otro
-  // lado. Con "->" no hay nada que negociar: llega igual en todos lados.
-  const partes = [`${textoCabecera}\n\n-> ${link(textoCabecera)}`];
-  // Los emoji van TAL CUAL. Se probó limpiarlos del preview porque en WhatsApp
-  // Desktop llegan como el rombo de "carácter desconocido", pero eso deja los
-  // comentarios sin sus emoji, que es peor. En el celular puede que se vean
-  // bien: el rombo se vio en Desktop, que es otro cliente. El link igual los
-  // lleva codificados (%F0%9F%94%A5), así que el comentario que se reenvía
-  // llega completo pase lo que pase.
-  coms.forEach((it, n) => {
-    // WhatsApp no permite texto sobre un link (no hay markdown ni hipervínculos):
-    // siempre muestra la URL cruda. Lo único que se puede acomodar es lo de
-    // alrededor, así que cada comentario lleva su propio encabezado y el link
-    // va debajo, pegado al texto que le corresponde.
-    //
-    // El número NO va como "1. ": WhatsApp lo toma como lista numerada, le
-    // aplica su propio formato y mete word-joiners invisibles en el medio. Con
-    // el encabezado en su renglón aparte el texto llega tal cual se armó.
-    partes.push(`${n + 1} de ${coms.length}\n${leible(it.texto)}\n\n-> ${link(it.texto)}`);
-  });
-  return partes.join("\n\n");
+  // Cada comentario va en UNA sola línea: como el corte es por renglones, un
+  // salto adentro lo partiría en dos mensajes, y lo que se publica en el post es
+  // exactamente lo que le llega al bot.
+  const unaLinea = t => String(t || "").replace(/\s+/g, " ").trim();
+  return ["Comentarios", currentUrl]
+    .concat(repartoItems
+      .filter(it => it.tipo === "comentario" && it.incluido)
+      // Los emoji van TAL CUAL. La limpieza vieja (_sinEmoji) era un parche del
+      // bloque que se leía dentro del mensaje; acá el vendedor no lee este
+      // texto: lo consume el bot y reenvía cada comentario como mensaje propio.
+      .map(it => unaLinea(it.texto)))
+    .filter(Boolean)
+    .join(SEP_BOT);
 }
 
 function mandarTodoEnUno() {
   const texto = _textoTodoEnUno();
   // Se abre en otra pestaña: navegar en la misma recargaría el generador y se
   // perderían los comentarios.
-  window.open(_linkDestino(texto), "_blank", "noopener");
+  window.open(_linkTanda(texto), "_blank", "noopener");
 }
 
 // El botón muestra cuántos van y decide si el bloque se puede mandar.
@@ -1781,9 +1675,7 @@ function _pintarTodoEnUno() {
   if (!btn || !lbl) return;
 
   const coms = repartoItems.filter(it => it.tipo === "comentario" && it.incluido);
-  lbl.innerHTML = tg
-    ? `Mandarle los <b>${coms.length}</b> al bot`
-    : `Mandarme <b>${coms.length}</b> en un solo mensaje`;
+  lbl.innerHTML = `Mandarle los <b>${coms.length}</b> al bot`;
   btn.classList.toggle("repartir-uno--tg", tg);
 
   const texto = _textoTodoEnUno();
@@ -1793,7 +1685,7 @@ function _pintarTodoEnUno() {
   // caracteres cada uno una vez escapados). El server del otro lado corta la
   // URI antes de mirar nada — Telegram devuelve un "400 Bad Request" de nginx,
   // que no dice nada de tamaños y parece que el link estuviera roto.
-  const largoUrl = (tg ? _linkTg(texto) : _linkWa(texto)).length;
+  const largoUrl = _linkTanda(texto).length;
   const app = tg ? "Telegram" : "WhatsApp";
   // Dos techos distintos, y pega el que llegue primero: el mensaje se corta en
   // 4096 caracteres (las dos apps) y la URI del deep link cerca de los 8 KB
@@ -1807,9 +1699,8 @@ function _pintarTodoEnUno() {
   if (hint) {
     // En Telegram no existe el envío de a uno, así que la salida es destildar y
     // mandar el resto en una segunda vuelta.
-    const salida = tg
-      ? "Destildá algunos y mandá el resto en otra tanda."
-      : "Destildá algunos o mandalos de a uno acá abajo.";
+    // Sin envío de a uno, la única salida es acortar la tanda.
+    const salida = "Destildá algunos y mandá el resto en otra tanda.";
     hint.textContent = noEntra
       ? (pasaMsg
           ? `Son demasiados para un solo mensaje: quedaría de ${largo} caracteres y ` +
@@ -1818,9 +1709,8 @@ function _pintarTodoEnUno() {
             `${largoUrl} caracteres y se corta en 8000. ${salida}`)
       : (largo > 3500
           ? `El mensaje quedaría de ${largo} caracteres y ${app} corta en 4096: ${salida}`
-          : (tg
-              ? `Se abre el chat de @${TG_BOT} con el bloque ya escrito: tocá enviar y él te los devuelve de a uno.`
-              : "Un mensaje con todos, cada uno con su link para reenviarlo."));
+          : `Se abre el chat de ${tg ? "@" + TG_BOT : "el bot"} con el bloque ya ` +
+            "escrito: tocá enviar y él te los devuelve de a uno.");
     hint.classList.toggle("repartir-uno-hint--warn", noEntra || largo > 3500);
   }
 }
@@ -1829,174 +1719,6 @@ function toggleIncluido(i) {
   if (!repartoItems[i]) return;
   repartoItems[i].incluido = !repartoItems[i].incluido;
   renderRepartir();
-}
-
-// Manda ESTE comentario por la app del paso en curso.
-function enviarUno(i) {
-  const it = repartoItems[i];
-  if (!it) return;
-  // Se abre en otra pestaña: si navegáramos en la misma, volver al generador
-  // recargaría la página y se perderían los comentarios generados.
-  window.open(_linkDestino(it.texto), "_blank", "noopener");
-  // Se marca al abrir, no al confirmar: no hay forma de saber si el mensaje se
-  // mandó de verdad. Por eso el botón queda como "Reenviar" y no desaparece.
-  repartoEnviados.add(i);
-  renderRepartir();
-  const sig = document.querySelector("#repartir-lista .repartir-item--next");
-  if (sig) sig.scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-let _botCargado = false;
-
-function toggleBot() {
-  const caja = document.getElementById("repartir-bulk");
-  const tog = document.getElementById("repartir-toggle");
-  const abierto = !caja.classList.toggle("hidden");
-  tog?.classList.toggle("repartir-toggle--abierto", abierto);
-  if (abierto && !_botCargado) {
-    _botCargado = true;
-    cargarMiWhatsapp();   // recién acá se pide el teléfono y el estado
-  }
-}
-
-// Cada vendedor recibe la tanda en SU WhatsApp. El número lo carga él mismo la
-// primera vez que reparte: pedirlo acá y no en un alta previa evita que alguien
-// quede sin poder usarlo esperando que un admin le cargue el dato.
-function _formatearTel(n) {
-  const d = String(n || "").replace(/\D/g, "");
-  return d ? "+" + d : "";
-}
-
-async function cargarMiWhatsapp() {
-  const caja = document.getElementById("repartir-tel");
-  const ok = document.getElementById("repartir-tel-ok");
-  const btn = document.getElementById("repartir-bulk-btn");
-  caja.classList.add("hidden");
-  ok.classList.add("hidden");
-
-  let d = {};
-  try {
-    d = await (await fetch("/api/mi-whatsapp")).json();
-  } catch (_) { /* sin dato mostramos el formulario igual */ }
-
-  const numero = d.telefono || d.fallback || "";
-  if (!numero && d.editable === false) {
-    // Sin cuenta asociada (admin de fallback) y sin número en el .env: no hay
-    // dónde guardar nada, así que no se ofrece cargar un número que se perdería.
-    ok.textContent = "Tu usuario no tiene una cuenta asociada: no puedo mandarte los mensajes.";
-    ok.className = "repartir-tel-ok repartir-tel-ok--bad";
-    if (btn) btn.disabled = true;
-    return;
-  }
-  if (btn) btn.disabled = false;
-
-  if (!d.telefono) {
-    // Primera vez: se pide el número y el botón de mandar espera.
-    document.getElementById("repartir-tel-input").value = _formatearTel(d.fallback);
-    caja.classList.remove("hidden");
-    if (btn) btn.disabled = true;
-    document.getElementById("repartir-ventana").classList.add("hidden");
-    return;
-  }
-
-  ok.innerHTML = `Te los mando a <b>${escapeHtml(_formatearTel(d.telefono))}</b> ` +
-    `<button type="button" class="repartir-activar" onclick="editarMiWhatsapp()">cambiar</button>`;
-  ok.className = "repartir-tel-ok";
-  pintarVentanaWa();
-}
-
-function editarMiWhatsapp() {
-  const caja = document.getElementById("repartir-tel");
-  const ok = document.getElementById("repartir-tel-ok");
-  const actual = (ok.querySelector("b") || {}).textContent || "";
-  document.getElementById("repartir-tel-input").value = actual;
-  caja.classList.remove("hidden");
-  ok.classList.add("hidden");
-  document.getElementById("repartir-tel-input").focus();
-}
-
-async function guardarMiWhatsapp() {
-  const input = document.getElementById("repartir-tel-input");
-  const err = document.getElementById("repartir-tel-error");
-  err.classList.add("hidden");
-  try {
-    const r = await fetch("/api/mi-whatsapp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telefono: input.value }),
-    });
-    const d = await r.json();
-    if (!r.ok) {
-      err.textContent = d.error || "No se pudo guardar el número.";
-      err.classList.remove("hidden");
-      return;
-    }
-    document.getElementById("repartir-tel").classList.add("hidden");
-    await cargarMiWhatsapp();
-  } catch (e) {
-    err.textContent = "No se pudo contactar al servidor.";
-    err.classList.remove("hidden");
-  }
-}
-
-// Muestra si la ventana de 24h está abierta, antes de que el vendedor apriete
-// el botón. Sin esto se entera después, cuando los mensajes ya "salieron bien"
-// y no llegó nada.
-async function pintarVentanaWa() {
-  const box = document.getElementById("repartir-ventana");
-  if (!box) return;
-  box.className = "repartir-ventana hidden";
-  let e;
-  try {
-    const r = await fetch("/api/wa-estado");
-    e = await r.json();
-  } catch (_) {
-    return;   // sin datos no inventamos nada
-  }
-
-  // Link que abre el chat del bot con un "hola" escrito: un toque, y la ventana
-  // queda abierta. Es más corto que mandar un template y esperar a responderlo.
-  const link = e.numero_bot
-    ? ` <a class="repartir-activar" target="_blank" rel="noopener"
-           href="https://wa.me/${e.numero_bot}?text=hola">Abrir el chat del bot</a>`
-    : ` <button type="button" class="repartir-activar" onclick="activarWa()">Activar WhatsApp</button>`;
-
-  if (e.abierta === true) {
-    const h = Math.floor((e.minutos_restantes || 0) / 60);
-    box.innerHTML = `✓ WhatsApp activo — te quedan ${h > 0 ? h + " h" : (e.minutos_restantes || 0) + " min"}.`;
-    box.className = "repartir-ventana repartir-ventana--ok";
-  } else if (e.abierta === false) {
-    box.innerHTML = `⚠ WhatsApp inactivo: los mensajes NO te van a llegar.${link}`;
-    box.className = "repartir-ventana repartir-ventana--bad";
-  } else {
-    // null = el webhook no llega hasta acá. Decir "cerrada" sería inventar.
-    box.innerHTML = `No sé si WhatsApp está activo (falta configurar el webhook).
-      Si la tanda no te llega,${link} y respondelo.`;
-    box.className = "repartir-ventana repartir-ventana--warn";
-  }
-}
-
-// Abre la ventana de 24h de Meta. Manda un template (que sí atraviesa la
-// ventana); respondiéndolo, el texto libre vuelve a entregarse por 24 horas.
-async function activarWa() {
-  const msg = document.getElementById("repartir-bulk-msg");
-  msg.textContent = "Mandando el mensaje de activación…";
-  msg.className = "repartir-bulk-msg repartir-bulk-msg--warn";
-  try {
-    const r = await fetch("/api/activar-wa", { method: "POST" });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok) {
-      msg.textContent = "Te mandé un mensaje al WhatsApp. Respondelo (con cualquier " +
-        "cosa) y después volvé a apretar el botón verde.";
-      msg.className = "repartir-bulk-msg repartir-bulk-msg--ok";
-    } else {
-      msg.textContent = data.error || "No se pudo mandar el mensaje de activación.";
-      msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
-    }
-  } catch (e) {
-    msg.textContent = "No se pudo contactar al servidor.";
-    msg.className = "repartir-bulk-msg repartir-bulk-msg--bad";
-  }
 }
 
 function marcarTodoRepartido() {

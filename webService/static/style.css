@@ -4734,8 +4734,20 @@ input:focus-visible {
   gap: 8px;
   margin-top: 18px;
 }
+/* Los dos son el MISMO botón (btn-publish): así miden igual por construcción y
+   no por copiar medidas que después se despegan. Lo único que cambia es el
+   color, y cada uno lleva el de su app.
+
+   "No, solo WhatsApp" no es un descarte, es el otro camino — por eso va en
+   verde y del mismo tamaño, y no apagado y chiquito como estaba. Con el gris
+   parecía la salida de emergencia de la pantalla en vez de la opción normal. */
 .tgp-si { background: #2aabee; color: #04283a; }
-.tgp-no { justify-content: center; }
+.tgp-no { background: #25d366; color: #04310f; }
+
+/* btn-publish trae una sombra amarilla de su versión original (el botón de
+   publicar). Debajo de uno azul o verde se ve como un halo sucio. */
+.tgp-si, .tgp-no,
+.tgp-si:hover, .tgp-no:hover { box-shadow: none; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    HOME (#step-input) — pulido visual
