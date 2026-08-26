@@ -2654,6 +2654,21 @@ async function loadCrm() {
   } catch (e) { toast(e.message, "bad"); }
 }
 
+// Por qué falló, en la tarjeta. Cuando el CRM rechaza con HTTP 200 no hay
+// `error` y el motivo vive en el cuerpo, así que la tarjeta decía "HTTP 200" y
+// nada más: había que abrir el detalle de cada fila para enterarse de algo.
+function motivoCrm(c) {
+  if (c.error) return c.error;
+  const cuerpo = c.response_snippet || "";
+  if (!cuerpo) return "";
+  try { return (JSON.parse(cuerpo).errors || []).join("; "); } catch (e) {}
+  // El snippet son 300 caracteres y el mensaje del CRM es más largo, así que
+  // lo normal es que el JSON venga cortado y no parsee. Se rescata igual.
+  const m = cuerpo.match(/"errors"\s*:\s*\[\s*"(.+?)("|$)/);
+  if (!m) return "";
+  return m[1].replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
 function crmCard(c) {
   const origen = CRM_ORIGENES[c.origen] || c.origen;
   const pill = c.ok
@@ -2667,7 +2682,8 @@ function crmCard(c) {
     c.idventa ? `campaña ${esc(c.idventa)}` : null,
     c.costo ? `$${Number(c.costo).toFixed(2)}` : null,
   ].filter(Boolean).join(" · ");
-  const err = c.error ? `<div class="ax-sub" style="opacity:.85;">${esc(c.error)}</div>` : "";
+  const motivo = motivoCrm(c);
+  const err = motivo ? `<div class="ax-sub" style="opacity:.85;">${esc(motivo)}</div>` : "";
 
   return `
     <div class="ax-card" style="align-items:flex-start;">

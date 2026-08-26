@@ -876,20 +876,34 @@ def _growi_token(entry, account_id=None, refrescar=False):
         return None
 
 
-def _rebote_mudo_de_envio(resp):
-    """¿El CRM aceptó el POST del envío pero no insertó nada y no dijo por qué?
+def _rebote_por_token(resp):
+    """¿El CRM rechazó el envío por el x-growi-token, sin haber insertado nada?
 
-    Es la firma del token vencido/faltante. Se distingue de un rechazo legítimo
-    (saldo, validación) en que NO trae ni errors ni warnings ni messages: el CRM
-    cuando rechaza de verdad los completa.
+    Dos firmas, porque el CRM cambió cómo lo cuenta:
+
+      - `token_caducado: true`, con el motivo escrito en `errors` ("esta pestaña
+        perdió el permiso de escritura…"). Es lo que contesta desde el 25/8/26.
+      - Sin nada: success:false, insertadas:0 y ni errors ni warnings ni
+        messages. Era la única firma antes de esa fecha.
+
+    La segunda sola no alcanzaba: cuando el CRM empezó a explicar el rechazo,
+    `errors` dejó de venir vacío, esta función devolvía False, y el envío moría
+    sin renovar el token ni reintentar. Dos días de órdenes rebotadas salieron
+    de ahí.
+
+    Se exige `insertadas` en cero en las dos: quien llama reintenta el POST, que
+    NO es idempotente, y reintentar algo que entró se lo cobra dos veces al
+    cliente.
     """
     try:
         d = resp.json()
     except Exception:
         return False
-    return (isinstance(d, dict) and d.get("success") is False
-            and not d.get("insertadas")
-            and not d.get("errors") and not d.get("warnings") and not d.get("messages"))
+    if not isinstance(d, dict) or d.get("success") is not False or d.get("insertadas"):
+        return False
+    if d.get("token_caducado"):
+        return True
+    return not (d.get("errors") or d.get("warnings") or d.get("messages"))
 
 
 def _olvidar_sesion(cfg):
@@ -1025,7 +1039,7 @@ def _growi_request(method, path, account_id=None, **kwargs):
         # Igual que en growi_client: si el request no llega a salir, la traza
         # igual tiene que poder mostrar con qué headers se intentó.
         tr.headers(kwargs.get("headers"))
-        token_reintentado = False
+        rescates_token = 0
         for intento in range(1, 5):
             tr.intento(intento)
             url = entry["cfg"].get("crm_url") or GROWI_CRM_URL
@@ -1043,16 +1057,26 @@ def _growi_request(method, path, account_id=None, **kwargs):
                 method, f"{url}{path}", timeout=timeout, **kwargs
             )
             if not _growi_sesion_caida(resp):
-                # Envío que vuelve sin insertar y sin explicación: lo más probable
-                # es que el token haya vencido (el CRM no lo dice). Se pide uno
-                # nuevo y se reintenta UNA sola vez. Es seguro: no insertó nada,
-                # así que no hay riesgo de duplicar el cobro.
-                if es_envio and not token_reintentado and _rebote_mudo_de_envio(resp):
-                    token_reintentado = True
-                    print(f"[growi-web] el CRM no insertó nada y no dijo por qué "
-                          f"(cuenta {account_id}): renuevo el growi-token y reintento",
-                          flush=True)
-                    if _growi_token(entry, account_id, refrescar=True):
+                # Envío rebotado por el token (ver _rebote_por_token). No insertó
+                # nada, así que reintentar es seguro. Dos rescates, en este orden:
+                #   1º renovar el token con la misma sesión — es lo barato y
+                #      alcanza cuando solo caducó él;
+                #   2º reloguear — el CRM dice "la sesión se renovó sola", y si
+                #      pasó eso el token nuevo sale de una sesión que ya no es la
+                #      nuestra y vuelve a rebotar.
+                if es_envio and rescates_token < 2 and _rebote_por_token(resp):
+                    rescates_token += 1
+                    print(f"[growi-web] el CRM rebotó el envío por el growi-token "
+                          f"(cuenta {account_id}): "
+                          f"{'renuevo el token' if rescates_token == 1 else 'relogueo'} "
+                          f"y reintento", flush=True)
+                    if rescates_token == 1:
+                        if _growi_token(entry, account_id, refrescar=True):
+                            continue
+                    else:
+                        _olvidar_sesion(entry["cfg"])
+                        entry = _abrir_sesion(_account_crm_cfg(account_id),
+                                              account_id=account_id)
                         continue
                 tr.respuesta(resp)
                 return resp
@@ -3462,7 +3486,16 @@ _MOTIVOS_ENVIO = (
      "Tu sesión venció: volvé a entrar y reintentala"),
     ("saldo",         ("saldo", "disponible", "insuficiente"),
      "No alcanzaba el saldo de la campaña"),
-    ("sesion",        ("401", "login", "growiautherror", "sesión"),
+    # También va ANTES de "sesion": el CRM redacta este rechazo diciendo que "la
+    # sesión se renovó sola", así que matchea la aguja "sesión" y quedaba
+    # clasificado como sesión caída — mandando a revisar un login que estaba
+    # perfecto. Es el token de escritura, y el envío lo reintenta solo.
+    ("token",         ("token_caducado", "permiso de escritura"),
+     "El CRM caducó el permiso para cargar y rechazó la orden"),
+    # "401" pelado matcheaba cualquier id o monto que lo tuviera adentro (una
+    # campaña 33401, $4.0140) y disfrazaba de sesión caída un rechazo común. El
+    # 401 de verdad llega como "401 Client Error: Unauthorized".
+    ("sesion",        ("unauthorized", "login", "growiautherror", "sesión"),
      "El CRM cortó la sesión"),
     ("red",           ("timeout", "connection", "proxy", "growiunavailable",
                        "no se pudo conectar", "conexión", "conexion"),
@@ -3506,6 +3539,45 @@ def _insertadas_de_traza(call) -> int:
         m = re.search(r'"insertadas"\s*:\s*(\d+)', cuerpo)
         return int(m.group(1)) if m else -1
     return int(data.get("insertadas") or 0) if isinstance(data, dict) else -1
+
+
+def _tecnico_de_traza(call) -> str:
+    """El texto crudo del fallo, que es lo primero que pide el admin cuando le
+    reenvían la captura.
+
+    Antes era `error or "HTTP <status>"`, y justo en el caso más común —el CRM
+    contestando 200 con success:false— no había error, así que el detalle
+    técnico decía `HTTP 200` y nada más. El motivo estaba en el cuerpo, la
+    pantalla ya lo leía para elegir el cartel… y no lo mostraba. Diagnosticar un
+    rebote obligaba a entrar al panel de trazas fila por fila.
+    """
+    if call.get("error"):
+        return call["error"]
+    http = f"HTTP {call.get('status_code') or '—'}"
+    cuerpo = call.get("response_snippet") or ""
+    if not cuerpo:
+        return http
+    try:
+        d = json.loads(cuerpo)
+        dicho = "; ".join(str(x) for x in
+                          ((d.get("errors") or d.get("warnings") or [])
+                           if isinstance(d, dict) else []))
+    except Exception:
+        # El snippet son los primeros 300 caracteres, y el mensaje del CRM es más
+        # largo que eso: el caso NORMAL acá es un JSON cortado a la mitad. Por eso
+        # la comilla de cierre es opcional — exigirla dejaba el detalle en un
+        # "HTTP 200" pelado justo en el rechazo más común.
+        m = re.search(r'"(?:errors|warnings)"\s*:\s*\[\s*"(.+?)(?:"|$)', cuerpo, re.S)
+        dicho = m.group(1) if m else ""
+        if dicho:
+            try:
+                # Viene con los \uXXXX del JSON. Se desescapa releyéndolo como
+                # string JSON; si el recorte partió un escape al medio, queda
+                # crudo antes que perder el mensaje.
+                dicho = json.loads('"' + dicho.rstrip("\\") + '"')
+            except Exception:
+                pass
+    return f"{http} · {dicho}" if dicho else http
 
 
 def _reintento_de_traza(call):
@@ -3573,7 +3645,7 @@ def mis_envios_fallidos():
             "motivo": codigo, "detalle": criollo,
             "post_url": c.get("post_url"), "cliente": c.get("client_ig_username"),
             "idventa": c.get("idventa"), "costo": c.get("costo"),
-            "tecnico": c.get("error") or f"HTTP {c.get('status_code') or '—'}",
+            "tecnico": _tecnico_de_traza(c),
             "ordenes": c.get("ordenes_guardadas") or 0,
             "reintentable": reintentable,
             "aviso_duplicado": aviso,
