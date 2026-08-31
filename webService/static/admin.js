@@ -1377,15 +1377,17 @@ function revisarComentarios() {
       malo = "Faltan los dos números: sin mínimo y máximo no se autocompleta nada.";
     } else if (tieneMin && parseInt(min.value) > parseInt(max.value)) {
       malo = "El mínimo es mayor que el máximo.";
-    } else if (tieneMin && parseInt(max.value) === 0) {
-      malo = "El máximo tiene que ser mayor que cero.";
     } else if (tieneMin && COM_TOPE[k] && parseInt(max.value) > COM_TOPE[k]) {
       malo = `Los comunes salen en dos tandas de 40: el tope es ${COM_TOPE[k]} por día.`;
     }
     min.classList.toggle("ax-bad", !!malo);
     max.classList.toggle("ax-bad", !!malo);
     if (malo && !msg) msg = malo;
-    if (!malo && tieneMin) partes.push(`${min.value}–${max.value} ${k}`);
+    // 0-0 no es un rango a autocompletar: es "este cliente no manda ese tipo".
+    if (!malo && tieneMin)
+      partes.push(parseInt(max.value) === 0
+        ? `sin ${k}`
+        : `${min.value}–${max.value} ${k}`);
   }
   fe.textContent = msg;
   fe.classList.toggle("ax-on", !!msg);

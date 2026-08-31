@@ -295,6 +295,9 @@ async function generarComentarios() {
   generoFijo = null;
   ultimoEsVideo = false;
   scrapeRecibido = false;
+  // Lo define el scrape de ESTE post: si queda el del anterior, un cliente
+  // normal se saltearía la pantalla de comentarios.
+  window._sinComentarios = false;
   comentariosGenerados = [];
   generosGenerados = [];
   generoActual = null;
@@ -804,6 +807,10 @@ function mostrarScrape(data) {
   // backend (una sola vez) porque es el que tiene que pedirle esa cantidad a la
   // IA: si lo tiraba el front, el backend no sabía cuántos iban a hacer falta.
   if (data.objetivos !== undefined) window._clientObjetivos = data.objetivos || {};
+  // Cliente con los dos tipos de comentario en 0: no se genera nada y la
+  // pantalla de comentarios no tiene sentido. Lo decide el backend (ver
+  // _sin_comentarios) y acá solo se obedece al terminar el stream.
+  if (data.sin_comentarios !== undefined) window._sinComentarios = !!data.sin_comentarios;
   // Cantidad de comentarios de la ficha del cliente: autocompleta los dos
   // casilleros del reparto con un número al azar dentro del rango configurado.
   _autocompletarComentarios(data.cliente_asignado ? data.client_id : "");
@@ -1753,6 +1760,13 @@ function finalizarStream(meta) {
   document.getElementById("status-listo").classList.remove("hidden");
   const btnCargar = document.getElementById("btn-cargar-mas");
   if (btnCargar) btnCargar.classList.remove("hidden");
+
+  // Cliente sin comentarios: el backend no generó ninguno y la lista está
+  // vacía. Saltamos la pantalla entera y abrimos las órdenes de tráfico.
+  if (window._sinComentarios && !comentariosGenerados.length) {
+    if (btnCargar) btnCargar.classList.add("hidden");
+    irAOrdenes();
+  }
 }
 
 // tipo: "verificado" | "noverif" para que la tanda nueva caiga entera en esa
@@ -2689,7 +2703,9 @@ async function irAOrdenes() {
   // (Telegram y WhatsApp) solo copian texto: no generan órdenes.
   const idxVerif   = (etapaSel[1] || []).filter(i => !Number.isNaN(i));
   const idxNoVerif = (etapaSel[2] || []).filter(i => !Number.isNaN(i));
-  if (idxVerif.length === 0 && idxNoVerif.length === 0) return;
+  // Sin selección no se arman órdenes... salvo el cliente que no lleva
+  // comentarios: ahí venimos derecho del scrape y lo único que hay es tráfico.
+  if (idxVerif.length === 0 && idxNoVerif.length === 0 && !window._sinComentarios) return;
 
   // Reconstruye la lista con los encabezados de género (hombres:/mujeres:) para
   // un conjunto de índices. Los encabezados NO cuentan como comentarios; el
@@ -4001,6 +4017,13 @@ function volverAComentarios() {
 }
 
 function _volverAComentariosUI() {
+  // Cliente sin comentarios: nunca hubo pantalla de comentarios. El paso
+  // anterior real es el del link, y acá no hay trabajo generado que perder.
+  if (window._sinComentarios && !comentariosGenerados.length) {
+    hide("step-ordenes");
+    show("step-input");
+    return;
+  }
   hide("step-ordenes");
   show("step-comentarios");
   document.getElementById("panel-seleccionados").classList.remove("hidden");

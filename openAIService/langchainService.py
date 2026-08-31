@@ -125,6 +125,23 @@ def _objetivos_comentarios(ranges: dict) -> dict:
     return objetivos
 
 
+def _sin_comentarios(ranges: dict) -> bool:
+    """¿La ficha dice que este cliente NO manda comentarios?
+
+    Es 0-0 en los DOS tipos, cargado a propósito. No es lo mismo que la ficha
+    vacía: ahí el vendedor elige la cantidad a mano y sí hay que generarlos. Con
+    esto prendido no se le pide nada a la IA y el front va derecho a las órdenes
+    de tráfico: generar 70 comentarios que nadie va a mirar es plata tirada.
+    """
+    com = (ranges or {}).get("comentarios") or {}
+    if not all(isinstance(com.get(k), dict) for k in ("verificados", "comunes")):
+        return False
+    try:
+        return all(int(com[k].get("max") or 0) == 0 for k in ("verificados", "comunes"))
+    except (TypeError, ValueError):
+        return False
+
+
 def _cantidad_a_pedir(objetivos: dict) -> int:
     """Cuántos comentarios pedirle a la IA para cubrir el objetivo de este post.
 
@@ -612,6 +629,9 @@ def procesar_post_web():
                             # Cuántos verificados y cuántos comunes lleva ESTE post
                             # (sorteo ya hecho acá: ver _objetivos_del_post).
                             "objetivos": _objetivos_del_post(preview_ranges),
+                            # Cliente sin comentarios: el front salta la pantalla
+                            # de comentarios y va directo a las órdenes.
+                            "sin_comentarios": _sin_comentarios(preview_ranges),
                             "gender": preview_gender,
                         }
                         job["meta"] = preview_meta
@@ -723,6 +743,7 @@ def procesar_post_web():
                 "is_video": post_data.is_video,
                 "ranges": ranges,
                 "objetivos": _objetivos_del_post(ranges),
+                "sin_comentarios": _sin_comentarios(ranges),
                 # male/female -> el front muestra UNA sola sección; None -> mixto (2 columnas)
                 "gender": client_gender,
             }
@@ -732,6 +753,14 @@ def procesar_post_web():
             # Cancelaron durante el scrape: ni arrancamos la generación.
             if job["cancelado"]:
                 print(f"[jobs] {job_id} cancelado antes de generar", flush=True)
+                job["done"] = True
+                return
+
+            # Cliente con los dos tipos en 0: no hay comentarios que generar.
+            # Cerramos el job acá y el front pasa derecho a las órdenes.
+            if _sin_comentarios(ranges):
+                print(f"[jobs] {job_id}: cliente sin comentarios (0-0), no genero", flush=True)
+                job["progreso"].append("Este cliente no lleva comentarios: vamos a las órdenes.")
                 job["done"] = True
                 return
 

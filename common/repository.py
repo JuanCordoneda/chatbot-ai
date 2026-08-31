@@ -125,7 +125,9 @@ def _norm_comentarios(c):
             mx = int(e.get("max"))
         except (TypeError, ValueError):
             continue
-        if mn < 0 or mx <= 0:
+        # 0-0 es una configuración válida: hay clientes que directamente no
+        # mandan comentarios de un tipo, y ahí la herramienta no marca ninguno.
+        if mn < 0 or mx < 0:
             continue
         if mx < mn:
             mn, mx = mx, mn
