@@ -72,6 +72,14 @@ def _motivo_post_inaccesible(slow: dict, fast: dict) -> str:
     anónimo TAMBIÉN vino vacío, no es la sesión: Instagram no entrega ese post
     para nadie."""
     error = slow.get("_error") or "Instagram no devolvió el link del video"
+    # La sesión no sirve: NO es el post y NO se arregla reintentando. Antes esto
+    # caía en el genérico "probá de nuevo en un minuto" y el vendedor reintentaba
+    # el mismo link toda la mañana creyendo que el link estaba mal.
+    if slow.get("_error_kind") == "sesion_muerta":
+        # "sesión de Instagram del server" es la frase que mira el clasificador
+        # para no ofrecer el botón de Reintentar: acá reintentar no arregla nada.
+        return (f"{error}. No es el post: es la sesión de Instagram del server, "
+                "avisá al administrador")
     if slow.get("_error_kind") != "media_null":
         # 429/403/timeout: el error ya dice lo que pasa y suele ser transitorio.
         return f"{error}. Probá de nuevo en un minuto"
@@ -592,9 +600,46 @@ def _fetch_instagram_api(shortcode: str) -> dict:
             motivo = ("Instagram nos está limitando (rate limit)" if r.status_code == 429
                       else "la sesión de Instagram venció o fue bloqueada" if r.status_code in (401, 403)
                       else f"Instagram respondió {r.status_code}")
-            return {"_error": motivo}
+            kind = "sesion_muerta" if r.status_code in (401, 403) else ""
+            if kind:
+                print("[ig_api] SESIÓN MUERTA — renová INSTAGRAM_COOKIES_JSON", flush=True)
+            return {"_error": motivo, "_error_kind": kind} if kind else {"_error": motivo}
 
-        media = r.json().get("data", {}).get("xdt_shortcode_media")
+        # Instagram contesta 200 con la página de deslogueado (HTML) cuando la
+        # cookie ya no sirve. Eso reventaba en r.json() como un JSONDecodeError
+        # pelado, que se leía igual que un problema de red pasajero.
+        try:
+            payload = r.json()
+        except ValueError:
+            texto = r.text or ""
+            cuerpo = texto[:120].strip().replace("\n", " ")
+            # Instagram devuelve la página web en vez de JSON en dos casos que se
+            # arreglan distinto: la cuenta quedó trabada en un checkpoint (hay que
+            # verificarla desde el navegador, ninguna cookie sirve hasta entonces)
+            # o la cookie ya no vale (alcanza con renovarla).
+            if "checkpoint" in texto or "challenge" in texto:
+                print("[ig_api] CUENTA EN CHECKPOINT: Instagram le pide verificación "
+                      "a la cuenta del scraper. Entrá con esa cuenta, confirmá, y "
+                      "recién ahí renová INSTAGRAM_COOKIES_JSON", flush=True)
+                return {"_error": "Instagram trabó la cuenta del server y le pide "
+                                  "verificación: hay que entrar con esa cuenta y "
+                                  "confirmar que es ella",
+                        "_error_kind": "sesion_muerta"}
+            print("[ig_api] SESIÓN MUERTA: Instagram no devolvió JSON — renová "
+                  f"INSTAGRAM_COOKIES_JSON. Empieza con: {cuerpo!r}", flush=True)
+            return {"_error": "la sesión de Instagram del server venció "
+                              "(Instagram devolvió la página de deslogueado)",
+                    "_error_kind": "sesion_muerta"}
+
+        if payload.get("message") in ("checkpoint_required", "login_required"):
+            print(f"[ig_api] SESIÓN MUERTA: {payload.get('message')} — renová "
+                  "INSTAGRAM_COOKIES_JSON", flush=True)
+            return {"_error": "Instagram le está pidiendo verificación a la cuenta "
+                              "del server: hay que abrirla en el navegador y renovar "
+                              "la cookie",
+                    "_error_kind": "sesion_muerta"}
+
+        media = (payload.get("data") or {}).get("xdt_shortcode_media")
         if not media:
             # 200 con media en null. Sin más contexto no se sabe si el post no
             # existe o si la sesión dejó de servir: quien llama lo resuelve

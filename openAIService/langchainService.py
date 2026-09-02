@@ -37,6 +37,12 @@ def _clasificar_error_ia(err: str) -> dict:
     # es claro ("no se pudo obtener el contenido... sesión venció / rate limit").
     if ("instagram" in e or "contenido del post" in e or "shortcode" in e
             or "post puede ser privado" in e):
+        # La cookie del server murió: reintentar es garantía de volver a fallar.
+        # Se lo decimos así, sin botón de "reintentar", para que el vendedor
+        # avise en vez de quemar media mañana con el mismo link.
+        if "sesión de instagram del server" in e:
+            return {"motivo": "sesion_ig", "reintentable": False,
+                    "mensaje": (err or "").strip()}
         return {"motivo": "instagram", "reintentable": True,
                 "mensaje": (err or "").strip() or
                            "No se pudo leer el post de Instagram. Reintentá en un minuto."}
