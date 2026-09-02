@@ -37,8 +37,15 @@ esta_viva() {
 }
 
 if [ "${1:-}" = "--check" ]; then
-  if esta_viva; then echo "sesión viva"; exit 0; fi
-  echo "sesión CAÍDA — corré ./script_COOKIE.sh para renovarla"; exit 1
+  if esta_viva; then
+    echo "$(date '+%F %H:%M') sesión viva"
+    exit 0
+  fi
+  echo "$(date '+%F %H:%M') sesión CAÍDA — corré ./script_COOKIE.sh para renovarla"
+  # Corriendo por cron nadie mira la salida: el aviso tiene que aparecer en la
+  # pantalla. La idea es enterarse antes que el vendedor, no después.
+  osascript -e 'display notification "Los posts no se van a poder generar. Corré ./script_COOKIE.sh" with title "Growi: sesión de Instagram caída" sound name "Basso"' 2>/dev/null || true
+  exit 1
 fi
 
 # El venv vive en el repo (gitignoreado) para que browser-cookie3 no ensucie el
