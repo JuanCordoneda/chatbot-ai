@@ -127,4 +127,5 @@ def arrancar() -> None:
         _arrancado = True
     threading.Thread(target=_loop, daemon=True, name="growi-health").start()
     print(f"[growi-health] monitor activo (cada {INTERVALO:.0f}s, "
-          f"avisos a {'WhatsApp ' + ALERTA_TO if ALERTA_TO else 'solo log'})", flush=True)
+          f"avisos a {'WhatsApp ' + aviso.ALERTA_TO if aviso.hay_canal() else 'solo log'})",
+          flush=True)
