@@ -47,6 +47,36 @@ Variables de Entorno: Configura las siguientes variables de entorno en tu sistem
   Apagado, el bot se comporta igual que antes: el mensaje va al modelo.
   Ojo: depende del webhook de Meta, que todavía no está configurado.
 
+La sesión de Instagram del scraper se administra desde el panel
+(**/admin → pestaña Instagram**): ahí se cargan una o más cuentas, se prueban
+contra Instagram antes de guardarse y se ve cuál está en uso. Tener **dos**
+cargadas es lo que evita el corte: cuando Instagram rechaza una, el scraper pasa
+a la siguiente solo y avisa por WhatsApp. Variables relacionadas, todas
+opcionales:
+
+- INSTAGRAM_COOKIES_JSON: la sesión de toda la vida. Hoy es el **último**
+  recurso: se usa solo si no hay ninguna cuenta cargada en el panel (o si la DB
+  no está disponible). Se sigue pudiendo subir con `./script_COOKIE.sh`.
+- IG_HEALTH_DESDE / IG_HEALTH_HASTA: ventana horaria del monitor, en hora
+  argentina. Default 9 y 21.
+- IG_HEALTH_CHEQUEOS: cuántos chequeos propios hace por día dentro de esa
+  ventana. Default 15 (uno cada 48 min). Es un techo, no un piso: cada post que
+  procesa un vendedor cuenta como prueba de vida y saltea el siguiente chequeo.
+  **No conviene subirlo**: cada chequeo es una llamada autenticada real, y la
+  versión anterior —una cada 5 minutos, las 24 h— es sospechosa de haber causado
+  los checkpoints que venía a detectar.
+- IG_HEALTH_SHORTCODE: el post público que se usa de sonda.
+- IG_REINTENTO_MIN: cuánto espera antes de volver a probar una cuenta que
+  Instagram rechazó. Default 30 min (un checkpoint se resuelve verificando la
+  cuenta en el navegador y la misma cookie vuelve a servir).
+- GROWI_ALERTA_WHATSAPP, WHATSAPP_API_URL, WHATSAPP_ACCESS_TOKEN: adónde salen
+  los avisos. **Las tres tienen que estar en el servicio `openai`**, que es
+  quien corre los monitores; si falta alguna, los avisos quedan solo en el log
+  (y el servicio lo dice al arrancar).
+- INTERNO_TOKEN: secreto compartido entre el webService y el openAIService para
+  los endpoints de administración de sesiones. Si no está, se deriva de
+  DATABASE_URL, que ambos ya comparten.
+
 Modelos de IA (opcionales — si no se setean, valen los defaults):
 
 - CROW_MODEL_PRO: modelo de los clientes marcados **Pro** en el admin. Default `claude-opus-4-8`.

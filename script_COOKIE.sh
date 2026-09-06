@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-# Renueva la sesión de Instagram de producción.
+# Renueva la sesión de Instagram de producción DESDE ESTA MAC.
+#
+# OJO: este ya no es el camino principal. La forma normal de renovar es el panel
+# (/admin → pestaña Instagram): se pegan las cookies desde cualquier navegador,
+# incluso del celular, se prueban antes de guardarse y no hace falta ni Railway
+# ni permisos de disco. Este script quedó para dos casos: cargar la cuenta
+# cuando el panel todavía no tiene ninguna, y como salida de emergencia si el
+# webService está caído.
+#
+# Lo que sube acá es la variable INSTAGRAM_COOKIES_JSON, que hoy es el ÚLTIMO
+# recurso: el scraper primero usa las cuentas cargadas en el panel.
 #
 # Saca las cookies del Safari de esta Mac (donde está la sesión abierta que no
 # cerramos nunca), las sube a Railway y espera a que el servicio vuelva a
@@ -32,8 +42,18 @@ SHORTCODE="${TEST_SHORTCODE:-DY5mFTuxsIO}"
 
 cd "$REPO"
 
+# El endpoint devuelve lo último que sabe el monitor del server, sin molestar a
+# Instagram. Es lo que hay que mirar para "¿está viva?".
 esta_viva() {
-  curl -s -m 20 "$HEALTH?shortcode=$SHORTCODE" | grep -q '"ok":true'
+  curl -s -m 20 "$HEALTH?shortcode=$SHORTCODE" | grep -q '"ok": *true'
+}
+
+# Y esto pregunta DE VERDAD. Se usa una sola vez, para confirmar que la cookie
+# que acabamos de subir sirve: si se usara en cada vuelta de la espera serían 40
+# llamadas autenticadas en 10 minutos, que es justo el patrón que hace que
+# Instagram mande la cuenta a checkpoint.
+confirmar_viva() {
+  curl -s -m 30 "$HEALTH?forzar=1&shortcode=$SHORTCODE" | grep -q '"ok": *true'
 }
 
 if [ "${1:-}" = "--check" ]; then
@@ -41,10 +61,11 @@ if [ "${1:-}" = "--check" ]; then
     echo "$(date '+%F %H:%M') sesión viva"
     exit 0
   fi
-  echo "$(date '+%F %H:%M') sesión CAÍDA — corré ./script_COOKIE.sh para renovarla"
+  echo "$(date '+%F %H:%M') sesión CAÍDA — renovala en /admin → Instagram"
   # Corriendo por cron nadie mira la salida: el aviso tiene que aparecer en la
-  # pantalla. La idea es enterarse antes que el vendedor, no después.
-  osascript -e 'display notification "Los posts no se van a poder generar. Corré ./script_COOKIE.sh" with title "Growi: sesión de Instagram caída" sound name "Basso"' 2>/dev/null || true
+  # pantalla. Es el respaldo del aviso por WhatsApp que manda el server
+  # (modules/ig_monitor): este solo llega si la Mac está prendida.
+  osascript -e 'display notification "Los posts salen sin imagen ni transcripción. Renovala en /admin → Instagram" with title "Growi: sesión de Instagram caída" sound name "Basso"' 2>/dev/null || true
   exit 1
 fi
 
@@ -86,7 +107,7 @@ printf '%s' "$COOKIE" \
 
 echo "→ Railway está redeployando; espero a que la sesión responda"
 for i in $(seq 1 40); do
-  if esta_viva; then echo "listo: la sesión de prod está viva"; exit 0; fi
+  if esta_viva && confirmar_viva; then echo "listo: la sesión de prod está viva"; exit 0; fi
   sleep 15
 done
 

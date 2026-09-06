@@ -3847,6 +3847,85 @@ def _anthropic_client():
     return anthropic.Anthropic(api_key=key, max_retries=3)
 
 
+# ── Sesiones de Instagram del scraper ─────────────────────────────────────────
+#
+# El panel no habla con Instagram ni toca la tabla: se lo pide al openAIService,
+# que es donde vive todo lo que sabe de Instagram. Acá solo está el control de
+# acceso (solo admin) y la traducción del error a algo legible.
+
+def _ig_sesiones(metodo: str, ruta: str = "", payload=None, timeout: int = 45):
+    from common.interno import token as _token_interno
+    r = requests.request(
+        metodo,
+        f"{OPENAI_SERVICE_URL}/admin/ig-sesiones{ruta}",
+        json=payload,
+        headers={"X-Interno": _token_interno()},
+        timeout=timeout,
+    )
+    return jsonify(r.json()), r.status_code
+
+
+@app.route("/api/admin/ig-sesiones", methods=["GET"])
+@require_admin
+def admin_ig_sesiones_list():
+    try:
+        return _ig_sesiones("GET")
+    except Exception as e:
+        print(f"[ig-sesiones] error listando: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
+@app.route("/api/admin/ig-sesiones", methods=["POST"])
+@require_admin
+def admin_ig_sesiones_alta():
+    """Alta o renovación de una cuenta de Instagram para el scraper.
+
+    Reemplaza al ritual de renovar la cookie: exportarla de una Mac con la
+    sesión abierta, con Acceso Total al Disco y el CLI de Railway logueado. Un
+    sábado eso significó horas sin scrapear. Desde acá se puede hacer desde el
+    celular.
+
+    Probar la sesión contra Instagram tarda: por eso el timeout es largo. La
+    espera es del admin que la está cargando, no de un vendedor generando.
+    """
+    d = request.get_json(silent=True) or {}
+    cookies = d.get("cookies") or {}
+    if not isinstance(cookies, dict) or not (cookies.get("sessionid") or "").strip():
+        return jsonify({"error": "Falta el sessionid: sin eso no hay sesión."}), 400
+    try:
+        return _ig_sesiones("POST", payload={
+            "cookies": cookies,
+            "username": (d.get("username") or "").strip(),
+            "creada_por": session.get("username", ""),
+        }, timeout=60)
+    except Exception as e:
+        print(f"[ig-sesiones] error guardando: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
+@app.route("/api/admin/ig-sesiones/<int:sesion_id>", methods=["PATCH", "DELETE"])
+@require_admin
+def admin_ig_sesiones_editar(sesion_id):
+    try:
+        if request.method == "DELETE":
+            return _ig_sesiones("DELETE", f"/{sesion_id}")
+        return _ig_sesiones("PATCH", f"/{sesion_id}",
+                            payload=request.get_json(silent=True) or {})
+    except Exception as e:
+        print(f"[ig-sesiones] error editando: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
+@app.route("/api/admin/ig-sesiones/probar", methods=["POST"])
+@require_admin
+def admin_ig_sesiones_probar():
+    try:
+        return _ig_sesiones("POST", "/probar", payload={}, timeout=60)
+    except Exception as e:
+        print(f"[ig-sesiones] error probando: {e!r}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
 @app.route("/api/admin/prompt-ai", methods=["POST"])
 @require_admin
 def prompt_ai():

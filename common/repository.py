@@ -6,15 +6,18 @@ fallback de archivos sin romperse.
 Devuelven dicts desacoplados de la sesión (no objetos ORM vivos) para evitar
 problemas de lazy-loading fuera del `session_scope`.
 """
+import json
 import os
 import re
 from typing import Optional
 
 from werkzeug.security import check_password_hash
 
+from common.crypto import decrypt, encrypt
 from common.db import db_available, session_scope
 from common.models import (Account, User, Client, PromptRequest, UsageEvent,
-                           PendingOrder, PostCache, TokenUsage, GrowiCall)
+                           PendingOrder, PostCache, TokenUsage, GrowiCall,
+                           IgSession)
 
 
 # ── Clientes ──────────────────────────────────────────────────────────────────
@@ -1934,3 +1937,234 @@ def post_cache_purgar(dias: int = 30) -> int:
     except Exception as e:
         print(f"[cache-db] error purgando: {e}", flush=True)
         return 0
+
+
+# ── Sesiones de Instagram del scraper ─────────────────────────────────────────
+#
+# Varias cuentas ordenadas por prioridad. El scraper usa la primera que esté
+# viva y, cuando Instagram la rechaza, pasa a la siguiente sola (ver
+# post_processor._fetch_instagram_api). Las cookies van cifradas: ver el
+# comentario de IgSession sobre hasta dónde protege eso.
+#
+# CUIDADO al llamar esto desde el webService: mientras DB_ENCRYPTION_KEY no esté
+# seteada, common.crypto deriva la clave del SECRET_KEY de CADA servicio, y los
+# dos no tienen el mismo. Las filas cifradas por uno no las lee el otro y
+# decrypt() devuelve "" en silencio. Por eso el panel no toca esta tabla: le
+# pide todo al openAIService, que cifra y descifra siempre con la misma clave.
+
+# Una cuenta caída no se descarta para siempre: los checkpoints se resuelven
+# verificándola en el navegador y la MISMA cookie vuelve a andar. Pasado este
+# rato se la vuelve a probar, así se recupera sola sin que nadie toque nada.
+IG_REINTENTO_MIN = int(os.environ.get("IG_REINTENTO_MIN", "30"))
+
+
+def _mascara_sessionid(sessionid: str) -> str:
+    """Lo suficiente para reconocer cuál es, nada para usarla.
+
+    El panel tiene que dejar distinguir dos cuentas y ver que se guardó algo,
+    pero el sessionid completo en una respuesta HTTP es la sesión entera: quien
+    la ve, la tiene."""
+    s = (sessionid or "").strip()
+    if not s:
+        return ""
+    return f"{s[:10]}…{s[-4:]}" if len(s) > 18 else "…"
+
+
+def _ig_session_to_dict(x: IgSession, cookies: Optional[dict] = None) -> dict:
+    return {
+        "id": x.id,
+        "username": x.username or "",
+        "ds_user_id": x.ds_user_id or "",
+        "prioridad": x.prioridad,
+        "activa": bool(x.activa),
+        "estado": x.estado or "viva",
+        "ultimo_error": x.ultimo_error or "",
+        "caida_desde": x.caida_desde.isoformat() if x.caida_desde else None,
+        "ultimo_ok_at": x.ultimo_ok_at.isoformat() if x.ultimo_ok_at else None,
+        "creada_por": x.creada_por or "",
+        "created_at": x.created_at.isoformat() if x.created_at else None,
+        "sessionid_masc": _mascara_sessionid((cookies or {}).get("sessionid", "")),
+    }
+
+
+def _con_zona(dt):
+    """Postgres devuelve estas fechas con zona y SQLite (tests) sin ella.
+    Comparar una con otra levanta TypeError y la lista de sesiones volvía
+    vacía: el scraper se quedaba sin cuentas por un detalle del driver."""
+    if dt is not None and dt.tzinfo is None:
+        from datetime import timezone as _tz
+        return dt.replace(tzinfo=_tz.utc)
+    return dt
+
+
+def _cookies_de(x: IgSession) -> dict:
+    """Descifra las cookies de una fila. Devuelve {} si no se pueden leer."""
+    try:
+        crudo = decrypt(x.cookies_enc or "")
+        datos = json.loads(crudo) if crudo else {}
+        return datos if isinstance(datos, dict) else {}
+    except Exception as e:
+        # Pasa si se rotó DB_ENCRYPTION_KEY sin volver a cargar las cookies:
+        # decrypt() devuelve "" y esto queda en {}. Se dice en el log porque el
+        # síntoma sin explicación ("sin sesión" con filas cargadas) es de los
+        # que cuestan una tarde.
+        print(f"[ig_sessions] no pude descifrar la sesión {x.id} "
+              f"(¿cambió DB_ENCRYPTION_KEY?): {e}", flush=True)
+        return {}
+
+
+def list_ig_sessions() -> list[dict]:
+    """Todas las sesiones cargadas, para el panel. NUNCA devuelve el sessionid."""
+    if not db_available():
+        return []
+    try:
+        with session_scope() as s:
+            filas = (s.query(IgSession)
+                      .order_by(IgSession.prioridad.asc(), IgSession.id.asc())
+                      .all())
+            return [_ig_session_to_dict(x, _cookies_de(x)) for x in filas]
+    except Exception as e:
+        print(f"[ig_sessions] no pude listar: {e}", flush=True)
+        return []
+
+
+def ig_sessions_para_usar(reintento_min: int = None) -> list[dict]:
+    """Las sesiones que vale la pena probar, en orden de uso.
+
+    Primero las vivas por prioridad, después las caídas hace rato (que pueden
+    haberse recuperado). Cada dict trae `cookies` ya descifradas.
+    """
+    if not db_available():
+        return []
+    from datetime import timedelta
+    espera = IG_REINTENTO_MIN if reintento_min is None else reintento_min
+    limite = _utcnow_naive() - timedelta(minutes=max(1, espera))
+    try:
+        with session_scope() as s:
+            filas = (s.query(IgSession)
+                      .filter(IgSession.activa.is_(True))
+                      .order_by(IgSession.prioridad.asc(), IgSession.id.asc())
+                      .all())
+            vivas, reintentos = [], []
+            for x in filas:
+                cookies = _cookies_de(x)
+                if not cookies.get("sessionid"):
+                    continue
+                d = _ig_session_to_dict(x, cookies)
+                d["cookies"] = cookies
+                if x.estado != "caida":
+                    vivas.append(d)
+                elif x.caida_desde is None or _con_zona(x.caida_desde) <= limite:
+                    reintentos.append(d)
+            return vivas + reintentos
+    except Exception as e:
+        print(f"[ig_sessions] no pude leer las sesiones: {e}", flush=True)
+        return []
+
+
+def guardar_ig_session(cookies: dict, *, username: str = "", creada_por: str = "",
+                       prioridad: Optional[int] = None) -> dict:
+    """Alta o actualización de una sesión, identificada por su ds_user_id.
+
+    Volver a cargar la MISMA cuenta pisa la fila que había (es lo que hace el
+    botón "renovar" del panel) y la vuelve a marcar viva. Una cuenta nueva se
+    agrega al final de la cola de prioridades: la principal no cambia por subir
+    un respaldo.
+    """
+    if not db_available():
+        raise RepoError("No hay base de datos configurada")
+    if not isinstance(cookies, dict) or not (cookies.get("sessionid") or "").strip():
+        raise RepoError("Faltan las cookies: sin sessionid no hay sesión")
+
+    cookies = {k: str(v) for k, v in cookies.items() if v}
+    ds_user_id = str(cookies.get("ds_user_id") or "").strip()
+    # El sessionid arranca con el ds_user_id URL-encodeado: si no lo mandaron
+    # aparte, se saca de ahí en vez de dejar la fila sin identidad.
+    if not ds_user_id:
+        ds_user_id = (cookies["sessionid"].split("%3A")[0].split(":")[0] or "").strip()
+        if ds_user_id:
+            cookies["ds_user_id"] = ds_user_id
+
+    enc = encrypt(json.dumps(cookies, separators=(",", ":")))
+    ahora = _utcnow_naive()
+    with session_scope() as s:
+        from sqlalchemy import func
+        x = None
+        if ds_user_id:
+            x = s.query(IgSession).filter(IgSession.ds_user_id == ds_user_id).first()
+        if x is None:
+            if prioridad is None:
+                maxp = s.query(func.max(IgSession.prioridad)).scalar()
+                prioridad = 0 if maxp is None else int(maxp) + 1
+            x = IgSession(ds_user_id=ds_user_id, prioridad=prioridad)
+            s.add(x)
+        elif prioridad is not None:
+            x.prioridad = prioridad
+        x.cookies_enc = enc
+        if username:
+            x.username = username.strip().lstrip("@").lower()[:100]
+        if creada_por:
+            x.creada_por = creada_por[:100]
+        x.activa = True
+        x.estado = "viva"
+        x.ultimo_error = ""
+        x.caida_desde = None
+        x.ultimo_ok_at = ahora
+        s.flush()
+        return _ig_session_to_dict(x, cookies)
+
+
+def marcar_ig_session(session_id: int, ok: bool, detalle: str = "") -> None:
+    """Registra cómo le fue a una sesión contra Instagram.
+
+    No levanta: se llama desde el camino del scrapeo y un problema de base no
+    puede tumbar la generación de un post.
+    """
+    if not db_available() or not session_id:
+        return
+    try:
+        ahora = _utcnow_naive()
+        with session_scope() as s:
+            x = s.get(IgSession, int(session_id))
+            if x is None:
+                return
+            if ok:
+                x.estado = "viva"
+                x.ultimo_error = ""
+                x.caida_desde = None
+                x.ultimo_ok_at = ahora
+            else:
+                # caida_desde se fija UNA vez: es "desde cuándo", y pisarlo en
+                # cada intento haría que el reintento por tiempo no llegue nunca.
+                if x.estado != "caida":
+                    x.estado = "caida"
+                    x.caida_desde = ahora
+                x.ultimo_error = (detalle or "")[:2000]
+    except Exception as e:
+        print(f"[ig_sessions] no pude marcar la sesión {session_id}: {e}", flush=True)
+
+
+def update_ig_session(session_id: int, *, activa=None, prioridad=None) -> dict:
+    if not db_available():
+        raise RepoError("No hay base de datos configurada")
+    with session_scope() as s:
+        x = s.get(IgSession, int(session_id))
+        if x is None:
+            raise RepoError("Esa sesión ya no existe")
+        if activa is not None:
+            x.activa = bool(activa)
+        if prioridad is not None:
+            x.prioridad = int(prioridad)
+        s.flush()
+        return _ig_session_to_dict(x, _cookies_de(x))
+
+
+def delete_ig_session(session_id: int) -> bool:
+    if not db_available():
+        return False
+    with session_scope() as s:
+        x = s.get(IgSession, int(session_id))
+        if x is None:
+            return False
+        s.delete(x)
+        return True

@@ -411,19 +411,130 @@ def get_response_gpt():
     return "Hubo un problema, intentá de nuevo."
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    """¿Está vivo el proceso? Nada más que eso.
+
+    Existe para que el healthcheck de la plataforma apunte acá y NO a
+    /health/instagram: ese devuelve 503 cuando Instagram nos rechaza, que es un
+    problema de una cuenta ajena y no del servicio. Con el healthcheck apuntado
+    ahí, una sesión caída podía impedir que saliera el deploy que la arreglaba.
+    """
+    return jsonify({"ok": True})
+
+
 @app.route("/health/instagram", methods=["GET"])
 def health_instagram():
-    from modules.post_processor import _fetch_instagram_api
-    test_shortcode = request.args.get("shortcode", "")
-    if not test_shortcode:
-        return jsonify({"error": "Pasá ?shortcode=<un_shortcode_publico_valido> para probar"}), 400
+    """Estado de la sesión de Instagram, SIN preguntarle a Instagram.
+
+    Antes cada llamada a este endpoint era una llamada autenticada real a
+    Instagram. Con el healthcheck pegando cada 5 minutos eran ~288 por día
+    desde una IP de datacenter sin que nadie estuviera mirando un post: el
+    perfil exacto que termina en un checkpoint. Ahora devuelve lo que sabe el
+    monitor (ver modules/ig_monitor), que chequea poco, en horario, y aprovecha
+    cada post real como prueba de vida.
+
+    Se pregunta de verdad en dos casos: si todavía no hay ningún dato (recién
+    arrancado) o si lo piden con ?forzar=1 — que es lo que corresponde después
+    de cargar una sesión nueva.
+    """
+    from modules import ig_monitor
+    forzar = request.args.get("forzar", "") in ("1", "true", "si")
+    e = ig_monitor.estado()
+    if forzar or e.get("ok") is None:
+        e = ig_monitor.chequear_ahora()
+    # ok=None significa que no se pudo determinar (no que esté caído): no
+    # devolvemos 503 para no alertar a un monitor externo sin motivo.
+    return jsonify(e), (503 if e.get("ok") is False else 200)
+
+
+# ── Sesiones de Instagram (las administra el panel del webService) ────────────
+#
+# Van acá y no en el webService a propósito: todo lo que sabe hablar con
+# Instagram vive en post_processor. Duplicarlo del otro lado ya nos costó caro
+# con el armado de órdenes.
+
+def _exigir_interno():
+    """Corta el request si no viene de nuestro propio panel. Devuelve la
+    respuesta de error, o None si está todo bien."""
+    from common.interno import verificar
+    if not verificar(request.headers.get("X-Interno", "")):
+        return jsonify({"error": "no autorizado"}), 403
+    return None
+
+
+@app.route("/admin/ig-sesiones", methods=["GET"])
+def admin_ig_sesiones():
+    no = _exigir_interno()
+    if no:
+        return no
+    from common import repository as _repo
+    from modules import ig_monitor
+    return jsonify({"sesiones": _repo.list_ig_sessions(), "estado": ig_monitor.estado()})
+
+
+@app.route("/admin/ig-sesiones", methods=["POST"])
+def admin_ig_sesiones_alta():
+    """Carga (o renueva) una cuenta. La PRUEBA antes de guardarla.
+
+    Guardar primero y probar después dejaba el respaldo pisado por una cookie
+    mal copiada, que es justo el momento en que menos se puede fallar: se carga
+    una sesión nueva porque la anterior ya no anda.
+    """
+    no = _exigir_interno()
+    if no:
+        return no
+    from common import repository as _repo
+    from modules.post_processor import _fetch_instagram_api_con
+    from modules import ig_monitor
+
+    d = request.get_json(silent=True) or {}
+    cookies = d.get("cookies") or {}
+    if not isinstance(cookies, dict) or not (cookies.get("sessionid") or "").strip():
+        return jsonify({"error": "Falta el sessionid: sin eso no hay sesión."}), 400
+
+    prueba = _fetch_instagram_api_con(ig_monitor.SHORTCODE, cookies)
+    if not prueba.get("owner_username"):
+        motivo = prueba.get("_error") or "Instagram no aceptó estas cookies"
+        return jsonify({"error": f"No la guardé porque no funciona: {motivo}"}), 400
+
     try:
-        result = _fetch_instagram_api(test_shortcode)
-        if not result.get("owner_username"):
-            return jsonify({"ok": False, "error": "sin sesión o post no accesible"}), 503
-        return jsonify({"ok": True, "owner_username": result.get("owner_username", "")})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 503
+        fila = _repo.guardar_ig_session(cookies, username=d.get("username", ""),
+                                        creada_por=d.get("creada_por", ""))
+    except _repo.RepoError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # La sesión nueva anda: que el monitor lo sepa ya, así el aviso de "volvió"
+    # sale ahora y no dentro de 48 minutos.
+    ig_monitor.registrar(True, "sesión cargada desde el panel",
+                         origen=f"@{fila['username']}" if fila.get("username") else "sesión nueva")
+    return jsonify({"ok": True, "sesion": fila})
+
+
+@app.route("/admin/ig-sesiones/<int:sesion_id>", methods=["PATCH", "DELETE"])
+def admin_ig_sesiones_editar(sesion_id: int):
+    no = _exigir_interno()
+    if no:
+        return no
+    from common import repository as _repo
+    try:
+        if request.method == "DELETE":
+            return jsonify({"ok": _repo.delete_ig_session(sesion_id)})
+        d = request.get_json(silent=True) or {}
+        return jsonify({"ok": True, "sesion": _repo.update_ig_session(
+            sesion_id, activa=d.get("activa"), prioridad=d.get("prioridad"))})
+    except _repo.RepoError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/admin/ig-sesiones/probar", methods=["POST"])
+def admin_ig_sesiones_probar():
+    """Chequeo a pedido, para el botón "Probar ahora" del panel."""
+    no = _exigir_interno()
+    if no:
+        return no
+    from modules import ig_monitor
+    return jsonify(ig_monitor.chequear_ahora())
 
 
 @app.route("/health/growi", methods=["GET"])
@@ -1046,6 +1157,14 @@ if __name__ == "__main__":
         arrancar_monitor_growi()
     except Exception as e:
         print(f"[growi-health] no se pudo arrancar el monitor: {e}", flush=True)
+
+    # Monitor de la sesión de Instagram: avisa por WhatsApp cuando Instagram nos
+    # rechaza la cuenta, en vez de que se note días después en posts sin imagen.
+    try:
+        from modules.ig_monitor import arrancar as arrancar_monitor_ig
+        arrancar_monitor_ig()
+    except Exception as e:
+        print(f"[ig-health] no se pudo arrancar el monitor: {e}", flush=True)
 
     # Worker de la cola: reenvía solo las órdenes que quedaron sin salir por red.
     try:

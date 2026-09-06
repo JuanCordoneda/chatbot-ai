@@ -125,6 +125,7 @@ function switchTab(name) {
   if (name === "pedidos") loadPedidos();
   if (name === "cola") loadCola();
   if (name === "crm") loadCrm();
+  if (name === "instagram") loadIgSesiones();
 }
 
 // ── Modales ──
@@ -2340,6 +2341,14 @@ async function enviarPedido() {
 }
 
 // --- Lado admin: la bandeja ---
+// El monitor devuelve los tiempos como epoch en segundos (es lo que usa
+// internamente); la lista, como ISO desde la base. Dos formatos, dos helpers.
+function horaDeEpoch(seg) {
+  if (!seg) return "nunca";
+  return new Date(seg * 1000).toLocaleString("es-AR",
+    { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function fechaCorta(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -2777,4 +2786,209 @@ async function verLlamadaCrm(id) {
   } catch (e) {
     body.innerHTML = `<div class="ax-sub">${esc(e.message)}</div>`;
   }
+}
+
+
+// ── Sesiones de Instagram del scraper ────────────────────────────────────────
+//
+// Renovar la sesión era un trámite de escritorio: una Mac concreta con la
+// cuenta abierta, permiso de Acceso Total al Disco y el CLI de Railway. Un
+// sábado, con Instagram pidiendo verificación, eso fueron horas de posts sin
+// imagen ni transcripción. Esta pestaña es el mismo trabajo desde el celular.
+
+let igCache = [];
+
+function fechaCorta(iso) {
+  if (!iso) return "nunca";
+  const d = new Date(iso);
+  if (isNaN(d)) return "nunca";
+  return d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+async function loadIgSesiones() {
+  const list = document.getElementById("ig-list");
+  if (!list) return;
+  try {
+    const d = await api("GET", "/api/admin/ig-sesiones");
+    igCache = d.sesiones || [];
+    pintarIgEstado(d.estado || {});
+    renderIgSesiones();
+  } catch (e) {
+    list.innerHTML = emptyState("No pude leer las sesiones", e.message);
+  }
+}
+
+function pintarIgEstado(e) {
+  const caja = document.getElementById("ig-estado");
+  const t = document.getElementById("ig-title");
+  const sub = document.getElementById("ig-sub");
+  if (!caja) return;
+  caja.classList.remove("ax-ig-ok", "ax-ig-mal");
+  if (e.ok === true) {
+    caja.classList.add("ax-ig-ok");
+    t.textContent = "La sesión de Instagram anda";
+    sub.textContent = `Scrapeando con ${e.cuenta || "la cuenta cargada"}`
+      + ` · último dato: ${horaDeEpoch(e.ultimo_chequeo)} (${e.origen_dato || "chequeo"})`;
+  } else if (e.ok === false) {
+    caja.classList.add("ax-ig-mal");
+    t.textContent = "Instagram nos está rechazando";
+    // El detalle importa: un checkpoint NO se arregla cargando otra cookie de
+    // la misma cuenta, hay que verificarla en el navegador primero.
+    sub.textContent = `${e.detalle || "sin detalle"}${
+      e.caido_hace_min ? ` · caída hace ${e.caido_hace_min} min` : ""}`;
+  } else {
+    t.textContent = "Todavía sin datos";
+    sub.textContent = "El servicio arrancó recién o está fuera del horario de chequeo.";
+  }
+}
+
+function renderIgSesiones() {
+  const list = document.getElementById("ig-list");
+  const cnt = document.getElementById("tab-ig-cnt");
+  if (cnt) cnt.textContent = igCache.length;
+  if (!igCache.length) {
+    list.innerHTML = emptyState(
+      "Sin cuentas cargadas",
+      "Está usando la sesión de la variable de entorno. Cargá al menos dos cuentas: la segunda es la que evita el corte.");
+    return;
+  }
+  // "En uso" no es la primera de la lista: es la primera que está activa Y
+  // viva. Marcar la de arriba sin mirar eso decía que estaba scrapeando con una
+  // cuenta que Instagram había rechazado.
+  const enUso = igCache.findIndex(x => x.activa && x.estado !== "caida");
+  list.innerHTML = igCache.map((x, i) => {
+    const viva = x.estado !== "caida";
+    const nombre = x.username ? "@" + x.username : "cuenta " + (x.ds_user_id || x.id);
+    return `
+    <div class="ax-card ${x.activa ? "" : "ax-dimmed"}" style="align-items:flex-start;">
+      <div class="ax-avatar" style="${avatarStyle(nombre)}">${esc(nombre[1] ? nombre[1].toUpperCase() : "?")}</div>
+      <div class="ax-main">
+        <div class="ax-name">${esc(nombre)}
+          ${viva ? '<span class="ax-pill ax-pill--active"><span class="ax-pdot"></span>Viva</span>'
+                 : '<span class="ax-pill ax-pill--off"><span class="ax-pdot"></span>Rechazada</span>'}
+          ${i === enUso ? '<span class="ax-pill ax-pill--paused">en uso</span>' : ""}
+          ${x.activa ? "" : '<span class="ax-pill ax-pill--off">pausada</span>'}
+        </div>
+        <div class="ax-sub">Última vez que anduvo: ${esc(fechaCorta(x.ultimo_ok_at))}
+          · la cargó ${esc(x.creada_por || "—")}
+          · <span class="ax-ig-cook">${esc(x.sessionid_masc || "")}</span></div>
+        ${x.ultimo_error ? `<div class="ax-ig-err">${esc(x.ultimo_error)}</div>` : ""}
+      </div>
+      <div class="ax-acts">
+        <button class="ax-btn ax-btn--sm" onclick="openIgModal('${esc(x.username || "")}')">Renovar</button>
+        <button class="ax-btn ax-btn--sm" onclick="toggleIgSesion(${x.id}, ${x.activa ? "false" : "true"})">${x.activa ? "Pausar" : "Activar"}</button>
+        ${i > 0 ? `<button class="ax-btn ax-btn--sm" onclick="subirIgSesion(${x.id})">Subir</button>` : ""}
+        <button class="ax-btn ax-btn--sm" onclick="borrarIgSesion(${x.id}, '${esc(nombre)}')">Borrar</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function openIgModal(username) {
+  hideErr("ig-err");
+  document.getElementById("ig-username").value = username || "";
+  document.getElementById("ig-sessionid").value = "";
+  document.getElementById("ig-otras").value = "";
+  document.getElementById("ig-title-mo").textContent = username ? "Renovar @" + username : "Agregar una cuenta";
+  openMo("ig-mo");
+}
+
+// Acepta lo que salga del inspector sin pedir un formato: "clave: valor",
+// "clave=valor", o el JSON entero pegado de una. Pedir prolijidad en el momento
+// en que algo está caído es pedir un error de tipeo.
+function parsearCookies(texto) {
+  const out = {};
+  const t = (texto || "").trim();
+  if (!t) return out;
+  if (t.startsWith("{")) {
+    try {
+      const j = JSON.parse(t);
+      for (const k of Object.keys(j)) if (j[k]) out[k] = String(j[k]);
+      return out;
+    } catch (e) { /* no era JSON: sigue por líneas */ }
+  }
+  for (const linea of t.split(/\n/)) {
+    const m = linea.match(/^\s*"?([A-Za-z_][A-Za-z0-9_]*)"?\s*[:=]\s*"?([^"]*?)"?\s*,?\s*$/);
+    if (m && m[2]) out[m[1]] = m[2];
+  }
+  return out;
+}
+
+async function saveIgSesion() {
+  const btn = document.getElementById("ig-save");
+  const sessionid = document.getElementById("ig-sessionid").value.trim().replace(/^["']|["']$/g, "");
+  if (!sessionid) { showErr("ig-err", "Falta el sessionid: sin eso no hay sesión."); return; }
+  const cookies = parsearCookies(document.getElementById("ig-otras").value);
+  cookies.sessionid = sessionid;
+  if (!cookies.ds_user_id) {
+    // El sessionid arranca con el id de la cuenta: se saca de ahí en vez de
+    // hacer que lo copien dos veces.
+    const id = sessionid.split("%3A")[0].split(":")[0];
+    if (/^\d+$/.test(id)) cookies.ds_user_id = id;
+  }
+  hideErr("ig-err");
+  const antes = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Probándola contra Instagram…";
+  try {
+    await api("POST", "/api/admin/ig-sesiones", {
+      cookies, username: document.getElementById("ig-username").value.trim(),
+    });
+    closeMo("ig-mo");
+    toast("Sesión cargada y funcionando", "ok");
+    loadIgSesiones();
+  } catch (e) {
+    showErr("ig-err", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = antes;
+  }
+}
+
+async function probarIg() {
+  const btn = document.getElementById("ig-probar");
+  const antes = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Probando…";
+  try {
+    pintarIgEstado(await api("POST", "/api/admin/ig-sesiones/probar", {}));
+    renderIgSesiones();
+    loadIgSesiones();
+  } catch (e) {
+    toast(e.message, "bad");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = antes;
+  }
+}
+
+async function toggleIgSesion(id, activa) {
+  try {
+    await api("PATCH", "/api/admin/ig-sesiones/" + id, { activa });
+    loadIgSesiones();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+// "Subir" = pasar al frente de la cola. Se le da una prioridad menor que la
+// primera en vez de reordenar todo: alcanza para elegir con cuál scrapear.
+async function subirIgSesion(id) {
+  const primera = igCache[0];
+  try {
+    await api("PATCH", "/api/admin/ig-sesiones/" + id,
+              { prioridad: (primera ? primera.prioridad : 0) - 1 });
+    loadIgSesiones();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function borrarIgSesion(id, nombre) {
+  const ok = await confirmDialog({
+    title: "Borrar sesión",
+    text: `Se elimina la sesión de ${nombre}. Si era la que estaba en uso, el scraper pasa a la siguiente.`,
+  });
+  if (!ok) return;
+  try {
+    await api("DELETE", "/api/admin/ig-sesiones/" + id);
+    toast("Sesión borrada", "ok");
+    loadIgSesiones();
+  } catch (e) { toast(e.message, "bad"); }
 }

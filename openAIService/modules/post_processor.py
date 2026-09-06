@@ -326,16 +326,18 @@ def _avisar_cuenta(cookies: dict, origen: str) -> dict:
     return cookies
 
 
-def _load_ig_cookies() -> dict:
+def _cookies_del_entorno() -> dict:
+    """Las cookies que vienen por env var. Sigue siendo el fallback cuando no
+    hay base de datos (docker local, tests) o cuando nadie cargó ninguna cuenta
+    en el panel todavía.
+
+    Prioridad: INSTAGRAM_COOKIES_JSON > INSTAGRAM_SESSION_B64 (pickle viejo de
+    instaloader).
     """
-    Carga las cookies de Instagram desde env vars.
-    Prioridad: INSTAGRAM_COOKIES_JSON > INSTAGRAM_SESSION_B64 (formato instaloader pickle)
-    """
-    # Formato nuevo: JSON con las cookies directamente
     cookies_json = os.environ.get("INSTAGRAM_COOKIES_JSON")
     if cookies_json:
         try:
-            return _avisar_cuenta(json.loads(cookies_json), "INSTAGRAM_COOKIES_JSON")
+            return json.loads(cookies_json)
         except Exception as e:
             print(f"[ig_cookies] error parseando INSTAGRAM_COOKIES_JSON: {e}", flush=True)
 
@@ -345,14 +347,14 @@ def _load_ig_cookies() -> dict:
     if session_b64:
         try:
             data = pickle.loads(base64.b64decode(session_b64))
-            return _avisar_cuenta({
+            return {
                 "sessionid": data.get("sessionid", ""),
                 "csrftoken": data.get("csrftoken", ""),
                 "ds_user_id": data.get("ds_user_id", ""),
                 "mid": data.get("mid", ""),
                 "ig_did": data.get("ig_did", ""),
                 "datr": data.get("datr", ""),
-            }, "INSTAGRAM_SESSION_B64")
+            }
         except Exception as e:
             print(f"[ig_cookies] error cargando INSTAGRAM_SESSION_B64: {e}", flush=True)
 
@@ -361,7 +363,52 @@ def _load_ig_cookies() -> dict:
     # faltaba la env var, el scraper volvía en silencio a la sesión vieja y todo
     # fallaba con "media null", sin ninguna pista de por qué. Mejor quedarse sin
     # sesión y decirlo, que scrapear con la cuenta equivocada.
-    print("[ig_cookies] sin sesión: falta INSTAGRAM_COOKIES_JSON en el entorno", flush=True)
+    return {}
+
+
+def _sesiones_disponibles() -> list[dict]:
+    """Las cuentas de Instagram a probar, en orden: [{id, cookies, origen}].
+
+    Primero las que cargó el admin en el panel (tabla ig_sessions, ordenadas por
+    prioridad y con las caídas al final), y al final SIEMPRE la env var como
+    último recurso. Que la env var quede de última y no de única es lo que
+    convierte una caída de cuenta en una rotación en vez de un corte.
+
+    A propósito NO cachea: cuando alguien renueva la sesión desde el panel
+    porque el servicio está caído, tiene que servir en el siguiente post, no en
+    el siguiente reinicio.
+    """
+    candidatos = []
+    try:
+        from common import repository as _repo
+        for s in _repo.ig_sessions_para_usar():
+            if (s.get("cookies") or {}).get("sessionid"):
+                candidatos.append({
+                    "id": s["id"],
+                    "cookies": s["cookies"],
+                    "origen": f"@{s['username']}" if s.get("username") else f"ig_sessions#{s['id']}",
+                })
+    except Exception as e:
+        # Sin DB (o con la DB caída) el scraper tiene que seguir andando con la
+        # env var: es exactamente el escenario para el que existe el fallback.
+        print(f"[ig_cookies] no pude leer las sesiones de la base: {e}", flush=True)
+
+    delentorno = _cookies_del_entorno()
+    if delentorno.get("sessionid"):
+        candidatos.append({"id": None, "cookies": delentorno, "origen": "INSTAGRAM_COOKIES_JSON"})
+
+    if not candidatos:
+        print("[ig_cookies] sin sesión: no hay cuentas cargadas en el panel ni "
+              "INSTAGRAM_COOKIES_JSON en el entorno", flush=True)
+    return candidatos
+
+
+def _load_ig_cookies() -> dict:
+    """La sesión que se usaría ahora mismo. Queda para los llamadores que solo
+    quieren las cookies (y para no romper los scripts de diagnóstico); el
+    scrapeo usa _sesiones_disponibles(), que además sabe rotar."""
+    for c in _sesiones_disponibles():
+        return _avisar_cuenta(c["cookies"], c["origen"])
     return {}
 
 
@@ -564,15 +611,65 @@ def _coautores(media: dict) -> list[str]:
 
 
 def _fetch_instagram_api(shortcode: str) -> dict:
+    """Trae el post por la API de Instagram, rotando de cuenta si hace falta.
+
+    Prueba las sesiones cargadas en orden. Cuando Instagram RECHAZA una (401,
+    checkpoint, página de deslogueado) la marca caída y sigue con la siguiente:
+    el vendedor no ve nada raro, y el admin se entera por el aviso del monitor.
+    No rota por cualquier error — un rate limit o un post privado no son culpa
+    de la cuenta y cambiarla solo quemaría la de respaldo también.
+    """
+    candidatos = _sesiones_disponibles()
+    if not candidatos:
+        print("[ig_api] sin sesión disponible", flush=True)
+        return {"_error": "no hay sesión de Instagram configurada en el server"}
+
+    ultimo = {}
+    for i, cand in enumerate(candidatos):
+        _avisar_cuenta(cand["cookies"], cand["origen"])
+        r = _fetch_instagram_api_con(shortcode, cand["cookies"])
+
+        if r.get("_error_kind") == "sesion_muerta":
+            _registrar_uso_sesion(cand, ok=False, detalle=r.get("_error", ""))
+            ultimo = r
+            if i + 1 < len(candidatos):
+                print(f"[ig_api] {cand['origen']} rechazada por Instagram — "
+                      f"paso a {candidatos[i + 1]['origen']}", flush=True)
+            continue
+
+        # Un 429 o un post privado no dicen nada sobre la cuenta: no la ascienden
+        # a viva (sería mentirle al panel sobre cuándo anduvo por última vez) ni
+        # la condenan. Solo un fetch limpio cuenta como prueba de vida.
+        if not r.get("_error"):
+            _registrar_uso_sesion(cand, ok=True, detalle="")
+        return r
+
+    print("[ig_api] TODAS las sesiones de Instagram están caídas", flush=True)
+    return ultimo
+
+
+def _registrar_uso_sesion(cand: dict, *, ok: bool, detalle: str) -> None:
+    """Deja constancia de cómo le fue a la cuenta: en la fila de la base (para
+    el panel y para no volver a elegirla) y en el monitor (para el aviso)."""
+    try:
+        if cand.get("id"):
+            from common import repository as _repo
+            _repo.marcar_ig_session(cand["id"], ok, detalle)
+    except Exception as e:
+        print(f"[ig_api] no pude marcar la sesión: {e}", flush=True)
+    try:
+        from modules import ig_monitor
+        ig_monitor.registrar(ok, detalle or ("anduvo" if ok else ""), origen=cand.get("origen", ""))
+    except Exception:
+        # El monitor es opcional: que no ande no puede romper un scrapeo.
+        pass
+
+
+def _fetch_instagram_api_con(shortcode: str, cookies: dict) -> dict:
     """
     Fetch via GraphQL doc_id de Instagram (la misma API que usa el navegador).
     Reemplaza instaloader que usa query_hash ya bloqueado por Instagram.
     """
-    cookies = _load_ig_cookies()
-    if not cookies.get("sessionid"):
-        print("[ig_api] sin sesión disponible", flush=True)
-        return {"_error": "no hay sesión de Instagram configurada en el server"}
-
     try:
         r = req.post(
             "https://www.instagram.com/graphql/query",

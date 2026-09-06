@@ -15,7 +15,7 @@ import os
 import threading
 import time
 
-import requests
+from common import aviso
 
 # Cada cuánto se chequea. 5 minutos es suficiente: el modo de falla real (una
 # instancia que se apaga) dura horas o días, no segundos.
@@ -25,25 +25,9 @@ INTERVALO = float(os.environ.get("GROWI_HEALTH_INTERVAL", "300"))
 # viejos. Sin esto, una caída de fin de semana avisa una sola vez el viernes.
 RECORDATORIO = float(os.environ.get("GROWI_HEALTH_REMINDER", "21600"))  # 6h
 
-# A dónde avisar. Sin número configurado el monitor igual corre y loguea: sirve
-# para el endpoint /health/growi aunque no haya canal de alertas.
-_ALERTA_TO_RAW = os.environ.get("GROWI_ALERTA_WHATSAPP", "")
-
-# Meta ENTREGA los mensajes con un número y solo ACEPTA enviarlos a otro: el
-# 9 de celular y el código de área difieren del que quedó registrado. Mismo
-# mapeo que whatsappService.normalizar_numero; se repite acá porque son
-# servicios distintos y una alerta que falla en silencio es peor que no tenerla.
-_NUMEROS = {"5492233407778": "54223153407778"}
-
-
-def _normalizar_numero(n: str) -> str:
-    n = (n or "").strip().lstrip("+").replace(" ", "").replace("-", "")
-    return _NUMEROS.get(n, n)
-
-
-ALERTA_TO = _normalizar_numero(_ALERTA_TO_RAW)
-WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "")
-WHATSAPP_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
+# A dónde avisar vive en common.aviso: lo comparte con el monitor de la sesión
+# de Instagram. Sin canal configurado el monitor igual corre y loguea (sirve
+# para el endpoint /health/growi), pero ahora lo DICE en vez de callarse.
 
 _estado = {
     "ok": None,          # None = todavía no se chequeó
@@ -67,26 +51,7 @@ def estado() -> dict:
 
 
 def _avisar(texto: str) -> None:
-    print(f"[growi-health] ALERTA: {texto}", flush=True)
-    if not (ALERTA_TO and WHATSAPP_API_URL and WHATSAPP_TOKEN):
-        return
-    try:
-        requests.post(
-            WHATSAPP_API_URL,
-            json={
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": ALERTA_TO,
-                "type": "text",
-                "text": {"body": texto},
-            },
-            headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}",
-                     "Content-Type": "application/json"},
-            timeout=15,
-        )
-    except Exception as e:
-        # El aviso no puede tumbar el monitor: si WhatsApp falla, queda el log.
-        print(f"[growi-health] no pude mandar el aviso: {e!r}", flush=True)
+    aviso.enviar(texto, "growi-health")
 
 
 def _chequear_una_vez() -> None:

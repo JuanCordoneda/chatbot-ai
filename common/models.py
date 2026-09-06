@@ -359,3 +359,53 @@ class PendingOrder(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow,
                         onupdate=_utcnow)
     enviada_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class IgSession(Base):
+    """Una sesión de Instagram del scraper: las cookies de UNA cuenta.
+
+    Antes esto era una sola env var (`INSTAGRAM_COOKIES_JSON`) en Railway, y eso
+    tenía dos problemas que se pagaron en producción:
+
+      - renovarla exigía la Mac con la sesión abierta, Terminal con Acceso Total
+        al Disco y el CLI de Railway logueado. Cuando Instagram trabó la cuenta
+        un sábado, el servicio quedó sin scrapear hasta que hubo alguien delante
+        de esa máquina;
+      - había UNA sola cuenta, así que su caída era la caída del servicio.
+
+    Con la tabla, las cookies se cargan desde el panel y hay varias cuentas: si
+    Instagram tumba la primera, el scraper sigue con la siguiente sin que el
+    vendedor se entere. La env var sigue funcionando como fallback (ver
+    post_processor._load_ig_cookies), así que un entorno sin DB no cambia.
+
+    El `cookies_enc` va cifrado con Fernet (common.crypto). No es magia: la
+    clave vive en el mismo entorno que la base, así que esto NO protege de
+    alguien que entre al server — protege de que el sessionid quede en claro en
+    un dump o un backup de la base, que es por donde se filtran estas cosas.
+    """
+    __tablename__ = "ig_sessions"
+
+    id = Column(Integer, primary_key=True)
+    # @usuario y ds_user_id: solo para reconocer la cuenta en el panel y en los
+    # logs. El ds_user_id es además la identidad de la fila: subir de nuevo las
+    # cookies de la misma cuenta ACTUALIZA la que había en vez de duplicarla.
+    username = Column(String(100), nullable=False, default="", server_default="")
+    ds_user_id = Column(String(40), nullable=False, default="", server_default="", index=True)
+    # JSON con todas las cookies ({"sessionid": ..., "csrftoken": ...}), cifrado.
+    cookies_enc = Column(Text, nullable=False)
+    # Orden de uso: se usa la viva de menor prioridad. 0 = la principal.
+    prioridad = Column(Integer, nullable=False, default=0, server_default="0", index=True)
+    # El admin puede apagar una cuenta sin borrarla (ej: la presta para otra cosa).
+    activa = Column(Boolean, nullable=False, default=True, server_default="true")
+    # viva = la última vez anduvo | caida = Instagram la rechazó (401, checkpoint,
+    # página de deslogueado). Una caída no se borra: los checkpoints se resuelven
+    # verificando la cuenta en el navegador y la MISMA cookie vuelve a servir.
+    estado = Column(String(20), nullable=False, default="viva", server_default="viva", index=True)
+    ultimo_error = Column(Text, nullable=False, default="", server_default="")
+    caida_desde = Column(DateTime(timezone=True), nullable=True)
+    ultimo_ok_at = Column(DateTime(timezone=True), nullable=True)
+    # Quién la subió, para saber a quién preguntarle cuando se cae.
+    creada_por = Column(String(100), nullable=False, default="", server_default="")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow,
+                        onupdate=_utcnow)
