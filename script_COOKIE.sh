@@ -23,9 +23,17 @@
 #   - railway CLI logueado y el proyecto linkeado (railway status).
 #
 # Uso:
-#   ./script_COOKIE.sh              renueva y verifica
+#   ./script_COOKIE.sh              renueva y verifica (lee Safari)
+#   ./script_COOKIE.sh --chrome     idem, pero lee Chrome
+#   ./script_COOKIE.sh --chrome --profile "Juan Cruz"   un perfil concreto
+#   ./script_COOKIE.sh --chrome --perfiles              qué perfiles hay
 #   ./script_COOKIE.sh --check      solo dice si la sesión de prod está viva
 #   ./script_COOKIE.sh --manual     pegás las cookies a mano (sin permiso de disco)
+#
+# OJO con Chrome: en macOS las cookies están cifradas con una clave del Llavero,
+# así que salta un diálogo pidiendo permiso. Y hay que decirle el PERFIL: sin
+# eso browser-cookie3 se queda con el primero que encuentra, que en esta Mac es
+# el que tiene la sesión vieja de @crowagency.ofc.
 #
 # Si Instagram trabó la cuenta (checkpoint), renovar la cookie NO alcanza: hay
 # que entrar con esa cuenta al navegador, confirmar que es ella, y recién ahí
@@ -39,6 +47,41 @@ SERVICIO="openai"
 HEALTH="https://openai-production-531a.up.railway.app/health/instagram"
 # Post público y estable: sirve de sonda, no tiene nada que ver con los clientes.
 SHORTCODE="${TEST_SHORTCODE:-DY5mFTuxsIO}"
+
+# De qué navegador (y perfil) salen las cookies. Empezó hardcodeado en Safari,
+# que era donde vivía la única cuenta; con varias, cada una va en un navegador o
+# perfil distinto y hay que poder elegir. Sin --profile, browser-cookie3 se
+# queda con el primer perfil que encuentra: no ignora los otros, elige uno sin
+# avisar, y así se sube a producción la cuenta equivocada.
+NAVEGADOR="${IG_BROWSER:-safari}"
+PERFIL="${IG_PROFILE:-}"
+MODO=""
+EXTRA=""
+# Se recorren TODOS los flags y no solo el primero: los envoltorios por
+# navegador llaman con "--chrome --check", y mirando solo $1 el --check se
+# perdía en silencio — pedías un chequeo y te renovaba la sesión.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --safari|--chrome|--firefox|--brave|--edge|--chromium|--opera)
+      NAVEGADOR="${1#--}" ;;
+    --browser)
+      NAVEGADOR="${2:-}"; shift
+      [ -n "$NAVEGADOR" ] || { echo "uso: --browser <safari|chrome|firefox|...>"; exit 1; } ;;
+    --profile)
+      PERFIL="${2:-}"; shift
+      [ -n "$PERFIL" ] || { echo "uso: --profile \"Profile 15\" (o el nombre: \"Juan Cruz\")"; exit 1; } ;;
+    --check|--manual|--perfiles)
+      MODO="$1" ;;
+    --force)
+      EXTRA="--force" ;;   # lo entiende ig_cookies_from_browser.py, no este script
+    *)
+      echo "no conozco la opción '$1'."
+      echo "uso: ./script_COOKIE.sh [--safari|--chrome|--browser <nav>] [--profile <perfil>]"
+      echo "                        [--check|--manual|--perfiles] [--force]"
+      exit 1 ;;
+  esac
+  shift
+done
 
 cd "$REPO"
 
@@ -56,7 +99,7 @@ confirmar_viva() {
   curl -s -m 30 "$HEALTH?forzar=1&shortcode=$SHORTCODE" | grep -q '"ok": *true'
 }
 
-if [ "${1:-}" = "--check" ]; then
+if [ "$MODO" = "--check" ]; then
   if esta_viva; then
     echo "$(date '+%F %H:%M') sesión viva"
     exit 0
@@ -80,20 +123,27 @@ fi
 # La cookie se arma PRIMERO y se revisa antes de subir nada: con un pipe directo,
 # si la extracción fallaba igual se le mandaba a Railway un valor vacío y el
 # servicio arrancaba sin sesión ("Empty value provided via stdin").
-echo "→ leyendo la sesión de Safari"
+if [ "$MODO" = "--perfiles" ]; then
+  exec "$VENV/bin/python" scripts/ig_cookies_from_browser.py \
+       --browser "$NAVEGADOR" --listar-perfiles
+fi
+
 COOKIE=""
-if [ "${1:-}" = "--manual" ]; then
+if [ "$MODO" = "--manual" ]; then
   # Sin Acceso Total al Disco: las cookies las pegás vos desde el Inspector Web
   # de Safari (Desarrollo → Almacenamiento → Cookies → instagram.com).
+  echo "→ pegá las cookies a mano"
   COOKIE="$(python3 scripts/set_ig_cookies.py --stdout --no-env)"
 else
+  echo "→ leyendo la sesión de $NAVEGADOR${PERFIL:+ (perfil: $PERFIL)}"
   COOKIE="$("$VENV/bin/python" scripts/ig_cookies_from_browser.py \
-              --browser safari --stdout --no-env || true)"
+              --browser "$NAVEGADOR" ${PERFIL:+--profile "$PERFIL"} \
+              --stdout --no-env $EXTRA || true)"
 fi
 
 if ! echo "$COOKIE" | grep -q '"sessionid"'; then
   echo
-  echo "no pude sacar la sesión de Safari, así que NO subo nada."
+  echo "no pude sacar la sesión de $NAVEGADOR, así que NO subo nada."
   echo "Si el error fue 'Operation not permitted', a Terminal le falta Acceso Total"
   echo "al Disco (Ajustes → Privacidad y seguridad → Acceso total al disco → +"
   echo "Terminal, y después ⌘Q y abrirla de nuevo)."

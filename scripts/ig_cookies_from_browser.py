@@ -23,6 +23,9 @@ Uso:
     # elegir navegador y ver qué encontraría, sin escribir nada
     python scripts/ig_cookies_from_browser.py --browser chrome --dry-run
 
+    # un PERFIL concreto de Chrome (por carpeta o por el nombre que le pusiste)
+    python scripts/ig_cookies_from_browser.py --browser chrome --profile "Juan Cruz"
+
     # para producción, sin que el valor pase por el historial del shell:
     python scripts/ig_cookies_from_browser.py --stdout --no-env \
       | railway variables --set-from-stdin INSTAGRAM_COOKIES_JSON --service openai
@@ -45,16 +48,73 @@ DS_USER_ID_CROW = "292597635"
 
 NAVEGADORES = ("chrome", "firefox", "safari", "brave", "edge", "chromium", "opera")
 
+# Dónde vive cada perfil en macOS. Con una sola cuenta esto no hacía falta;
+# con varias sí, porque browser_cookie3 arma una lista de rutas (Default y
+# "Profile *") y se queda con LA PRIMERA que existe. O sea: no ignora los otros
+# perfiles, elige uno sin avisar. Loguearse con la cuenta nueva en un perfil y
+# correr el script terminaba subiendo la sesión de otro, que es peor que fallar.
+_BASE_PERFILES = {
+    "chrome": "~/Library/Application Support/Google/Chrome",
+    "chromium": "~/Library/Application Support/Chromium",
+    "brave": "~/Library/Application Support/BraveSoftware/Brave-Browser",
+    "edge": "~/Library/Application Support/Microsoft Edge",
+}
 
-def leer(navegador: str) -> dict:
+
+def perfiles_de(navegador: str) -> dict:
+    """{carpeta: nombre visible} de los perfiles que tengan cookies.
+
+    El nombre visible ("Juan Cruz") sale del Local State, que es donde lo guarda
+    el propio navegador. Se acepta cualquiera de los dos al elegir: nadie se
+    acuerda de que su perfil de trabajo es la carpeta "Profile 15".
+    """
+    base = os.path.expanduser(_BASE_PERFILES.get(navegador, ""))
+    if not base or not os.path.isdir(base):
+        return {}
+    nombres = {}
+    try:
+        with open(os.path.join(base, "Local State"), encoding="utf-8") as f:
+            cache = json.load(f).get("profile", {}).get("info_cache", {})
+        nombres = {k: (v.get("name") or k) for k, v in cache.items()}
+    except Exception:
+        pass
+    salida = {}
+    for carpeta in sorted(os.listdir(base)):
+        if os.path.isfile(os.path.join(base, carpeta, "Cookies")):
+            salida[carpeta] = nombres.get(carpeta, carpeta)
+    return salida
+
+
+def _archivo_de_perfil(navegador: str, perfil: str) -> str:
+    """Ruta del Cookies de ese perfil. Sale con error si no existe, listando los
+    que sí — un perfil mal escrito no puede terminar en 'agarro cualquiera'."""
+    base = os.path.expanduser(_BASE_PERFILES.get(navegador, ""))
+    if not base:
+        sys.exit(f"--profile no aplica a {navegador} (es solo para Chrome y derivados)")
+    disponibles = perfiles_de(navegador)
+    elegido = None
+    for carpeta, nombre in disponibles.items():
+        if perfil in (carpeta, nombre):
+            elegido = carpeta
+            break
+    if elegido is None:
+        listado = "\n".join(f"    {c}  ({n})" for c, n in disponibles.items()) or "    (ninguno)"
+        sys.exit(f"no encontré el perfil {perfil!r} en {navegador}. Los que hay:\n{listado}")
+    return os.path.join(base, elegido, "Cookies")
+
+
+def leer(navegador: str, perfil: str = "") -> dict:
     """Cookies de instagram.com de ese navegador. {} si no se puede leer."""
     import browser_cookie3
 
     fn = getattr(browser_cookie3, navegador, None)
     if fn is None:
         return {}
+    kwargs = {"domain_name": "instagram.com"}
+    if perfil:
+        kwargs["cookie_file"] = _archivo_de_perfil(navegador, perfil)
     try:
-        tarro = fn(domain_name="instagram.com")
+        tarro = fn(**kwargs)
     except Exception as e:
         print(f"  {navegador}: no se pudo leer ({type(e).__name__}: {e})", file=sys.stderr)
         return {}
@@ -66,6 +126,11 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--browser", choices=NAVEGADORES,
                    help="de dónde leer (default: probar todos y usar el primero logueado)")
+    p.add_argument("--profile", default="",
+                   help="perfil de Chrome/Brave/Edge, por carpeta ('Profile 15') o por "
+                        "nombre ('Juan Cruz'). Sin esto el navegador elige por vos.")
+    p.add_argument("--listar-perfiles", action="store_true",
+                   help="mostrar los perfiles del navegador y salir")
     p.add_argument("--env", default=".env")
     p.add_argument("--no-env", action="store_true", help="no tocar el .env")
     p.add_argument("--stdout", action="store_true", help="imprimir el JSON (para piping)")
@@ -79,12 +144,28 @@ def main() -> None:
     except ImportError:
         sys.exit("falta la dependencia: pip install browser-cookie3")
 
+    if args.listar_perfiles:
+        for nav in ([args.browser] if args.browser else list(_BASE_PERFILES)):
+            perfiles = perfiles_de(nav)
+            if not perfiles:
+                continue
+            print(f"{nav}:")
+            for carpeta, nombre in perfiles.items():
+                print(f"    {carpeta:12} ({nombre})")
+        return
+
+    if args.profile and not args.browser:
+        sys.exit("--profile necesita que digas también --browser (los perfiles son "
+                 "de un navegador concreto)")
+
     candidatos = [args.browser] if args.browser else list(NAVEGADORES)
+    if args.profile:
+        print(f"Perfil pedido: {args.profile}", file=sys.stderr)
     print("Buscando una sesión de Instagram abierta...", file=sys.stderr)
 
     encontrado = None
     for navegador in candidatos:
-        ck = leer(navegador)
+        ck = leer(navegador, args.profile)
         if not ck:
             continue
         if not ck.get("sessionid"):

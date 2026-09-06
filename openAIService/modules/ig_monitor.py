@@ -103,12 +103,18 @@ def _texto_caida(detalle: str) -> str:
 
 
 def registrar(ok: bool, detalle: str = "", origen: str = "",
-              por_chequeo: bool = False) -> None:
+              por_chequeo: bool = False, rotacion: str = "") -> None:
     """Anota el resultado de un uso de la sesión.
 
     Lo llama tanto el chequeo del monitor como CADA post real que procesa un
     vendedor (ver post_processor._registrar_uso_sesion). Es lo que hace que en
     un día de trabajo el monitor casi no necesite preguntar por su cuenta.
+
+    `rotacion` es el nombre de la cuenta que Instagram acaba de rechazar, y solo
+    lo manda quien VIO el rechazo. Antes esto se deducía de que cambiara la
+    cuenta activa, y eso estaba mal: la cuenta activa también cambia cuando
+    alguien carga una sesión de mayor prioridad desde el panel. Cargar dos
+    cuentas disparó dos alertas de "Instagram tumbó X" sin que se cayera nada.
     """
     global _ultimo_aviso
     ahora = time.time()
@@ -131,8 +137,8 @@ def registrar(ok: bool, detalle: str = "", origen: str = "",
             # Rotó de cuenta y la nueva anda: no es una caída (el servicio sigue
             # en pie) pero hay que ir a arreglar la que quedó afuera, o el día
             # que se caiga esta no queda nada atrás.
-            elif antes_cuenta and origen and origen != antes_cuenta:
-                avisar_rotacion = (antes_cuenta, origen)
+            elif rotacion:
+                avisar_rotacion = (rotacion, _estado["cuenta"])
         else:
             if _estado["caido_desde"] is None:
                 _estado["caido_desde"] = ahora

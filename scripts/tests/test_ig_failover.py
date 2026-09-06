@@ -112,7 +112,31 @@ AVISOS.clear()
 correr([OK])
 chequear("avisó que volvió", any("volvió" in a for a in AVISOS), str(AVISOS))
 
-print("\n5) La env var sigue siendo el último recurso")
+print("\n5) Cambiar de cuenta SIN que se caiga nada no avisa nada")
+# Esto pasó en producción: cargar una sesión de mayor prioridad desde el panel
+# cambia la cuenta activa, y el aviso de rotación —que se deducía de ese
+# cambio— mandó dos "Instagram tumbó X" sin que se hubiera caído ninguna.
+AVISOS.clear()
+correr([OK])                       # anda con @principal
+_repo.ig_sessions_para_usar = lambda *a, **k: [
+    {"id": 3, "username": "recien-cargada", "cookies": {"sessionid": "3%3Accc"}},
+    {"id": 1, "username": "principal", "cookies": {"sessionid": "1%3Aaaa"}},
+]
+r, usadas = correr([OK])           # ahora la primera es otra, y anda de una
+chequear("usó la nueva", usadas == ["3%3Accc"], str(usadas))
+chequear("NO avisó una rotación que no existió", AVISOS == [], str(AVISOS))
+_repo.ig_sessions_para_usar = _sesiones
+
+print("\n5b) Rotar de verdad SÍ avisa")
+AVISOS.clear()
+r, usadas = correr([MUERTA, OK])
+chequear("rotó", usadas == ["1%3Aaaa", "2%3Abbb"], str(usadas))
+chequear("avisó la rotación", any("tumbó" in a for a in AVISOS), str(AVISOS))
+chequear("nombra a la caída y a la que sigue",
+         AVISOS and "@principal" in AVISOS[0] and "@respaldo" in AVISOS[0],
+         AVISOS[0] if AVISOS else "")
+
+print("\n6) La env var sigue siendo el último recurso")
 _repo.ig_sessions_para_usar = lambda *a, **k: []
 os.environ["INSTAGRAM_COOKIES_JSON"] = '{"sessionid": "9%3Azzz"}'
 cands = pp._sesiones_disponibles()
@@ -125,7 +149,7 @@ chequear("con cuentas cargadas, la del entorno va ÚLTIMA",
          str([c["origen"] for c in cands]))
 os.environ.pop("INSTAGRAM_COOKIES_JSON")
 
-print("\n6) El monitor pregunta poco y en horario argentino")
+print("\n7) El monitor pregunta poco y en horario argentino")
 from datetime import datetime, timedelta, timezone                  # noqa: E402
 ART = timezone(timedelta(hours=-3))
 chequear("15 chequeos entre las 9 y las 21 = uno cada 48 min",

@@ -625,12 +625,17 @@ def _fetch_instagram_api(shortcode: str) -> dict:
         return {"_error": "no hay sesión de Instagram configurada en el server"}
 
     ultimo = {}
+    # Qué cuenta rechazó Instagram EN ESTE fetch. Solo con esto se avisa una
+    # rotación: que cambie la cuenta activa no alcanza como señal, porque
+    # también cambia al cargar una sesión nueva desde el panel.
+    rechazada_antes = ""
     for i, cand in enumerate(candidatos):
         _avisar_cuenta(cand["cookies"], cand["origen"])
         r = _fetch_instagram_api_con(shortcode, cand["cookies"])
 
         if r.get("_error_kind") == "sesion_muerta":
-            _registrar_uso_sesion(cand, ok=False, detalle=r.get("_error", ""))
+            _marcar_fila(cand, ok=False, detalle=r.get("_error", ""))
+            rechazada_antes = rechazada_antes or cand["origen"]
             ultimo = r
             if i + 1 < len(candidatos):
                 print(f"[ig_api] {cand['origen']} rechazada por Instagram — "
@@ -641,25 +646,37 @@ def _fetch_instagram_api(shortcode: str) -> dict:
         # a viva (sería mentirle al panel sobre cuándo anduvo por última vez) ni
         # la condenan. Solo un fetch limpio cuenta como prueba de vida.
         if not r.get("_error"):
-            _registrar_uso_sesion(cand, ok=True, detalle="")
+            _marcar_fila(cand, ok=True, detalle="")
+            # El estado del MONITOR se toca una sola vez por fetch y recién acá:
+            # que Instagram rechace una cuenta no es una caída si la siguiente
+            # anduvo. Avisarlo por sesión mandaba un "🔴 se cayeron TODAS"
+            # seguido de un "🟢 volvió" en cada rotación exitosa.
+            _avisar_monitor(True, "", cand["origen"], rotacion=rechazada_antes)
         return r
 
     print("[ig_api] TODAS las sesiones de Instagram están caídas", flush=True)
+    _avisar_monitor(False, ultimo.get("_error", ""), "")
     return ultimo
 
 
-def _registrar_uso_sesion(cand: dict, *, ok: bool, detalle: str) -> None:
-    """Deja constancia de cómo le fue a la cuenta: en la fila de la base (para
-    el panel y para no volver a elegirla) y en el monitor (para el aviso)."""
+def _marcar_fila(cand: dict, *, ok: bool, detalle: str) -> None:
+    """Cómo le fue a ESTA cuenta, en su fila de la base: es lo que mira el panel
+    y lo que hace que una rechazada salga de la cola."""
     try:
         if cand.get("id"):
             from common import repository as _repo
             _repo.marcar_ig_session(cand["id"], ok, detalle)
     except Exception as e:
         print(f"[ig_api] no pude marcar la sesión: {e}", flush=True)
+
+
+def _avisar_monitor(ok: bool, detalle: str, origen: str, rotacion: str = "") -> None:
+    """Cómo le fue al SERVICIO: una sola vez por fetch, ya sabiendo si alguna
+    cuenta sirvió. De acá salen los avisos por WhatsApp."""
     try:
         from modules import ig_monitor
-        ig_monitor.registrar(ok, detalle or ("anduvo" if ok else ""), origen=cand.get("origen", ""))
+        ig_monitor.registrar(ok, detalle or ("anduvo" if ok else ""),
+                             origen=origen, rotacion=rotacion)
     except Exception:
         # El monitor es opcional: que no ande no puede romper un scrapeo.
         pass
