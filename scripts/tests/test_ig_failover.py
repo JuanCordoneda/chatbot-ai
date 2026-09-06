@@ -136,7 +136,40 @@ chequear("nombra a la caída y a la que sigue",
          AVISOS and "@principal" in AVISOS[0] and "@respaldo" in AVISOS[0],
          AVISOS[0] if AVISOS else "")
 
-print("\n6) La env var sigue siendo el último recurso")
+print("\n6) 'media null': rota solo si se puede probar que el post es público")
+VACIO = {"_error": "Instagram no devolvió los datos del post", "_error_kind": "media_null"}
+
+# 6a. El post SÍ se ve sin sesión -> el problema es la cuenta: rota, y recién
+# cuando otra lo trae se la marca caída.
+pp._fetch_fast = lambda sc: {"caption": "hola", "owner_username": "alguien"}
+AVISOS.clear()
+r, usadas = correr([VACIO, OK])
+chequear("probó la segunda cuenta", usadas == ["1%3Aaaa", "2%3Abbb"], str(usadas))
+chequear("el post sale igual", r.get("owner_username") == "vipsportslv", str(r))
+chequear("marcó caída la que devolvió vacío",
+         any(m[0] == 1 and m[1] is False for m in MARCAS), str(MARCAS))
+chequear("avisó la rotación", any("tumbó" in a for a in AVISOS), str(AVISOS))
+
+# 6b. El post NO se ve sin sesión (privado o borrado): no es culpa de la cuenta.
+# Este es el caso que hace que un post privado no queme las dos cuentas.
+pp._fetch_fast = lambda sc: {}
+AVISOS.clear()
+r, usadas = correr([VACIO, OK])
+chequear("NO probó la segunda", usadas == ["1%3Aaaa"], str(usadas))
+chequear("devuelve el error del post", r.get("_error_kind") == "media_null", str(r))
+chequear("no condenó ninguna cuenta", MARCAS == [], str(MARCAS))
+chequear("no despertó a nadie", AVISOS == [], str(AVISOS))
+
+# 6c. Todas devuelven vacío sobre un post público: es raro, pero sin una cuenta
+# que traiga el post no hay prueba de quién falla. No se marca ni se avisa.
+pp._fetch_fast = lambda sc: {"caption": "hola", "owner_username": "alguien"}
+AVISOS.clear()
+r, usadas = correr([VACIO, VACIO])
+chequear("probó las dos", usadas == ["1%3Aaaa", "2%3Abbb"], str(usadas))
+chequear("no marcó ninguna caída", MARCAS == [], str(MARCAS))
+chequear("no mandó el aviso de 'todas caídas'", AVISOS == [], str(AVISOS))
+
+print("\n7) La env var sigue siendo el último recurso")
 _repo.ig_sessions_para_usar = lambda *a, **k: []
 os.environ["INSTAGRAM_COOKIES_JSON"] = '{"sessionid": "9%3Azzz"}'
 cands = pp._sesiones_disponibles()
@@ -149,7 +182,7 @@ chequear("con cuentas cargadas, la del entorno va ÚLTIMA",
          str([c["origen"] for c in cands]))
 os.environ.pop("INSTAGRAM_COOKIES_JSON")
 
-print("\n7) El monitor pregunta poco y en horario argentino")
+print("\n8) El monitor pregunta poco y en horario argentino")
 from datetime import datetime, timedelta, timezone                  # noqa: E402
 ART = timezone(timedelta(hours=-3))
 chequear("15 chequeos entre las 9 y las 21 = uno cada 48 min",

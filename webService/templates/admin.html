@@ -1221,6 +1221,19 @@
     .ax-ig-hint { font-size: .8rem; color: var(--muted); flex: 1; min-width: 200px; }
     .ax-ig-err { font-size: .78rem; color: #ff9b9b; margin-top: 3px; word-break: break-word; }
     .ax-ig-cook { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .74rem; color: var(--muted); }
+
+    /* En el teléfono esta pestaña se mira, no se opera: la cookie sale del
+       inspector del navegador y en un celular no hay inspector. Así que lo que
+       tiene que entrar sin achicarse es el ESTADO —viva o caída, y con qué
+       cuenta—, que es a lo que entrás cuando algo dejó de andar y estás afuera. */
+    @media (max-width: 640px) {
+      .ax-ig-estado { flex-wrap: wrap; }
+      .ax-ig-txt { flex: 1 1 100%; order: 2; }
+      .ax-ig-estado .ax-btn { order: 3; margin-left: auto; }
+      .ax-ig-hint { font-size: .76rem; }
+      /* El sessionid enmascarado es lo primero que sobra en 380px de ancho. */
+      .ax-ig-cook { display: none; }
+    }
   </style>
 </head>
 <body class="ax" data-is-admin="{{ 'true' if is_admin else 'false' }}" data-account="{{ account_id }}">
@@ -1907,7 +1920,7 @@
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/header-menu.js?v=1785802900"></script>
-  <script src="/static/admin.js?v=1788700000"></script>
+  <script src="/static/admin.js?v=1788722600"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>

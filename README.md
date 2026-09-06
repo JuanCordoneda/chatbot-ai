@@ -69,10 +69,17 @@ opcionales:
 - IG_REINTENTO_MIN: cuánto espera antes de volver a probar una cuenta que
   Instagram rechazó. Default 30 min (un checkpoint se resuelve verificando la
   cuenta en el navegador y la misma cookie vuelve a servir).
-- GROWI_ALERTA_WHATSAPP, WHATSAPP_API_URL, WHATSAPP_ACCESS_TOKEN: adónde salen
-  los avisos. **Las tres tienen que estar en el servicio `openai`**, que es
-  quien corre los monitores; si falta alguna, los avisos quedan solo en el log
-  (y el servicio lo dice al arrancar).
+- TELEGRAM_BOT_TOKEN + TELEGRAM_ALERTA_CHAT_ID: adónde salen los avisos.
+  **Es el canal que hay que usar.** WhatsApp no sirve solo para esto: Meta
+  contesta 200 y después descarta el mensaje si pasaron más de 24 h desde que
+  el destinatario le escribió al bot (error 131047), y las caídas pasan los
+  fines de semana, que es justo cuando esa ventana está cerrada. Durante un día
+  entero ninguna alerta llegó y desde el server parecían enviadas. El chat_id se
+  saca con `python scripts/telegram_chat_id.py` después de mandarle /start al bot.
+- GROWI_ALERTA_WHATSAPP, WHATSAPP_API_URL, WHATSAPP_ACCESS_TOKEN: el segundo
+  canal, que se manda igual (por si la ventana está abierta). **Todas tienen que
+  estar en el servicio `openai`**, que es quien corre los monitores; si no hay
+  ningún canal, los avisos quedan solo en el log (y el servicio lo dice).
 - INTERNO_TOKEN: secreto compartido entre el webService y el openAIService para
   los endpoints de administración de sesiones. Si no está, se deriva de
   DATABASE_URL, que ambos ya comparten.

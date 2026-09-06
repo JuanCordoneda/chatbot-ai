@@ -629,6 +629,10 @@ def _fetch_instagram_api(shortcode: str) -> dict:
     # rotación: que cambie la cuenta activa no alcanza como señal, porque
     # también cambia al cargar una sesión nueva desde el panel.
     rechazada_antes = ""
+    # Cuentas que devolvieron el post VACÍO sobre un post que sí es público.
+    # Se prueba la siguiente igual, pero no se las condena todavía: ver
+    # _post_es_publico. Se confirman recién si otra cuenta trae el post.
+    sospechosas = []
     for i, cand in enumerate(candidatos):
         _avisar_cuenta(cand["cookies"], cand["origen"])
         r = _fetch_instagram_api_con(shortcode, cand["cookies"])
@@ -642,10 +646,30 @@ def _fetch_instagram_api(shortcode: str) -> dict:
                       f"paso a {candidatos[i + 1]['origen']}", flush=True)
             continue
 
+        # "media null": Instagram contesta 200 con los datos vacíos. Es la falla
+        # AMBIGUA — puede ser que el post no exista o sea privado, o que la
+        # sesión ya no sirva y Instagram no lo diga. Se desempata preguntando
+        # por el camino anónimo: si de ahí el post SÍ viene, existe y es
+        # público, así que el problema es nuestra sesión.
+        if (r.get("_error_kind") == "media_null" and i + 1 < len(candidatos)
+                and _post_es_publico(shortcode)):
+            print(f"[ig_api] {cand['origen']} devolvió el post vacío pero el post "
+                  f"es público — pruebo con {candidatos[i + 1]['origen']}", flush=True)
+            sospechosas.append(cand)
+            ultimo = r
+            continue
+
         # Un 429 o un post privado no dicen nada sobre la cuenta: no la ascienden
         # a viva (sería mentirle al panel sobre cuándo anduvo por última vez) ni
         # la condenan. Solo un fetch limpio cuenta como prueba de vida.
         if not r.get("_error"):
+            # Otra cuenta trajo el post que estas devolvieron vacío: ahí sí está
+            # probado que el problema era de ellas y no del post.
+            for mala in sospechosas:
+                _marcar_fila(mala, ok=False,
+                             detalle="Instagram devolvió el post vacío con esta "
+                                     "sesión y completo con otra")
+            rechazada_antes = rechazada_antes or (sospechosas[0]["origen"] if sospechosas else "")
             _marcar_fila(cand, ok=True, detalle="")
             # El estado del MONITOR se toca una sola vez por fetch y recién acá:
             # que Instagram rechace una cuenta no es una caída si la siguiente
@@ -654,9 +678,33 @@ def _fetch_instagram_api(shortcode: str) -> dict:
             _avisar_monitor(True, "", cand["origen"], rotacion=rechazada_antes)
         return r
 
-    print("[ig_api] TODAS las sesiones de Instagram están caídas", flush=True)
-    _avisar_monitor(False, ultimo.get("_error", ""), "")
+    if rechazada_antes:
+        print("[ig_api] TODAS las sesiones de Instagram están caídas", flush=True)
+        _avisar_monitor(False, ultimo.get("_error", ""), "")
+    else:
+        # Ninguna cuenta fue rechazada explícitamente: todas devolvieron vacío.
+        # Sin prueba de que sean ellas, no se las condena ni se despierta a
+        # nadie — un solo post raro no puede quemar todas las cuentas.
+        print("[ig_api] ninguna sesión pudo traer el post, pero ninguna fue "
+              "rechazada: no marco nada", flush=True)
     return ultimo
+
+
+def _post_es_publico(shortcode: str) -> bool:
+    """¿El post existe y se ve sin estar logueado?
+
+    Desempata el "media null". Usa el camino anónimo (_fetch_fast, el mismo que
+    ya se usa para el caption rápido), así que no gasta ninguna sesión. Cuesta
+    un request de más, pero solo en el caso ambiguo, que es raro.
+    """
+    try:
+        publico = _fetch_fast(shortcode)
+        return bool(publico.get("caption") or publico.get("owner_username"))
+    except Exception as e:
+        # Sin respuesta clara nos quedamos con "no sé", que acá significa no
+        # rotar: es la opción que no quema cuentas.
+        print(f"[ig_api] no pude verificar si {shortcode} es público: {e}", flush=True)
+        return False
 
 
 def _marcar_fila(cand: dict, *, ok: bool, detalle: str) -> None:
