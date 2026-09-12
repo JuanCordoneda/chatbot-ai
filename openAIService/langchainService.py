@@ -131,6 +131,29 @@ def _objetivos_comentarios(ranges: dict) -> dict:
     return objetivos
 
 
+def _sortear_bajon(ranges: dict):
+    """¿Este post sale flojo? Devuelve {pct_min, pct_max} si le tocó, None si no.
+
+    Es la opción "post flojo cada tanto" de la ficha: con probabilidad 1/cada,
+    todos los productos con rango de ESTE post salen entre pct_min% y pct_max%
+    del mínimo de su rango. Un solo sorteo para el post entero y no uno por
+    producto: un post flojo de verdad baja en likes Y en views a la vez, no
+    tiene 3k likes y 90k views.
+
+    Se sortea acá por el mismo motivo que los objetivos de comentarios: el front
+    recibe la meta dos veces por post, y tirarlo allá daba un post flojo en el
+    preview y uno normal en el scrape completo."""
+    b = (ranges or {}).get("bajon") or {}
+    try:
+        cada = int(b.get("cada"))
+        lo, hi = int(b.get("pct_min")), int(b.get("pct_max"))
+    except (TypeError, ValueError):
+        return None
+    if cada <= 0 or random.random() >= 1 / cada:
+        return None
+    return {"pct_min": min(lo, hi), "pct_max": max(lo, hi)}
+
+
 def _sin_comentarios(ranges: dict) -> bool:
     """¿La ficha dice que este cliente NO manda comentarios?
 
@@ -700,6 +723,18 @@ def procesar_post_web():
                   flush=True)
         return _obj_estado["valores"]
 
+    # Lo mismo para el "post flojo": se sortea una vez por cliente resuelto.
+    _bajon_estado = {"firma": None, "valor": None}
+
+    def _bajon_del_post(ranges: dict):
+        firma = json.dumps((ranges or {}).get("bajon") or {}, sort_keys=True)
+        if _bajon_estado["firma"] != firma:
+            _bajon_estado["firma"] = firma
+            _bajon_estado["valor"] = _sortear_bajon(ranges)
+            if _bajon_estado["valor"]:
+                print(f"[cantidad] post flojo: {_bajon_estado['valor']}", flush=True)
+        return _bajon_estado["valor"]
+
     def run():
         from modules.post_processor import scrape_post
         from modules.ai_generator import generar_comentarios_stream, GENERIC_CLIENT_ID
@@ -746,6 +781,8 @@ def procesar_post_web():
                             # Cuántos verificados y cuántos comunes lleva ESTE post
                             # (sorteo ya hecho acá: ver _objetivos_del_post).
                             "objetivos": _objetivos_del_post(preview_ranges),
+                            # Post flojo (o None): el front baja las cantidades.
+                            "bajon": _bajon_del_post(preview_ranges),
                             # Cliente sin comentarios: el front salta la pantalla
                             # de comentarios y va directo a las órdenes.
                             "sin_comentarios": _sin_comentarios(preview_ranges),
@@ -860,6 +897,7 @@ def procesar_post_web():
                 "is_video": post_data.is_video,
                 "ranges": ranges,
                 "objetivos": _objetivos_del_post(ranges),
+                "bajon": _bajon_del_post(ranges),
                 "sin_comentarios": _sin_comentarios(ranges),
                 # male/female -> el front muestra UNA sola sección; None -> mixto (2 columnas)
                 "gender": client_gender,

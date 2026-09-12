@@ -98,7 +98,43 @@ def _norm_ranges(r):
     com = _norm_comentarios(r.get("comentarios"))
     if com:
         out["comentarios"] = com
+    bajon = _norm_bajon(r.get("bajon"))
+    if bajon:
+        out["bajon"] = bajon
     return out or None
+
+
+# "Post flojo cada tanto": más o menos 1 de cada `cada` posts, TODOS los
+# productos con rango salen entre pct_min% y pct_max% del mínimo de su rango.
+# Existe porque con el sorteo uniforme un cliente de 5k–8k likes nunca tiene un
+# post de 3k, y un perfil real sí los tiene: la media perfecta es lo que delata.
+# Vive dentro de `ranges` (es config de cantidades) pero no es un _RANGE_KEYS.
+_BAJON_CADA = (3, 20)          # 1 de cada 3 ya es "siempre flojo"; más de 20 no se nota
+_BAJON_PCT_DEFAULT = (50, 80)
+
+
+def _norm_bajon(b):
+    """{'cada': int, 'pct_min': int, 'pct_max': int} o None si está apagado o
+    es inválido. Los porcentajes quedan entre 10 y 95: 100% sería el mínimo del
+    rango, que ya sale solo sin esta opción."""
+    if not isinstance(b, dict):
+        return None
+    try:
+        cada = int(b.get("cada"))
+    except (TypeError, ValueError):
+        return None
+    if cada <= 0:
+        return None
+    cada = min(_BAJON_CADA[1], max(_BAJON_CADA[0], cada))
+    try:
+        lo = int(b.get("pct_min", _BAJON_PCT_DEFAULT[0]))
+        hi = int(b.get("pct_max", _BAJON_PCT_DEFAULT[1]))
+    except (TypeError, ValueError):
+        lo, hi = _BAJON_PCT_DEFAULT
+    if hi < lo:
+        lo, hi = hi, lo
+    lo, hi = min(95, max(10, lo)), min(95, max(10, hi))
+    return {"cada": cada, "pct_min": lo, "pct_max": hi}
 
 
 # Cuántos comentarios manda el cliente por post, por tipo. Vive dentro de

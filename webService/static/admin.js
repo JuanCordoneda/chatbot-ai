@@ -769,6 +769,8 @@ function clientMeta(c) {
   chips.push(conRango.length
     ? `<span class="ax-chip" title="Tipos con cantidad automática: ${conRango.join(", ")}">📈 <b>${conRango.length}</b> tipo${conRango.length === 1 ? "" : "s"} de tráfico</span>`
     : `<span class="ax-chip ax-chip--off" title="Ningún producto con cantidad automática">📈 sin tráfico automático</span>`);
+  if (conRango.length && rg.bajon && rg.bajon.cada)
+    chips.push(`<span class="ax-chip" title="Más o menos 1 de cada ${rg.bajon.cada} posts sale entre el ${rg.bajon.pct_min}% y el ${rg.bajon.pct_max}% del mínimo">📉 flojo 1/${rg.bajon.cada}</span>`);
   return `<div class="ax-meta">${chips.join("")}</div>`;
 }
 
@@ -1334,6 +1336,7 @@ function revisarRangos() {
     resumen.textContent = ordenes
       ? `${ordenes} orden${ordenes === 1 ? "" : "es"} se van a precrear solas`
       : "sin rangos: la cantidad se carga a mano";
+  revisarBajon();   // el ejemplo del post flojo sale de estos números
   return ok;
 }
 
@@ -1400,6 +1403,68 @@ function revisarComentarios() {
   return !msg;
 }
 
+// ── Post flojo cada tanto ────────────────────────────────────────────────────
+// Más o menos 1 de cada N posts, todos los productos con rango salen por
+// debajo: entre X% e Y% del mínimo. Un perfil real tiene posts que rinden poco,
+// y con el sorteo uniforme el cliente mantenía siempre la misma media. El
+// sorteo lo hace el backend, una vez por post (ver _sortear_bajon).
+function leerBajonDOM() {
+  const cada = document.getElementById("bajon-cada");
+  if (!cada) return null;
+  return {
+    cada: parseInt(cada.value) || 0,
+    pct_min: document.getElementById("bajon-pct-min").value,
+    pct_max: document.getElementById("bajon-pct-max").value,
+  };
+}
+
+function renderBajon(b) {
+  const cada = document.getElementById("bajon-cada");
+  if (!cada) return;
+  const v = String((b && b.cada) || 0);
+  // Un valor guardado que no está entre las opciones (cargado a mano, o si
+  // cambian las opciones) se muestra igual en vez de caer en "Nunca" y
+  // apagarse al guardar.
+  if (![...cada.options].some(o => o.value === v))
+    cada.add(new Option(`1 de cada ${v} posts`, v));
+  cada.value = v;
+  document.getElementById("bajon-pct-min").value = (b && b.pct_min) || 50;
+  document.getElementById("bajon-pct-max").value = (b && b.pct_max) || 80;
+  revisarBajon();
+}
+
+// Valida y muestra un ejemplo con los likes cargados. false = no se puede guardar.
+function revisarBajon() {
+  const b = leerBajonDOM();
+  if (!b) return true;
+  const fe = document.getElementById("bajon-fe");
+  const ej = document.getElementById("bajon-ej");
+  document.getElementById("bajon-pct").classList.toggle("ax-hidden", !b.cada);
+  const lo = parseInt(b.pct_min), hi = parseInt(b.pct_max);
+  let msg = "";
+  if (b.cada && (!(lo >= 10 && lo <= 95) || !(hi >= 10 && hi <= 95)))
+    msg = "Los porcentajes van entre 10 y 95.";
+  else if (b.cada && lo > hi)
+    msg = "El primer porcentaje es mayor que el segundo.";
+  fe.textContent = msg;
+  fe.classList.toggle("ax-on", !!msg);
+  for (const id of ["bajon-pct-min", "bajon-pct-max"])
+    document.getElementById(id).classList.toggle("ax-bad", !!msg);
+  // Ejemplo con el primer rango cargado: el porcentaje solo no se entiende.
+  let texto = "";
+  if (b.cada && !msg) {
+    const fila = [...document.querySelectorAll(".ax-range-row")]
+      .find(f => f.querySelector(".ax-range-min").value !== "");
+    if (fila) {
+      const mn = parseInt(fila.querySelector(".ax-range-min").value);
+      const num = v => Math.round(v).toLocaleString("es-AR");
+      texto = `· ej: ${RANGE_LABELS[fila.dataset.tipo] || ""} ${num(mn)}–${fila.querySelector(".ax-range-max").value} → ${num(mn * lo / 100)}–${num(mn * hi / 100)}`;
+    }
+  }
+  ej.textContent = texto;
+  return !msg;
+}
+
 function agregarCalidad(tipo) {
   rangosState = leerRangosDOM();
   (rangosState[tipo] = rangosState[tipo] || []).push({});
@@ -1441,7 +1506,7 @@ function _clientFormState() {
     v("client-quality"), document.getElementById("client-keyword-mode").checked,
     soloPrompt(),
     v("client-venta"), v("client-prompt"),
-    leerRangosDOM(), leerComentariosDOM(),
+    leerRangosDOM(), leerComentariosDOM(), leerBajonDOM(),
   ]);
 }
 
@@ -1627,6 +1692,7 @@ function openClientModal(id) {
   actualizarVentaHint();
   const rg = (c && c.ranges) || {};
   renderComentarios(rg.comentarios);   // antes de renderCalidades: entra en el snapshot
+  renderBajon(rg.bajon);
   renderCalidades(rg, token);   // async: dibuja las filas y las llena con lo del CRM
   const av = document.getElementById("client-av");
   if (gen) {
@@ -1676,7 +1742,8 @@ async function saveClient() {
   setFieldErr("client-ig", errIg);
   const rangosOk = revisarRangos();
   const comOk = revisarComentarios();
-  if (errIg || !rangosOk || !comOk) {
+  const bajonOk = revisarBajon();
+  if (errIg || !rangosOk || !comOk || !bajonOk) {
     const primero = document.querySelector("#client-mo .ax-bad");
     if (primero) { primero.focus(); primero.scrollIntoView({ block: "center", behavior: "smooth" }); }
     showErr("client-err", errIg
@@ -1742,6 +1809,9 @@ async function saveClient() {
     if (e.min !== "" && e.max !== "") comentarios[k] = { min: parseInt(e.min), max: parseInt(e.max) };
   }
   if (Object.keys(comentarios).length) ranges.comentarios = comentarios;
+  const bajon = leerBajonDOM();
+  if (bajon && bajon.cada)
+    ranges.bajon = { cada: bajon.cada, pct_min: parseInt(bajon.pct_min), pct_max: parseInt(bajon.pct_max) };
   if (sinRango.length)
     toast(`Sin rango en ${[...new Set(sinRango)].join(", ")}: esa calidad no se guardó`, "bad");
   const payload = {

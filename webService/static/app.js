@@ -802,7 +802,13 @@ function mostrarScrape(data) {
 
   // Rangos de cantidades del cliente (TAREA 6): el modal de órdenes autocompleta
   // cada tipo con rango (likes/views/shares/reposts/saves/reach) con un valor random.
-  if (data.ranges !== undefined) window._clientRanges = data.ranges || {};
+  if (data.ranges !== undefined) {
+    window._clientRanges = data.ranges || {};
+    // "Post flojo cada tanto": el backend ya sorteó si a ESTE post le toca
+    // (ver _sortear_bajon). Se pisa junto con los rangos para que no quede
+    // pegado el del post anterior.
+    window._postBajon = data.bajon || null;
+  }
   // Cuántos verificados y cuántos comunes lleva este post. El sorteo lo hace el
   // backend (una sola vez) porque es el que tiene que pedirle esa cantidad a la
   // IA: si lo tiraba el front, el backend no sabía cuántos iban a hacer falta.
@@ -3321,7 +3327,17 @@ function _marcarUsada(tipo, val) {
 // Tira un número del rango sin repetir uno ya enviado a este cliente. Devuelve
 // {val, agotado}: agotado = ya se usaron todas las del rango y hubo que repetir.
 async function _tirarDelRango(tipo, r) {
-  const min = Math.min(r.min, r.max), max = Math.max(r.min, r.max);
+  let min = Math.min(r.min, r.max), max = Math.max(r.min, r.max);
+  // Post flojo: el rango de este post pasa a ser un % del MÍNIMO de la ficha
+  // (5.000–8.000 con 50–80% → 2.500–4.000). Mismo % para todos los productos,
+  // así likes y views bajan juntos como en un post que rindió poco de verdad.
+  const b = window._postBajon;
+  const flojo = !!(b && b.pct_min && b.pct_max);
+  if (flojo) {
+    const base = min;
+    min = Math.max(1, Math.round(base * b.pct_min / 100));
+    max = Math.max(min, Math.round(base * b.pct_max / 100));
+  }
   const usadas = await _cantidadesUsadas(tipo);
   const disponibles = [];
   for (let v = min; v <= max; v++) if (!usadas.has(v)) disponibles.push(v);
@@ -3330,7 +3346,7 @@ async function _tirarDelRango(tipo, r) {
     ? Math.floor(min + Math.random() * (max - min + 1))
     : disponibles[Math.floor(Math.random() * disponibles.length)];
   _marcarUsada(tipo, val);
-  return { val, agotado, min, max };
+  return { val, agotado, min, max, flojo };
 }
 
 // ── Piso de views: nunca menos de 5× los likes del mismo post ────────────────
@@ -3360,7 +3376,7 @@ async function rollCantidad() {
   const r = _rangoDelProducto();
   if (!r || r.min == null || r.max == null) return;
   const tipo = _tipoActual();
-  const { val: tirado, agotado, min, max } = await _tirarDelRango(tipo, r);
+  const { val: tirado, agotado, min, max, flojo } = await _tirarDelRango(tipo, r);
 
   // En views el rango es el punto de partida, pero el piso de 5× los likes manda.
   let val = tirado, subidoPorLikes = false, piso = 0;
@@ -3375,6 +3391,9 @@ async function rollCantidad() {
     hint.classList.remove("hidden");
   } else if (agotado && hint) {
     hint.textContent = `Ya se usaron todas las cantidades entre ${min} y ${max} para este cliente; puede repetirse.`;
+    hint.classList.remove("hidden");
+  } else if (flojo && hint) {
+    hint.textContent = `📉 Este post salió "flojo": la cantidad va entre ${min.toLocaleString("es-AR")} y ${max.toLocaleString("es-AR")}, por debajo del rango a propósito.`;
     hint.classList.remove("hidden");
   }
 
@@ -3455,7 +3474,7 @@ async function _precrearOrdenesDeRangos() {
       const prod = _productoElegido(grupos, r.prod_id) || _productoDeTipo(grupos, tipo);
       if (!prod) continue;   // el CRM no ofrece ese producto para esta red
 
-      let { val } = await _tirarDelRango(tipo, r);
+      let { val, flojo } = await _tirarDelRango(tipo, r);
       // Los likes se precrean primero (van antes en RANGE_KEYS), así que acá ya
       // están en la lista y se puede atar el piso de views a ellos.
       if (tipo === "views") val = _pisoViews(val).val;
@@ -3488,6 +3507,7 @@ async function _precrearOrdenesDeRangos() {
           obs: "",
           tipo: "normal",
           rangoKey,          // marca de precreada, para no duplicar
+          ...(flojo ? { flojo: true } : {}),
           ...(n > 1 ? { splitIndex: t + 1, splitTotal: n } : {}),
           costo: costoTotal != null ? costoTotal * (partes[t] / val) : null,
         });
@@ -3997,6 +4017,7 @@ function renderOrdenes() {
           ${o.costo != null && o.costo > 0 ? `<span class="orden-card-pill orden-card-pill--cost">$${parseFloat(o.costo).toFixed(4)}</span>` : ""}
           ${o.tipo === "comentarios" ? `<span class="orden-card-pill orden-card-pill--green">✓ Comentarios IA</span>` : ""}
           ${o.rangoKey ? `<span class="orden-card-pill orden-card-pill--auto" title="Cantidad al azar dentro del rango configurado">🎲 Automática</span>` : ""}
+          ${o.flojo ? `<span class="orden-card-pill orden-card-pill--split" title="A este post le tocó salir por debajo del rango, a propósito: así el perfil no mantiene siempre la misma media">📉 Post flojo</span>` : ""}
         </div>
         <div class="orden-card-link">${escapeHtml(o.link)}</div>
         ${o.obs ? `<div class="orden-card-obs">"${escapeHtml(o.obs)}"</div>` : ""}

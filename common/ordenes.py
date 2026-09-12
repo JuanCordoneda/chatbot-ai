@@ -27,32 +27,45 @@ def mezclar_comentarios(comentarios: list) -> list:
     Mezcla los comentarios seleccionados antes de enviarlos para que no se
     publiquen siempre en el orden en que la IA los generó.
 
-    Si vienen segmentados por género (líneas "mujeres:" / "hombres:"), respeta
-    esos encabezados en su lugar y solo baraja los comentarios dentro de cada
-    sección; así el CRM sigue percibiendo qué comentarios son de cada género.
-    Si no hay encabezados, baraja toda la lista.
+    Si vienen segmentados por género (líneas "mujeres:" / "hombres:"), la salida
+    queda SIEMPRE con un solo bloque por género y en este orden: "mujeres:" y
+    sus comentarios, después "hombres:" y los suyos. Se baraja solo dentro de
+    cada bloque, así el CRM sigue sabiendo de qué género es cada comentario.
+    Antes los encabezados se dejaban fijos donde venían, y una lista con
+    "mujeres: / hombres: / mujeres:" llegaba así al CRM (orden 3020069).
+    De paso se tiran los comentarios repetidos (mismo texto, sin distinguir
+    mayúsculas ni espacios): es el último filtro antes de publicar.
+
+    Si no hay encabezados, baraja toda la lista sin sacar repetidos: es el caso
+    del modo palabra clave, donde repetir la misma palabra ES el pedido.
     """
     comentarios = list(comentarios or [])
     if not any(es_header_genero(c) for c in comentarios):
         random.shuffle(comentarios)
         return comentarios
 
-    resultado: list = []
-    grupo: list = []
-
-    def _volcar_grupo():
-        random.shuffle(grupo)
-        resultado.extend(grupo)
-        grupo.clear()
-
+    sueltos: list = []   # antes del primer encabezado: sin género
+    secciones = {"mujeres:": [], "hombres:": []}
+    vistos: set = set()
+    actual = sueltos
     for c in comentarios:
         if es_header_genero(c):
-            _volcar_grupo()       # cerramos la sección anterior ya barajada
-            resultado.append(c)   # el encabezado queda fijo
-        else:
-            grupo.append(c)
-    _volcar_grupo()               # última sección
+            actual = secciones[c.strip().lower()]
+            continue
+        clave = " ".join((c or "").split()).casefold()
+        if not clave or clave in vistos:
+            continue
+        vistos.add(clave)
+        actual.append(c)
 
+    resultado: list = []
+    random.shuffle(sueltos)
+    resultado.extend(sueltos)
+    for header, grupo in secciones.items():
+        if grupo:
+            random.shuffle(grupo)
+            resultado.append(header)
+            resultado.extend(grupo)
     return resultado
 
 
@@ -72,12 +85,28 @@ def normalizar_orden(o: dict, disponible: float, comentarios: list) -> dict:
     def _coms_de(orden):
         return mezclar_comentarios(orden.get("comentarios") or comentarios)
 
+    def _tope(cant, coms):
+        """Si mezclar_comentarios tiró repetidos, la orden no puede seguir
+        pidiendo (y cobrando) la cantidad original."""
+        reales = sum(1 for c in coms if not es_header_genero(c))
+        try:
+            return str(min(int(cant), reales)) if reales else str(cant)
+        except (TypeError, ValueError):
+            return cant
+
     if "url" in o:
         if o.get("tipo") == "comentarios":
-            o = {**o, "comentarios": _coms_de(o)}
+            coms = _coms_de(o)
+            o = {**o, "comentarios": coms}
+            for campo in ("cantidad", "cant_inicial"):
+                if campo in o:
+                    o[campo] = _tope(o[campo], coms)
         return o
 
     cantidad = o.get("cantidad", 0)
+    coms = _coms_de(o) if o.get("tipo") == "comentarios" else []
+    if coms:
+        cantidad = _tope(cantidad, coms)
     cuando = o.get("cuando", "ahora")
     programado = 1 if cuando not in ("ahora", None) else 0
 
@@ -97,7 +126,7 @@ def normalizar_orden(o: dict, disponible: float, comentarios: list) -> dict:
         "cantidad":     str(cantidad),
         "programado":   programado,
         "fecha_programada": o.get("fechaProgramada") or None,
-        "comentarios":  _coms_de(o) if o.get("tipo") == "comentarios" else [],
+        "comentarios":  coms,
         "disponible":   disponible,
     }
 

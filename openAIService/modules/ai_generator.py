@@ -1,4 +1,5 @@
 import os
+import random
 import re
 import time
 import unicodedata
@@ -323,11 +324,15 @@ _PISO_OFICIO = (
     "- PROHIBIDO el repertorio de IA: \"great content\", \"love this\", "
     "\"amazing\", \"so true\", \"thanks for sharing\", \"nice post\" y cualquier "
     "elogio intercambiable que serviría igual para otro post.\n"
-    "- Largos mezclados y sin patrón visible: bastantes de 1 a 3 palabras, la "
-    "mayoría cortos, y unos pocos de varias oraciones.\n"
-    "- Escritos desde el teléfono, no redactados: gramática relajada, varios que "
-    "arranquen en minúscula, sin punto final en los cortos, alguna palabra "
-    "suelta en mayúscula.\n"
+    # Ni largos ni mayúsculas concretos: son ESTILO. "La mayoría cortos" y
+    # "varios en minúscula" chocaban de frente con clientes que piden 45% de
+    # medianos y todo con mayúscula, y un prompt que se contradice sale en
+    # promedio — que es justo el patrón que se nota.
+    "- Largos mezclados y sin patrón visible, desde 1 palabra hasta varias "
+    "oraciones.\n"
+    "- Escritos desde el teléfono, no redactados: gramática relajada y sin punto "
+    "final en los cortos. Mayúsculas/minúsculas: lo que digan las instrucciones "
+    "de arriba; si no dicen nada, mezclá.\n"
     "- NO todos positivos: sumá escépticos, confundidos, neutrales, algún "
     "pícaro, y preguntas de verdad.\n"
     "- Ingenio: remates inesperados y específicos de ESTE post. Un comentario "
@@ -416,6 +421,204 @@ def _system_output_format(client_gender, cantidad: int = 0) -> str:
         "- Después la línea EXACTAMENTE:\nhombres:\n"
         "seguida de la otra mitad, escritos por hombres, uno por línea.\n"
         "- Los encabezados \"mujeres:\" y \"hombres:\" van tal cual, en su propia línea.\n" + _OUT_BASE_NO
+    )
+
+
+# ── Guion de la tanda ─────────────────────────────────────────────────────────
+#
+# Pedirle a un modelo "variá largos, tonos y estructuras de forma irregular" en
+# 80 comentarios de una sola vez NO funciona: los modelos no saben ser al azar.
+# Lo que sale es un ritmo (corto, medio, largo, pregunta, corto...), los mismos
+# arranques y la misma voz disfrazada, y al leer 20 seguidos se nota que los
+# escribió uno solo. Es la queja de siempre, con el prompt que sea.
+#
+# Así que el azar lo pone el CÓDIGO: antes de llamar se sortea una ficha por
+# comentario (largo, tipo, a qué reacciona, quién lo escribe) y el modelo
+# escribe cada uno según su ficha. La variedad deja de depender de que el modelo
+# "se acuerde" de variar, y el reparto cambia de verdad entre posts.
+#
+# Solo ESTRUCTURA, nunca estilo: idioma, tono, mayúsculas, emojis, temas y
+# personajes siguen siendo del prompt, que manda si algo choca. Se apaga con
+# CROW_GUION=0.
+_GUION_ON = os.environ.get("CROW_GUION", "1").strip().lower() not in ("0", "false", "no")
+
+# (etiqueta, peso). Los pesos no tienen que sumar 100: son proporciones.
+_GUION_LARGOS = [
+    ("corto (1 a 4 palabras)", 30),
+    ("medio (5 a 14 palabras)", 45),
+    ("largo (15 a 35 palabras)", 25),
+]
+_GUION_TIPOS = [
+    ("reacción espontánea", 20),
+    ("observación de un detalle concreto", 20),
+    ("opinión propia, con postura", 14),
+    ("pregunta genuina", 10),
+    ("experiencia personal relacionada", 10),
+    ("humor o ironía", 10),
+    ("duda, matiz o leve desacuerdo", 7),
+    ("le habla directo al creador", 6),
+    ("solo emoji (si el estilo no usa emojis: 1 o 2 palabras)", 3),
+]
+# Un corto no puede ser una anécdota ni una observación con detalle: en la
+# prueba salían "Gris" o "Notebook brand", que no son un comentario sino el
+# nombre de una cosa. Y un largo no puede ser "solo emoji".
+_GUION_NO_CORTO = {"observación de un detalle concreto", "experiencia personal relacionada",
+                   "duda, matiz o leve desacuerdo"}
+_GUION_SOLO_CORTO = {"solo emoji (si el estilo no usa emojis: 1 o 2 palabras)"}
+
+_GUION_ENFOQUES_BASE = [
+    ("algo que se VE (persona, gesto, ropa, lugar, objeto)", 24),
+    ("algo que se dice o se lee (caption, texto en pantalla, audio)", 18),
+    ("la idea central del post", 16),
+    ("un tema secundario o un detalle que pocos notarían", 14),
+    ("lo que le pasa a quien comenta con eso", 12),
+]
+# Lo que depende del formato: en la prueba, un carrusel de fotos terminó con
+# "¿la edición tiene música?" porque el enfoque de edición era de video.
+_GUION_ENFOQUES_VIDEO = [("cómo está hecho (edición, ritmo, música)", 8),
+                         ("un momento puntual del video", 8)]
+_GUION_ENFOQUES_CARRUSEL = [("una foto puntual del carrusel", 12),
+                            ("cómo están elegidas u ordenadas las fotos", 4)]
+_GUION_ENFOQUES_FOTO = [("la foto en sí (luz, encuadre, lugar)", 10)]
+
+
+def _guion_enfoques(is_video: bool, n_imagenes: int) -> list[tuple[str, int]]:
+    if is_video:
+        return _GUION_ENFOQUES_BASE + _GUION_ENFOQUES_VIDEO
+    if n_imagenes > 1:
+        return _GUION_ENFOQUES_BASE + _GUION_ENFOQUES_CARRUSEL
+    return _GUION_ENFOQUES_BASE + _GUION_ENFOQUES_FOTO
+_GUION_VOCES = [
+    "fan de hace años", "recién descubre la cuenta", "alguien del mismo rubro",
+    "escéptico/a", "entusiasta sin exagerar", "seco/a, va al grano",
+    "reflexivo/a, escribe prolijo", "joven, tipea rápido", "adulto/a, formal",
+    "gracioso/a", "curioso/a", "le tocó de cerca el tema",
+]
+# Más de esto seguido del mismo largo ya se lee como bloque.
+_GUION_MAX_SEGUIDOS = 2
+
+# En la prueba, un cliente con "solo su prompt" (que pide inglés en UNA línea)
+# devolvió la tanda entera en castellano, dos veces. "El idioma que piden las
+# instrucciones" lo leía como "el idioma en que ESTÁN las instrucciones", y 80
+# fichas en español pesan más que una línea. Por eso se dice qué NO es el idioma.
+_GUION_IDIOMA = (
+    "- IDIOMA DE LOS COMENTARIOS: el guion y estas reglas están en español porque "
+    "son internos, pero eso NO define el idioma. Los comentarios van en el idioma "
+    "que el cliente pidió explícitamente arriba (por ejemplo \"en inglés\"); si "
+    "no pidió ninguno, en el idioma del caption del post."
+)
+
+
+def _repartir(opciones: list[tuple[str, int]], n: int, rng) -> list[str]:
+    """n etiquetas con las proporciones EXACTAS de los pesos, mezcladas. Un
+    sorteo independiente por comentario podía dar, en una tanda de 30, cuatro
+    largos o quince: se repartían como el azar quisiera y no como pide la ficha."""
+    total = sum(p for _, p in opciones)
+    cuotas = [(et, n * p / total) for et, p in opciones]
+    out = [et for et, c in cuotas for _ in range(int(c))]
+    # Los que faltan por redondeo van a las fracciones más grandes.
+    resto = sorted(cuotas, key=lambda x: x[1] - int(x[1]), reverse=True)
+    out += [et for et, _ in resto[: n - len(out)]]
+    rng.shuffle(out)
+    return out
+
+
+def _romper_bloques(etiquetas: list[str], rng) -> list[str]:
+    """Deshace las rachas de más de _GUION_MAX_SEGUIDOS iguales intercambiando
+    con otra posición al azar. Un shuffle a veces deja cinco cortos seguidos, y
+    eso es exactamente el "bloque evidente" que se quiere evitar."""
+    et = list(etiquetas)
+    for _ in range(len(et) * 4):
+        for i in range(_GUION_MAX_SEGUIDOS, len(et)):
+            if len(set(et[i - _GUION_MAX_SEGUIDOS:i + 1])) == 1:
+                j = rng.randrange(len(et))
+                et[i], et[j] = et[j], et[i]
+                break
+        else:
+            return et
+    return et
+
+
+def _es_corto(largo: str) -> bool:
+    return largo.startswith("corto")
+
+
+def _emparejar(largos: list[str], tipos: list[str], rng) -> list[str]:
+    """Reubica los tipos que no calzan con su largo (ver _GUION_NO_CORTO)
+    intercambiándolos con otra posición donde los dos queden bien. Si no hay con
+    quién (tanda chiquita), se deja: el modelo lo resuelve mejor que una ficha
+    imposible, y el prompt ya dice que el estilo manda."""
+    tipos = list(tipos)
+
+    def calza(i, t):
+        return (t not in _GUION_NO_CORTO) if _es_corto(largos[i]) else (t not in _GUION_SOLO_CORTO)
+
+    orden = list(range(len(tipos)))
+    for i in range(len(tipos)):
+        if calza(i, tipos[i]):
+            continue
+        rng.shuffle(orden)
+        for j in orden:
+            if j != i and calza(i, tipos[j]) and calza(j, tipos[i]):
+                tipos[i], tipos[j] = tipos[j], tipos[i]
+                break
+    return tipos
+
+
+def _guion_tanda(client_gender, cantidad: int = 0, rng=None, is_video: bool = False,
+                 n_imagenes: int = 1) -> str:
+    """El bloque del guion para ESTA tanda (va en el tramo no cacheado: cambia
+    en cada llamada, que es la idea)."""
+    rng = rng or random.Random()
+    n = cantidad if cantidad and cantidad > 0 else _COMENTARIOS_DEFAULT
+    largos = _romper_bloques(_repartir(_GUION_LARGOS, n, rng), rng)
+    tipos = _emparejar(largos, _romper_bloques(_repartir(_GUION_TIPOS, n, rng), rng), rng)
+    enfoques = _repartir(_guion_enfoques(is_video, n_imagenes), n, rng)
+    voces = [_GUION_VOCES[i % len(_GUION_VOCES)] for i in range(n)]
+    rng.shuffle(voces)
+
+    lineas = [f"{i + 1}. {largos[i]} · {tipos[i]} · sobre {enfoques[i]} · voz: {voces[i]}"
+              for i in range(n)]
+
+    # Mismo corte que el FORMATO DE SALIDA: en mixto, primero la mitad de
+    # mujeres y después la de hombres. Va en el texto y NO como una línea
+    # "(sección mujeres:)" dentro de la lista: el modelo copia esas líneas tal
+    # cual y a mitad de tanda ya no hay filtro de preámbulo que las frene, así
+    # que se publicaban como un comentario más.
+    secciones = ""
+    if client_gender not in ("male", "female"):
+        corte = (n + 1) // 2
+        secciones = (f"- Las fichas 1 a {corte} van debajo de \"mujeres:\" y las "
+                     f"{corte + 1} a {n} debajo de \"hombres:\".\n")
+
+    return (
+        "\n\nGUION DE ESTA TANDA (sorteado por la herramienta):\n"
+        "Cada comentario tiene su ficha, en el mismo orden en que los vas a "
+        "escribir. La ficha dice la ESTRUCTURA (largo, tipo, a qué reacciona, "
+        "quién lo escribe); el ESTILO (idioma, tono, mayúsculas, emojis, "
+        "vocabulario, temas) lo siguen mandando las instrucciones de arriba, y si "
+        "una ficha choca con ellas, gana lo de arriba en ese punto.\n"
+        # En la prueba, un cliente con "solo su prompt" (que pedía inglés en una
+        # sola línea) devolvió la tanda entera en español: 40 fichas en
+        # castellano pesan más que una instrucción.
+        + _GUION_IDIOMA + "\n"
+        "- Corto no es una etiqueta ni una palabra suelta: \"Gris\", \"You\" o "
+        "\"Notebook brand\" no son comentarios. Un corto es algo que una persona "
+        "tipearía y se entiende solo (un veredicto, una exclamación, una pregunta "
+        "rápida).\n"
+        "- Seguí el orden de las fichas. Si el post no tiene lo que pide el "
+        "enfoque, elegí otro detalle REAL del post: nunca lo inventes.\n"
+        "- La voz cambia cómo escribe cada uno (vocabulario, puntuación, energía), "
+        "no es para nombrarla.\n"
+        "- Que no haya dos comentarios que arranquen con la misma palabra ni con "
+        "la misma estructura.\n"
+        + secciones +
+        "- En la salida NO van los números ni las fichas: solo el texto de cada "
+        "comentario.\n"
+        "---\n" + "\n".join(lineas) + "\n---\n"
+        # Repetido al final a propósito: es lo último que lee antes de escribir,
+        # justo después de 80 líneas en castellano.
+        + _GUION_IDIOMA
     )
 
 
@@ -605,6 +808,11 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
     # No es editable desde el panel. Solo se saltea si el prompt ya lo trae
     # embebido (prompts viejos con el bloque adentro siguen funcionando).
     if not _trae_formato_propio(template):
+        # El guion va solo con el formato del sistema: es el que garantiza el
+        # orden de las secciones de género con el que se numeran las fichas.
+        if _GUION_ON:
+            prompt += _guion_tanda(client_gender, cantidad, is_video=is_video,
+                                   n_imagenes=n_imagenes)
         prompt += _system_output_format(client_gender, cantidad)
 
     # Un template con marcadores lleva el caption adentro: deja de ser estable

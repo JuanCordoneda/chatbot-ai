@@ -584,6 +584,11 @@
     .ax-drip-total { font-style: normal; color: var(--faint); }
     /* Sin CRM a mano no hay calidades que ofrecer: se dice, no se deja el hueco. */
     .ax-range-note { font-size: .78rem; color: var(--faint); }
+    /* Post flojo cada tanto: una línea bajo los rangos, con la misma pinta que
+       la división en tandas. */
+    .ax-bajon { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--border2); border-radius: 10px; }
+    .ax-bajon-t { font-weight: 700; color: var(--muted2); }
+    .ax-bajon .ax-drip-min { width: 58px; }
 
     .ax-tokens { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; align-items: center; }
     .ax-tok-label { font-size: .76rem; color: var(--faint); }
@@ -1651,9 +1656,25 @@
         <div class="ax-field">
           <label>Cantidades por rango <span class="ax-hint" id="ranges-resumen"></span></label>
           <div class="ax-ranges" id="ranges-box"></div>
+          <div class="ax-drip ax-bajon" id="bajon-box">
+            <span class="ax-bajon-t">📉 Post flojo</span>
+            <select id="bajon-cada" aria-label="Cada cuántos posts sale uno flojo" onchange="revisarBajon()">
+              <option value="0">Nunca</option>
+              <option value="4">1 de cada 4 posts</option>
+              <option value="6">1 de cada 6 posts</option>
+              <option value="8">1 de cada 8 posts</option>
+              <option value="12">1 de cada 12 posts</option>
+            </select>
+            <span class="ax-drip-cada" id="bajon-pct">
+              sale entre el <input type="number" min="10" max="95" id="bajon-pct-min" class="ax-drip-min" value="50" aria-label="Porcentaje mínimo" oninput="revisarBajon()" />%
+              y el <input type="number" min="10" max="95" id="bajon-pct-max" class="ax-drip-min" value="80" aria-label="Porcentaje máximo" oninput="revisarBajon()" />% del mínimo
+              <em class="ax-drip-total" id="bajon-ej"></em>
+            </span>
+            <div class="ax-fe" id="bajon-fe"></div>
+          </div>
         <div class="ax-help">
           <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <span>La cantidad se elige <b>sola al azar</b> dentro del rango, no es un número fijo. Con <b>+ Agregar otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango.</span>
+          <span>La cantidad se elige <b>sola al azar</b> dentro del rango, no es un número fijo. Con <b>+ Agregar otra calidad</b> el mismo post puede llevar dos calidades del mismo producto, cada una con su rango. Con <b>📉 Post flojo</b>, cada tanto un post sale por debajo del rango en todos los productos a la vez, para que el perfil no mantenga siempre la misma media.</span>
           </div>
         </div>
 
@@ -1920,7 +1941,7 @@
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/header-menu.js?v=1785802900"></script>
-  <script src="/static/admin.js?v=1788722600"></script>
+  <script src="/static/admin.js?v=1789238249"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>
