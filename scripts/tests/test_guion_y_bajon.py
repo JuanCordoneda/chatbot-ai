@@ -77,12 +77,23 @@ check("emparejar: ningún corto con anécdota/detalle y ningún largo 'solo emoj
       malos == 0, f"{malos} fichas imposibles")
 
 # ── 2. El bloque del guion ───────────────────────────────────────────────────
-carrusel = ai._guion_tanda("male", 80, random.Random(3), is_video=False, n_imagenes=5)
+def solo_fichas(g):
+    """La lista de fichas, sin las reglas de arriba (que nombran audio/edición)."""
+    return g.split("---")[1]
+
+
+carrusel_bloque = ai._guion_tanda("male", 80, random.Random(3), is_video=False, n_imagenes=5)
+carrusel = solo_fichas(carrusel_bloque)
 check("carrusel: sin enfoques de video", "edición" not in carrusel and "del video" not in carrusel)
 check("carrusel: con fotos del carrusel", "foto puntual del carrusel" in carrusel)
-video = ai._guion_tanda("male", 80, random.Random(3), is_video=True)
-check("video: con enfoques de video", "momento puntual del video" in video)
-check("guion: aclara el idioma", "NO define el idioma" in carrusel)
+video = ai._guion_tanda("male", 80, random.Random(3), is_video=True, n_imagenes=6)
+check("video con capturas: con enfoques de video", "momento puntual del video" in video)
+video = ai._guion_tanda("male", 80, random.Random(3), is_video=True, con_audio=True)
+check("video con transcripción: con enfoques de video", "momento puntual del video" in video)
+portada = solo_fichas(ai._guion_tanda("male", 80, random.Random(3), is_video=True, n_imagenes=1))
+check("reel con la portada sola: SIN enfoques de video (se inventaban)",
+      "edición" not in portada and "del video" not in portada)
+check("guion: aclara el idioma", "NO define el idioma" in carrusel_bloque)
 
 g = ai._guion_tanda(None, 40, random.Random(1))
 fichas = [l for l in g.split("---")[1].strip().splitlines() if l.strip()]

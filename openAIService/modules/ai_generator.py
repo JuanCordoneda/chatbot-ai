@@ -467,7 +467,9 @@ _GUION_NO_CORTO = {"observación de un detalle concreto", "experiencia personal 
 _GUION_SOLO_CORTO = {"solo emoji (si el estilo no usa emojis: 1 o 2 palabras)"}
 
 _GUION_ENFOQUES_BASE = [
-    ("algo que se VE (persona, gesto, ropa, lugar, objeto)", 24),
+    # "sin arrancar nombrándolo": con 100 fichas el pro abría 1 de cada 5 con
+    # "The gavel…/The watch…", y un tope global ("como mucho 3") no lo frena.
+    ("algo que se VE (persona, gesto, ropa, lugar, objeto), sin arrancar nombrándolo", 24),
     ("algo que se dice o se lee (caption, texto en pantalla, audio)", 18),
     ("la idea central del post", 16),
     ("un tema secundario o un detalle que pocos notarían", 14),
@@ -482,8 +484,13 @@ _GUION_ENFOQUES_CARRUSEL = [("una foto puntual del carrusel", 12),
 _GUION_ENFOQUES_FOTO = [("la foto en sí (luz, encuadre, lugar)", 10)]
 
 
-def _guion_enfoques(is_video: bool, n_imagenes: int) -> list[tuple[str, int]]:
-    if is_video:
+def _guion_enfoques(is_video: bool, n_imagenes: int, con_audio: bool = False) -> list[tuple[str, int]]:
+    """Las fichas de video solo si el modelo tiene el video de verdad: capturas
+    (mosaico, n_imagenes > 1) o transcripción. Con la portada sola —el video no
+    se pudo bajar— pedirle "cómo está editado" o "un momento del video" es
+    pedirle que invente: en la prueba con posts reales salieron "he never
+    blinks", "the audio timing with his hand gesture" y "no music, no gimmicks"."""
+    if is_video and (n_imagenes > 1 or con_audio):
         return _GUION_ENFOQUES_BASE + _GUION_ENFOQUES_VIDEO
     if n_imagenes > 1:
         return _GUION_ENFOQUES_BASE + _GUION_ENFOQUES_CARRUSEL
@@ -566,14 +573,14 @@ def _emparejar(largos: list[str], tipos: list[str], rng) -> list[str]:
 
 
 def _guion_tanda(client_gender, cantidad: int = 0, rng=None, is_video: bool = False,
-                 n_imagenes: int = 1) -> str:
+                 n_imagenes: int = 1, con_audio: bool = False) -> str:
     """El bloque del guion para ESTA tanda (va en el tramo no cacheado: cambia
     en cada llamada, que es la idea)."""
     rng = rng or random.Random()
     n = cantidad if cantidad and cantidad > 0 else _COMENTARIOS_DEFAULT
     largos = _romper_bloques(_repartir(_GUION_LARGOS, n, rng), rng)
     tipos = _emparejar(largos, _romper_bloques(_repartir(_GUION_TIPOS, n, rng), rng), rng)
-    enfoques = _repartir(_guion_enfoques(is_video, n_imagenes), n, rng)
+    enfoques = _repartir(_guion_enfoques(is_video, n_imagenes, con_audio), n, rng)
     voces = [_GUION_VOCES[i % len(_GUION_VOCES)] for i in range(n)]
     rng.shuffle(voces)
 
@@ -606,6 +613,9 @@ def _guion_tanda(client_gender, cantidad: int = 0, rng=None, is_video: bool = Fa
         "\"Notebook brand\" no son comentarios. Un corto es algo que una persona "
         "tipearía y se entiende solo (un veredicto, una exclamación, una pregunta "
         "rápida).\n"
+        "- Nada de detalles que no estén en la imagen, la descripción, el caption "
+        "o la transcripción: ni objetos, ni marcas, ni comida, ni audio, música o "
+        "edición si no tenés con qué saberlo.\n"
         "- Seguí el orden de las fichas. Si el post no tiene lo que pide el "
         "enfoque, elegí otro detalle REAL del post: nunca lo inventes.\n"
         "- La voz cambia cómo escribe cada uno (vocabulario, puntuación, energía), "
@@ -817,8 +827,9 @@ def _load_prompt_partes(caption: str, comentarios_existentes: list[str], client_
         # El guion va solo con el formato del sistema: es el que garantiza el
         # orden de las secciones de género con el que se numeran las fichas.
         if _GUION_ON:
-            prompt += _guion_tanda(client_gender, cantidad, is_video=is_video,
-                                   n_imagenes=n_imagenes)
+            prompt += _guion_tanda(
+                client_gender, cantidad, is_video=is_video, n_imagenes=n_imagenes,
+                con_audio=bool(transcription and not transcription.strip().startswith("(")))
         prompt += _system_output_format(client_gender, cantidad)
 
     # Un template con marcadores lleva el caption adentro: deja de ser estable
