@@ -612,6 +612,12 @@ def _guion_tanda(client_gender, cantidad: int = 0, rng=None, is_video: bool = Fa
         "no es para nombrarla.\n"
         "- Que no haya dos comentarios que arranquen con la misma palabra ni con "
         "la misma estructura.\n"
+        # Con las fichas "sobre algo que se VE", el pro abría 9 de 40 con "The
+        # dog…/The whiteboard…/The order…": nombrar el detalle de entrada es el
+        # arranque de plantilla. La gente lo mete en el medio o al final.
+        "- Arrancar nombrando el detalle (\"The dog…\", \"That whiteboard…\", "
+        "\"El café…\") es el arranque de plantilla: como mucho 3 en toda la "
+        "tanda. En el resto, el detalle va en el medio o al final.\n"
         + secciones +
         "- En la salida NO van los números ni las fichas: solo el texto de cada "
         "comentario.\n"
