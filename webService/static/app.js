@@ -2716,8 +2716,20 @@ async function irAOrdenes() {
   // Reconstruye la lista con los encabezados de género (hombres:/mujeres:) para
   // un conjunto de índices. Los encabezados NO cuentan como comentarios; el
   // backend re-mezcla dentro de cada sección.
+  // Cliente mixto: la lista va de una, sin encabezados. Sin headers el backend
+  // baraja pero no saca repetidos (es el caso keyword), así que se sacan acá.
   function reconstruir(indices) {
     const sel = indices.map(i => ({ texto: comentariosGenerados[i], genero: generosGenerados[i] }));
+    if (esMixto) {
+      const vistos = new Set();
+      const payload = sel.map(s => s.texto).filter((t) => {
+        const clave = normComentario(t || "");
+        if (!clave || vistos.has(clave)) return false;
+        vistos.add(clave);
+        return true;
+      });
+      return { payload, cantidad: payload.length };
+    }
     const mujeres   = sel.filter(s => s.genero === "mujeres").map(s => s.texto);
     const hombres   = sel.filter(s => s.genero === "hombres").map(s => s.texto);
     const sinGenero = sel.filter(s => s.genero !== "mujeres" && s.genero !== "hombres").map(s => s.texto);
