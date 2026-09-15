@@ -33,7 +33,7 @@ let currentKeyword = "";
 let comentariosGenerados = [];
 let generosGenerados = [];        // género por índice: "hombres" | "mujeres" | null | "__header__"
 let generoActual = null;          // género de la sección que se está streameando
-let esMixto = false;              // cliente mixto → 2 columnas desde el arranque
+let esMixto = false;              // cliente mixto → UNA sola lista, sin secciones de género
 let generoFijo = null;            // cliente male/female → "hombres"/"mujeres": UNA sola sección
 let ultimoEsVideo = false;        // último post: ¿es video? (para el bloque de transcripción)
 let scrapeRecibido = false;       // ¿ya llegó el evento de scrape? (define si ultimoEsVideo es confiable)
@@ -488,7 +488,7 @@ function manejarEvento(evento) {
     renderEtapa();
     pendingComentarios = [];
     streamOffset = 0;
-    // El reset borró el DOM: si es mixto, re-armamos las 2 columnas vacías.
+    // El reset borró el DOM: si es mixto, re-armamos el panel vacío.
     if (esMixto) { _prepararPaneles(); }
     actualizarConteo();
   } else if (evento.tipo === "cancelado") {
@@ -855,9 +855,7 @@ function mostrarScrape(data) {
 
   refrescarMetaContexto();
 
-  // Cliente mixto (sin género fijo): armamos las 2 columnas (Hombres | Mujeres)
-  // vacías desde el arranque, para que la de Hombres no aparezca recién al final
-  // cuando termina la de Mujeres. Los comentarios luego llenan cada columna.
+  // Cliente mixto (sin género fijo): una sola lista, sin secciones de género.
   // En modo keyword no hay hombres/mujeres que separar: son todos la misma
   // palabra. Va una sola sección, sin las 2 columnas.
   if (currentKeyword) {
@@ -882,10 +880,6 @@ function mostrarScrape(data) {
 function _prepararPaneles() {
   // Solo el panel de la etapa en curso: las otras etapas todavía no existen.
   _panelTipo(etapaTipo());
-  if (esMixto) {
-    _seccionItems("hombres", etapaTipo());
-    _seccionItems("mujeres", etapaTipo());
-  }
   _refrescarSecciones();
 }
 
@@ -1020,16 +1014,15 @@ function _refrescarSecciones() {
     const items = sec.querySelectorAll(".comentario-item");
     const cnt = sec.querySelector(".gs-sec-count");
     if (cnt) cnt.textContent = items.length;
-    // En mixto mantenemos Hombres y Mujeres visibles aunque estén vacías (para que
-    // las 2 columnas estén desde el arranque). "otros" se oculta si queda vacía.
-    // ...pero solo una vez que empezaron a llegar comentarios: antes de eso el
-    // skeleton ya ocupa ese espacio y dos paneles "Todavía no hay..." vacíos
-    // debajo se ven como un hueco muerto.
     const g = sec.dataset.genero;
-    const hayAlguno = lista.querySelector(".comentario-item");
-    const esWa = sec.closest('.tipo-panel[data-tipo="wa"]');
-    const mantener = !esWa && esMixto && hayAlguno && (g === "hombres" || g === "mujeres");
-    sec.classList.toggle("hidden", items.length === 0 && !mantener);
+    sec.classList.toggle("hidden", items.length === 0);
+    // Mixto: la lista es una sola y se titula "Mixtos" (no "Sin especificar").
+    if (g === "otros") {
+      const ico = sec.querySelector(".gs-sec-icon");
+      const lbl = sec.querySelector(".gs-sec-label");
+      if (ico) ico.textContent = esMixto ? "⚥" : "•";
+      if (lbl) lbl.textContent = esMixto ? "Mixtos" : "Sin especificar";
+    }
     items.forEach((it) => {
       n++;
       const e = it.querySelector(".comentario-num");
@@ -1049,7 +1042,7 @@ function _refrescarSecciones() {
     // se separan por género.
     const dos = cont.closest('.tipo-panel[data-tipo="wa"], .tipo-panel[data-tipo="tg"]')
       ? false
-      : (esMixto || !!(hayH && hayM));
+      : (!esMixto && !!(hayH && hayM));
     cont.classList.toggle("lista-2col", dos);
     if (!cont.closest(".tipo-panel").classList.contains("hidden")) mixto = mixto || dos;
   });
@@ -1216,7 +1209,8 @@ function agregarComentario(texto, index) {
   // muestran como comentarios, pero se guardan para reinyectarlos al enviar.
   const gen = generoDeHeader(texto);
   if (gen) {
-    generoActual = generoFijo || gen;
+    // Mixto: una sola lista, el encabezado no abre sección.
+    generoActual = esMixto ? null : (generoFijo || gen);
     comentariosGenerados[index] = texto;
     generosGenerados[index] = "__header__";
     return;
