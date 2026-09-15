@@ -2816,6 +2816,7 @@ async function irAOrdenes() {
     if (ovTexto) ovTexto.textContent = "Armando órdenes de tráfico...";
     await _precrearOrdenesDeRangos();
     renderOrdenes();
+    _logOrdenes("pantalla de órdenes");
     prepararVentaPicker();
   } finally {
     ovOrdenes?.classList.add("hidden");
@@ -4412,22 +4413,43 @@ function _contextoDeEnvio() {
   };
 }
 
+// Debug: cómo queda cada orden (y su lista de comentarios, tal cual se manda).
+// Se ve en la consola del navegador (F12 → Console).
+function _logOrdenes(momento, lista = ordenes, body = null) {
+  console.groupCollapsed(`[órdenes] ${momento} — ${lista.length} orden(es) · mixto=${esMixto} · género fijo=${generoFijo || "—"}`);
+  lista.forEach((o, n) => {
+    const coms = o.comentarios || [];
+    const headers = coms.filter(c => generoDeHeader(c));
+    console.group(`#${n + 1} ${o.productoNombre || o.prod || o.tipo} · cant ${o.cantidad} · ${o.cuandoLabel || o.cuando || ""}${o.turno ? " · turno " + o.turno : ""}`);
+    console.log("orden:", o);
+    if (coms.length) {
+      console.log(`comentarios: ${coms.length - headers.length} (+${headers.length} encabezado(s): ${headers.join(" ") || "ninguno"})`);
+      console.log(coms.join("\n"));
+    }
+    console.groupEnd();
+  });
+  if (body) console.log("body completo:", body);
+  console.groupEnd();
+}
+
 // Comentarios: publicar en Instagram vía IA. Puede haber 2 órdenes
 // (verificados 94 + no verificados 95), cada una con su propia lista.
 async function _enviarComentariosAlCrm(ordenesComentarios) {
+  const body = {
+    ..._contextoDeEnvio(),
+    // top-level: unión de todas (para el informe / fallback)
+    comentarios: comentariosParaPublicar,
+    ordenes: ordenesComentarios.map(o => ({
+      ...o,
+      // cantidad = comentarios reales (sin los encabezados hombres:/mujeres:)
+      cantidad: (o.comentarios || []).filter(c => !generoDeHeader(c)).length,
+    })),
+  };
+  _logOrdenes("envío de comentarios a /api/publicar", body.ordenes, body);
   const resp = await fetch("/api/publicar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ..._contextoDeEnvio(),
-      // top-level: unión de todas (para el informe / fallback)
-      comentarios: comentariosParaPublicar,
-      ordenes: ordenesComentarios.map(o => ({
-        ...o,
-        // cantidad = comentarios reales (sin los encabezados hombres:/mujeres:)
-        cantidad: (o.comentarios || []).filter(c => !generoDeHeader(c)).length,
-      })),
-    }),
+    body: JSON.stringify(body),
   });
   return await resp.json();
 }
