@@ -817,7 +817,21 @@ def _fetch_instagram_api_con(shortcode: str, cookies: dict) -> dict:
                 "Referer": f"https://www.instagram.com/p/{shortcode}/",
             },
             timeout=15,
+            # Una sesión que ya no sirve no da 401: Instagram redirige al login,
+            # que redirige de vuelta, y requests se come 30 saltos antes de tirar
+            # TooManyRedirects. Eso reventaba el scrape entero con un error de
+            # red en vez de rotar a la cuenta siguiente, que es lo que había que
+            # hacer. Cortamos en el primer salto y lo tratamos como sesión muerta.
+            allow_redirects=False,
         )
+
+        if r.status_code in (301, 302, 303, 307, 308):
+            destino = r.headers.get("Location", "")
+            print(f"[ig_api] SESIÓN MUERTA: Instagram redirige a {destino!r} — "
+                  "renová esa cuenta", flush=True)
+            return {"_error": "la sesión de Instagram del server ya no sirve "
+                              "(Instagram la manda al login)",
+                    "_error_kind": "sesion_muerta"}
 
         if r.status_code != 200:
             print(f"[ig_api] status {r.status_code}", flush=True)
