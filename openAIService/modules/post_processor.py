@@ -15,6 +15,47 @@ from typing import Optional
 # common/idioma.py, compartida con ai_generator.
 from common import idioma as _idioma
 
+# Salida a Instagram por proxy. Instagram desconfía de una sesión que se abrió
+# en una casa y de golpe empieza a pedir posts desde un datacenter: manda la
+# cuenta a checkpoint aunque la cookie sea de hoy, y ahí no hay cookie que
+# arregle nada. IG_HTTP_PROXY saca estas llamadas por otra IP; vacío = directo,
+# igual que siempre. Acepta varios separados por coma (ver common/proxy_pool).
+#
+# Se rutean SOLO las llamadas a instagram.com. Las fotos y videos del CDN siguen
+# yendo directo a propósito: son los megabytes, y un proxy residencial se cobra
+# por GB.
+from common.proxy_pool import ProxyPool, proxies_de
+
+_IG_POOL = ProxyPool(os.environ.get("IG_HTTP_PROXY", ""))
+
+
+def _ig_req(fn, url: str, **kw):
+    """requests.get/post hacia Instagram, por el proxy configurado.
+
+    Si un proxy no contesta se prueba el siguiente; sin proxies configurados
+    hace una sola pasada directa y deja subir el error tal cual, para que los
+    callers sigan viendo exactamente lo que veían antes.
+    """
+    ultimo = None
+    for proxy in _IG_POOL.candidatos():
+        try:
+            r = fn(url, proxies=proxies_de(proxy), **kw)
+        except req.RequestException as e:
+            _IG_POOL.marcar_muerto(proxy)
+            ultimo = e
+            continue
+        _IG_POOL.marcar_vivo(proxy)
+        return r
+    raise ultimo
+
+
+def _ig_get(url: str, **kw):
+    return _ig_req(req.get, url, **kw)
+
+
+def _ig_post(url: str, **kw):
+    return _ig_req(req.post, url, **kw)
+
 
 @dataclass
 class PostData:
@@ -415,7 +456,7 @@ def _load_ig_cookies() -> dict:
 def _fetch_full_name(username: str) -> str:
     """Fetch del nombre público del perfil via HTML público (og:title)."""
     try:
-        r = req.get(
+        r = _ig_get(
             f"https://www.instagram.com/{username}/",
             headers={
                 "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
@@ -439,7 +480,7 @@ def _fetch_fast(shortcode: str) -> dict:
     """Fetch rápido via HTML público con UA de Facebook."""
     result = {}
     try:
-        r = req.get(
+        r = _ig_get(
             f"https://www.instagram.com/p/{shortcode}/",
             headers={
                 "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
@@ -730,29 +771,50 @@ def _avisar_monitor(ok: bool, detalle: str, origen: str, rotacion: str = "") -> 
         pass
 
 
+def _media_id(shortcode: str) -> str:
+    """El id numérico del post, calculado a partir del shortcode.
+
+    El shortcode ES el id en base64 con el alfabeto de Instagram, así que la
+    cuenta se hace acá y no hace falta pedirle a Instagram que lo traduzca.
+    """
+    n = 0
+    for ch in shortcode:
+        n = n * 64 + _ALFABETO_SHORTCODE.index(ch)   # ValueError si no es un shortcode
+    return str(n)
+
+
+_ALFABETO_SHORTCODE = ("ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                       "abcdefghijklmnopqrstuvwxyz0123456789-_")
+
+
 def _fetch_instagram_api_con(shortcode: str, cookies: dict) -> dict:
     """
-    Fetch via GraphQL doc_id de Instagram (la misma API que usa el navegador).
-    Reemplaza instaloader que usa query_hash ya bloqueado por Instagram.
+    Trae el post por la API REST de Instagram (/api/v1/media/<id>/info/), la
+    misma que usa la web cuando abrís un post.
+
+    Antes esto iba por GraphQL con un `doc_id` fijo. Instagram dio de baja ese
+    doc_id y la consulta empezó a contestar 302 a la home: con sesión válida, IP
+    limpia y cookies nuevas, igual fallaba TODO. Se leía como "la cuenta está
+    trabada" y se perdieron horas renovando cookies y cambiando de cuenta, que
+    no era el problema. La REST no tiene ningún identificador que Instagram
+    pueda rotar: el id del post sale del shortcode, así que no hay nada que se
+    caduque por su cuenta.
     """
     try:
-        r = req.post(
-            "https://www.instagram.com/graphql/query",
+        try:
+            media_id = _media_id(shortcode)
+        except ValueError:
+            return {"_error": f"'{shortcode}' no parece un shortcode de Instagram"}
+
+        r = _ig_get(
+            f"https://www.instagram.com/api/v1/media/{media_id}/info/",
             cookies=cookies,
             headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
                 "x-ig-app-id": "936619743392459",
+                "x-asbd-id": "359341",
                 "x-csrftoken": cookies.get("csrftoken", ""),
-                "content-type": "application/x-www-form-urlencoded",
                 "Referer": f"https://www.instagram.com/p/{shortcode}/",
-                "Origin": "https://www.instagram.com",
-            },
-            data={
-                "doc_id": "10015901848480474",
-                "variables": json.dumps({
-                    "shortcode": shortcode,
-                    "__relay_internal__pv__PolarisFeedShareMenurelayprovider": False,
-                }),
             },
             timeout=15,
         )
@@ -801,41 +863,53 @@ def _fetch_instagram_api_con(shortcode: str, cookies: dict) -> dict:
                               "la cookie",
                     "_error_kind": "sesion_muerta"}
 
-        media = (payload.get("data") or {}).get("xdt_shortcode_media")
-        if not media:
-            # 200 con media en null. Sin más contexto no se sabe si el post no
-            # existe o si la sesión dejó de servir: quien llama lo resuelve
-            # mirando si el camino público (_fetch_fast, anónimo) también falló.
-            print(f"[ig_api] media null para {shortcode}", flush=True)
+        items = payload.get("items") or []
+        if not items:
+            # 200 sin items. Sin más contexto no se sabe si el post no existe o
+            # si la sesión dejó de servir: quien llama lo resuelve mirando si el
+            # camino público (_fetch_fast, anónimo) también falló.
+            print(f"[ig_api] sin items para {shortcode}", flush=True)
             return {"_error": "Instagram no devolvió los datos del post (puede ser privado, borrado, o la sesión venció)",
                     "_error_kind": "media_null"}
+        media = items[0]
 
-        # display_url = imagen del post (foto, o thumbnail del video). En carruseles
-        # tomamos la del primer item.
-        # display_url = imagen principal. En carruseles juntamos TODAS las
-        # imágenes de los hijos: después se arma un mosaico y se describe de una
-        # sola pasada (describir una por una multiplicaba los tokens de visión).
-        display_urls = []
-        for edge in (media.get("edge_sidecar_to_children", {}).get("edges") or []):
-            node = edge.get("node", {}) or {}
-            u = node.get("display_url", "") or ""
-            if u:
-                display_urls.append(u)
+        # media_type: 1 foto, 2 video, 8 carrusel.
+        def _imagen(nodo: dict) -> str:
+            cands = (nodo.get("image_versions2") or {}).get("candidates") or []
+            return (cands[0].get("url") or "") if cands else ""
 
-        display_url = media.get("display_url", "") or ""
+        def _video(nodo: dict) -> str:
+            vers = nodo.get("video_versions") or []
+            return (vers[0].get("url") or "") if vers else ""
+
+        # En carruseles juntamos TODAS las imágenes de los hijos: después se arma
+        # un mosaico y se describe de una sola pasada (describir una por una
+        # multiplicaba los tokens de visión). En los videos la imagen es el
+        # thumbnail, igual que el display_url de antes.
+        hijos = media.get("carousel_media") or []
+        display_urls = [u for u in (_imagen(h) for h in hijos) if u]
+        display_url = _imagen(media)
         if not display_url and display_urls:
             display_url = display_urls[0]
         if not display_urls and display_url:
             display_urls = [display_url]
 
+        es_video = media.get("media_type") == 2
+        video_url = _video(media)
+        if not video_url and hijos:
+            # Carrusel que arranca con un video: se transcribe ese.
+            video_url = next((v for v in (_video(h) for h in hijos) if v), "")
+            es_video = es_video or bool(video_url)
+
+        usuario = media.get("user") or {}
         result = {
-            "caption": (media.get("edge_media_to_caption", {}).get("edges") or [{}])[0].get("node", {}).get("text", "") or "",
-            "owner_username": media.get("owner", {}).get("username", "") or "",
-            "owner_full_name": media.get("owner", {}).get("full_name", "") or "",
+            "caption": (media.get("caption") or {}).get("text", "") or "",
+            "owner_username": usuario.get("username", "") or "",
+            "owner_full_name": usuario.get("full_name", "") or "",
             "collaborators": _coautores(media),
             "photo_description": media.get("accessibility_caption", "") or "",
-            "is_video": media.get("is_video", False),
-            "video_url": media.get("video_url", "") or "",
+            "is_video": es_video,
+            "video_url": video_url,
             "display_url": display_url,
             "display_urls": display_urls,
         }
