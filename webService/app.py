@@ -3903,6 +3903,40 @@ def admin_ig_sesiones_alta():
         return jsonify({"error": _mensaje_amigable(e)}), 502
 
 
+@app.route("/api/admin/ig-sesiones/login", methods=["POST"])
+@require_admin
+def admin_ig_sesiones_login():
+    """Renovar una cuenta con usuario y contraseña, para cuando no hay una Mac a
+    mano. La contraseña pasa de largo hacia el openAIService: no se guarda ni se
+    loguea acá. El timeout cubre login + prueba contra Instagram."""
+    d = request.get_json(silent=True) or {}
+    try:
+        return _ig_sesiones("POST", "/login", payload={
+            "username": (d.get("username") or "").strip(),
+            "password": d.get("password") or "",
+            "creada_por": session.get("username", ""),
+        }, timeout=90)
+    except Exception as e:
+        print(f"[ig-sesiones] error en login: {type(e).__name__}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
+@app.route("/api/admin/ig-sesiones/login/codigo", methods=["POST"])
+@require_admin
+def admin_ig_sesiones_login_codigo():
+    d = request.get_json(silent=True) or {}
+    try:
+        return _ig_sesiones("POST", "/login/codigo", payload={
+            "login_id": d.get("login_id") or "",
+            "codigo": d.get("codigo") or "",
+            "username": (d.get("username") or "").strip(),
+            "creada_por": session.get("username", ""),
+        }, timeout=90)
+    except Exception as e:
+        print(f"[ig-sesiones] error con el código: {type(e).__name__}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
 @app.route("/api/admin/ig-sesiones/<int:sesion_id>", methods=["PATCH", "DELETE"])
 @require_admin
 def admin_ig_sesiones_editar(sesion_id):

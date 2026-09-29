@@ -507,14 +507,19 @@ def admin_ig_sesiones_alta():
     no = _exigir_interno()
     if no:
         return no
-    from common import repository as _repo
-    from modules.post_processor import _fetch_instagram_api_con
-    from modules import ig_monitor
-
     d = request.get_json(silent=True) or {}
     cookies = d.get("cookies") or {}
     if not isinstance(cookies, dict) or not (cookies.get("sessionid") or "").strip():
         return jsonify({"error": "Falta el sessionid: sin eso no hay sesión."}), 400
+    return _probar_y_guardar_ig(cookies, d.get("username", ""), d.get("creada_por", ""))
+
+
+def _probar_y_guardar_ig(cookies: dict, username: str, creada_por: str):
+    """El único camino por el que entra una sesión a la tabla, venga pegada a
+    mano o de un login desde el panel."""
+    from common import repository as _repo
+    from modules.post_processor import _fetch_instagram_api_con
+    from modules import ig_monitor
 
     prueba = _fetch_instagram_api_con(ig_monitor.SHORTCODE, cookies)
     if not prueba.get("owner_username"):
@@ -522,8 +527,7 @@ def admin_ig_sesiones_alta():
         return jsonify({"error": f"No la guardé porque no funciona: {motivo}"}), 400
 
     try:
-        fila = _repo.guardar_ig_session(cookies, username=d.get("username", ""),
-                                        creada_por=d.get("creada_por", ""))
+        fila = _repo.guardar_ig_session(cookies, username=username, creada_por=creada_por)
     except _repo.RepoError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -532,6 +536,41 @@ def admin_ig_sesiones_alta():
     ig_monitor.registrar(True, "sesión cargada desde el panel",
                          origen=f"@{fila['username']}" if fila.get("username") else "sesión nueva")
     return jsonify({"ok": True, "sesion": fila})
+
+
+def _resultado_login_ig(res: dict, username: str, creada_por: str):
+    """Lo que devolvió ig_login → respuesta para el panel. Solo el paso "ok"
+    trae cookies, y esas NO salen de este servicio: se prueban y se guardan."""
+    if res.get("paso") == "ok":
+        return _probar_y_guardar_ig(res["cookies"], username, creada_por)
+    if res.get("paso") == "error" and not res.get("login_id"):
+        return jsonify({"error": res.get("detalle") or "No se pudo entrar."}), 400
+    return jsonify({k: v for k, v in res.items() if k != "cookies"})
+
+
+@app.route("/admin/ig-sesiones/login", methods=["POST"])
+def admin_ig_sesiones_login():
+    """Renovar una cuenta con usuario y contraseña, sin la Mac. Ver ig_login."""
+    no = _exigir_interno()
+    if no:
+        return no
+    from modules import ig_login
+    d = request.get_json(silent=True) or {}
+    username = (d.get("username") or "").strip().lstrip("@").lower()
+    res = ig_login.iniciar(username, d.get("password") or "")
+    return _resultado_login_ig(res, username, d.get("creada_por", ""))
+
+
+@app.route("/admin/ig-sesiones/login/codigo", methods=["POST"])
+def admin_ig_sesiones_login_codigo():
+    no = _exigir_interno()
+    if no:
+        return no
+    from modules import ig_login
+    d = request.get_json(silent=True) or {}
+    res = ig_login.confirmar_codigo(d.get("login_id", ""), d.get("codigo", ""))
+    return _resultado_login_ig(res, (d.get("username") or "").strip().lstrip("@").lower(),
+                               d.get("creada_por", ""))
 
 
 @app.route("/admin/ig-sesiones/<int:sesion_id>", methods=["PATCH", "DELETE"])

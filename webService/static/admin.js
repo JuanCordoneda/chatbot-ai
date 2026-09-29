@@ -40,12 +40,12 @@ function toggleTheme() {
 // una sola pista de qué pasó.
 const API_TIMEOUT = 25000;
 
-async function api(method, url, body) {
+async function api(method, url, body, timeoutMs) {
   const opts = { method, headers: {} };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
   let timer = null;
-  if (ctrl) { opts.signal = ctrl.signal; timer = setTimeout(() => ctrl.abort(), API_TIMEOUT); }
+  if (ctrl) { opts.signal = ctrl.signal; timer = setTimeout(() => ctrl.abort(), timeoutMs || API_TIMEOUT); }
   let r;
   try {
     r = await fetch(url, opts);
@@ -2954,13 +2954,102 @@ function renderIgSesiones() {
   }).join("");
 }
 
+// Login a medio hacer: cuando Instagram pide código, el server devuelve un
+// login_id y el modal pasa a pedir el código en vez de la contraseña.
+let igLoginId = "";
+let igModoActual = "login";
+
+function igModo(modo) {
+  igModoActual = modo;
+  hideErr("ig-err");
+  document.getElementById("ig-tab-login").classList.toggle("ax-on", modo === "login");
+  document.getElementById("ig-tab-cookie").classList.toggle("ax-on", modo === "cookie");
+  document.getElementById("ig-modo-login").hidden = modo !== "login";
+  document.getElementById("ig-modo-cookie").hidden = modo !== "cookie";
+  document.getElementById("ig-save").textContent =
+    modo === "cookie" ? "Probar y guardar" : (igLoginId ? "Confirmar código" : "Entrar");
+}
+
+function igPedirCodigo(pedirlo, metodo, destino) {
+  document.getElementById("ig-pass-field").hidden = pedirlo;
+  document.getElementById("ig-codigo-field").hidden = !pedirlo;
+  document.getElementById("ig-username").disabled = pedirlo;
+  if (pedirlo) {
+    document.getElementById("ig-codigo-label").textContent = metodo === "app"
+      ? "Código de tu app de autenticación"
+      : `Código que te llegó por SMS${destino ? " a " + destino : ""}`;
+    document.getElementById("ig-codigo").value = "";
+    document.getElementById("ig-codigo").focus();
+  }
+}
+
 function openIgModal(username) {
   hideErr("ig-err");
+  igLoginId = "";
+  igPedirCodigo(false);
   document.getElementById("ig-username").value = username || "";
+  document.getElementById("ig-password").value = "";
   document.getElementById("ig-sessionid").value = "";
   document.getElementById("ig-otras").value = "";
   document.getElementById("ig-title-mo").textContent = username ? "Renovar @" + username : "Agregar una cuenta";
+  igModo("login");
   openMo("ig-mo");
+}
+
+async function loginIgSesion() {
+  const btn = document.getElementById("ig-save");
+  const username = document.getElementById("ig-username").value.trim().replace(/^@/, "");
+  let url, body;
+  if (igLoginId) {
+    const codigo = document.getElementById("ig-codigo").value.trim();
+    if (!codigo) { showErr("ig-err", "Falta el código."); return; }
+    url = "/api/admin/ig-sesiones/login/codigo";
+    body = { login_id: igLoginId, codigo, username };
+  } else {
+    const password = document.getElementById("ig-password").value;
+    if (!username || !password) { showErr("ig-err", "Faltan el usuario o la contraseña."); return; }
+    url = "/api/admin/ig-sesiones/login";
+    body = { username, password };
+  }
+  hideErr("ig-err");
+  const antes = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Entrando a Instagram…";
+  try {
+    const d = await api("POST", url, body, 100000);
+    if (d.paso === "codigo") {
+      igLoginId = d.login_id;
+      igPedirCodigo(true, d.metodo, d.destino);
+      btn.textContent = "Confirmar código";
+      return;
+    }
+    if (d.paso === "checkpoint") {
+      // No se resuelve desde acá: se aprueba en la app y se reintenta. La
+      // contraseña queda cargada para que el reintento sea un solo toque.
+      igLoginId = "";
+      igPedirCodigo(false);
+      showErr("ig-err", d.detalle);
+      btn.textContent = "Entrar";
+      return;
+    }
+    if (d.paso === "error") {
+      // Código rechazado: el login sigue vivo, se reintenta solo el código.
+      showErr("ig-err", d.detalle);
+      btn.textContent = antes;
+      return;
+    }
+    document.getElementById("ig-password").value = "";
+    closeMo("ig-mo");
+    toast("Sesión cargada y funcionando", "ok");
+    loadIgSesiones();
+  } catch (e) {
+    // Error duro (contraseña, login vencido): se vuelve al principio.
+    if (igLoginId && /venci/.test(e.message)) { igLoginId = ""; igPedirCodigo(false); }
+    showErr("ig-err", e.message);
+    btn.textContent = igLoginId ? "Confirmar código" : "Entrar";
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // Acepta lo que salga del inspector sin pedir un formato: "clave: valor",
@@ -2985,6 +3074,7 @@ function parsearCookies(texto) {
 }
 
 async function saveIgSesion() {
+  if (igModoActual === "login") return loginIgSesion();
   const btn = document.getElementById("ig-save");
   const sessionid = document.getElementById("ig-sessionid").value.trim().replace(/^["']|["']$/g, "");
   if (!sessionid) { showErr("ig-err", "Falta el sessionid: sin eso no hay sesión."); return; }

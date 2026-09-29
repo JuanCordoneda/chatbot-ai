@@ -1896,11 +1896,33 @@
     <div class="ax-modal" role="dialog" aria-modal="true" aria-labelledby="ig-title-mo" style="max-width:560px;">
       <h3 id="ig-title-mo">Agregar o renovar una cuenta</h3>
       <div class="ax-msub">Se prueba contra Instagram antes de guardarla: si no sirve, no pisa la que está.</div>
+      <div class="ax-seg" role="tablist" style="margin:4px 0 14px;">
+        <button type="button" class="ax-tab ax-on" id="ig-tab-login" role="tab" onclick="igModo('login')">Usuario y contraseña</button>
+        <button type="button" class="ax-tab" id="ig-tab-cookie" role="tab" onclick="igModo('cookie')">Pegar la cookie</button>
+      </div>
       <div class="ax-err" id="ig-err"></div>
       <div class="ax-field">
-        <label for="ig-username">@usuario <span class="ax-hint">para reconocerla en esta lista</span></label>
+        <label for="ig-username">@usuario <span class="ax-hint">la cuenta del scraper</span></label>
         <input id="ig-username" placeholder="los.chicos.lol" autocomplete="off" autocapitalize="none" spellcheck="false" />
       </div>
+      <!-- Login desde el panel: sirve desde el celular. La contraseña va directo
+           al server, que entra a Instagram, se queda con la sesión y la tira. -->
+      <div id="ig-modo-login">
+        <div class="ax-field" id="ig-pass-field">
+          <label for="ig-password">Contraseña <span class="ax-hint">se usa para entrar y no se guarda</span></label>
+          <input id="ig-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </div>
+        <div class="ax-field" id="ig-codigo-field" hidden>
+          <label for="ig-codigo" id="ig-codigo-label">Código de verificación</label>
+          <input id="ig-codigo" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+        </div>
+        <div class="ax-help">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span id="ig-login-help">Tené a mano el celular con la app de Instagram de esa cuenta: puede pedirte un código
+            o que confirmes <b>«Fui yo»</b>. Si lo pide, confirmás y volvés a tocar <b>Entrar</b>.</span>
+        </div>
+      </div>
+      <div id="ig-modo-cookie" hidden>
       <div class="ax-field">
         <label for="ig-sessionid">sessionid <span class="ax-hint">lo único imprescindible</span></label>
         <input id="ig-sessionid" placeholder="72851332311%3A..." autocomplete="off" autocapitalize="none" spellcheck="false" />
@@ -1915,9 +1937,10 @@
           Copiá la columna <b>Value</b> de la fila <b>sessionid</b> (empieza con el número de la cuenta y un <code>%3A</code>).
           <b>No cierres sesión</b> en ese navegador después: Instagram invalida el sessionid del server junto con el del navegador.</span>
       </div>
+      </div>
       <div class="ax-mo-acts">
         <button class="ax-btn" onclick="closeMo('ig-mo')">Cancelar</button>
-        <button class="ax-btn ax-btn--primary" id="ig-save" onclick="saveIgSesion()">Probar y guardar</button>
+        <button class="ax-btn ax-btn--primary" id="ig-save" onclick="saveIgSesion()">Entrar</button>
       </div>
     </div>
   </div>
@@ -1941,7 +1964,7 @@
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/header-menu.js?v=1785802900"></script>
-  <script src="/static/admin.js?v=1789238249"></script>
+  <script src="/static/admin.js?v=1790707124"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>
