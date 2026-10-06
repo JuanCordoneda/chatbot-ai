@@ -142,21 +142,45 @@ chequear("con app de autenticación pide ese código", r.get("metodo") == "app",
 
 # ── 5. Checkpoint, contraseña mala, cuenta inexistente, rate limit ────────────
 print("rechazos")
+# Checkpoint de un tipo que no sabemos resolver: aviso de siempre.
 guion({**PAGINA, "/login/ajax/": [(400, {"message": "checkpoint_required",
-                                         "checkpoint_url": "/challenge/x/", "status": "fail"}, {})]})
+                                         "checkpoint_url": "/auth_platform/codeentry/?apc=x",
+                                         "status": "fail"}, {})]})
 r = ig_login.iniciar("cuenta", PASSWORD)
-chequear("checkpoint se distingue y pide «Fui yo»", r.get("paso") == "checkpoint" and "Fui yo" in r.get("detalle", ""), str(r))
+chequear("checkpoint desconocido pide «Fui yo»", r.get("paso") == "checkpoint" and "Fui yo" in r.get("detalle", ""), str(r))
 
-# Después del «Fui yo» se reintenta: tiene que salir del MISMO dispositivo
-# (mismas cookies), si no Instagram lo ve como otro y vuelve a pedir «Fui yo».
+# Checkpoint /challenge/: se pide el código por mail y se manda adentro del
+# challenge, sin volver a la contraseña (reintentar el login no sirve).
+print("checkpoint con código")
 LLAMADAS.clear()
-guion({"instagram.com/accounts/login/": [(200, None, {"csrftoken": "tok1"})],
-       "/login/ajax/": [(200, {"authenticated": True}, {"sessionid": "5%3Aw"})]})
-r = ig_login.iniciar("cuenta", PASSWORD)
-post = [c for c in LLAMADAS if c["metodo"] == "post"][0]
-chequear("el reintento tras «Fui yo» usa el mismo tarro (conserva el mid)",
-         r.get("paso") == "ok" and r["cookies"].get("mid") == "m1", str(r))
-chequear("y una vez adentro lo olvida", "cuenta" not in ig_login._dispositivos)
+guion({**PAGINA,
+       "/login/ajax/": [(400, {"message": "checkpoint_required", "checkpoint_url": "/challenge/AbC/tok/",
+                               "status": "fail"}, {})],
+       "/challenge/AbC/tok/": [
+           (200, {"step_name": "select_verify_method", "step_data": {"choice": "1", "email": "j***@gmail.com"}}, {}),
+           (200, {"step_name": "verify_email", "status": "ok",
+                  "step_data": {"contact_point": "j***@gmail.com"}}, {}),
+           (400, {"status": "fail", "message": "código incorrecto"}, {}),
+           (200, {"status": "ok", "location": "/"}, {"sessionid": "8%3Ach"}),
+       ]})
+salida4 = io.StringIO()
+with contextlib.redirect_stdout(salida4):
+    r = ig_login.iniciar("cuenta", PASSWORD)
+chequear("checkpoint /challenge/ pide código por mail",
+         r.get("paso") == "codigo" and r.get("metodo") == "email" and r.get("destino") == "j***@gmail.com", str(r))
+elegir = [c for c in LLAMADAS if c["metodo"] == "post" and "challenge" in c["url"]][0]
+chequear("elige el método que propone Instagram", elegir["data"] == {"choice": "1"}, str(elegir.get("data")))
+lid = r["login_id"]
+with contextlib.redirect_stdout(salida4):
+    r2 = ig_login.confirmar_codigo(lid, "111 111")
+chequear("código malo: error y el login sigue", r2.get("paso") == "error" and r2.get("login_id") == lid, str(r2))
+with contextlib.redirect_stdout(salida4):
+    r3 = ig_login.confirmar_codigo(lid, "222222")
+chequear("código bueno: ok con sessionid", r3.get("paso") == "ok" and r3["cookies"].get("sessionid") == "8%3Ach", str(r3))
+codigo = [c for c in LLAMADAS if c["metodo"] == "post" and "challenge" in c["url"]][-1]
+chequear("manda security_code al challenge", codigo["data"] == {"security_code": "222222"})
+chequear("el log no lleva el token del challenge", "tok" not in salida4.getvalue(), salida4.getvalue())
+chequear("ni la contraseña", PASSWORD not in salida4.getvalue())
 
 guion({**PAGINA, "/login/ajax/": [(200, {"user": True, "authenticated": False, "status": "ok"}, {})]})
 r = ig_login.iniciar("cuenta", PASSWORD)

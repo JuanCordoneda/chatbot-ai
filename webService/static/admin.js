@@ -2977,7 +2977,7 @@ function igPedirCodigo(pedirlo, metodo, destino) {
   if (pedirlo) {
     document.getElementById("ig-codigo-label").textContent = metodo === "app"
       ? "Código de tu app de autenticación"
-      : `Código que te llegó por SMS${destino ? " a " + destino : ""}`;
+      : `Código que te llegó por ${metodo === "email" ? "mail" : "SMS"}${destino ? " a " + destino : ""}`;
     document.getElementById("ig-codigo").value = "";
     document.getElementById("ig-codigo").focus();
   }

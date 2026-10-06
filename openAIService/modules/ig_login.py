@@ -112,12 +112,8 @@ def _preparar(sesion: req.Session) -> None:
 
 def _interpretar(d: dict, r, sesion: req.Session, username: str) -> dict:
     """La respuesta de Instagram → {paso, ...} para el panel."""
-    cookies = _cookies_de(sesion)
-    if d.get("authenticated") and cookies.get("sessionid"):
-        with _lock:
-            _dispositivos.pop(username, None)
-        print(f"[ig_login] @{username}: ok", flush=True)
-        return {"paso": "ok", "cookies": cookies}
+    if d.get("authenticated") and _cookies_de(sesion).get("sessionid"):
+        return _ok(sesion, username)
 
     if d.get("two_factor_required"):
         info = d.get("two_factor_info") or {}
@@ -141,6 +137,9 @@ def _interpretar(d: dict, r, sesion: req.Session, username: str) -> dict:
             _dispositivos[username] = {"sesion": sesion,
                                        "vence": time.time() + _TTL_DISPOSITIVO}
         print(f"[ig_login] @{username}: checkpoint (pide «Fui yo»)", flush=True)
+        resuelto = _resolver_checkpoint(d, sesion, username)
+        if resuelto:
+            return resuelto
         return {"paso": "checkpoint",
                 "detalle": "Instagram quiere confirmar que fuiste vos. Abrí la app "
                            "de Instagram con esa cuenta, tocá «Fui yo» y volvé a "
@@ -160,6 +159,93 @@ def _interpretar(d: dict, r, sesion: req.Session, username: str) -> dict:
           f"claves {sorted(d.keys())}", flush=True)
     return {"paso": "error",
             "detalle": mensaje or f"Instagram respondió {r.status_code} sin explicar por qué."}
+
+
+def _ruta(url: str) -> str:
+    """Para los logs: solo los dos primeros tramos de la ruta. El resto del
+    checkpoint_url es un token del login, no tiene que quedar en Railway."""
+    ruta = url.replace(_BASE, "").split("?")[0]
+    return "/".join(ruta.split("/")[:3]) + "/…"
+
+
+def _resolver_checkpoint(d: dict, sesion: req.Session, username: str) -> dict | None:
+    """Resolver el «Fui yo» como lo hace la web: dentro de la página del
+    challenge, con un código por mail o SMS. Volver a mandar la contraseña no
+    sirve: con el mismo dispositivo y todo, Instagram vuelve a pedir el
+    checkpoint (visto en prod el 2026-10-06).
+
+    Devuelve None si el challenge no es de los que se resuelven así; el panel
+    muestra el aviso de siempre. Cada paso deja en el log status y claves (nunca
+    valores) para poder ajustar contra lo que Instagram contesta de verdad.
+    """
+    url = d.get("checkpoint_url") or ""
+    if url.startswith("/"):
+        url = _BASE + url
+    print(f"[ig_login] @{username}: checkpoint_url {_ruta(url)} "
+          f"claves {sorted(d.keys())}", flush=True)
+    if "/challenge/" not in url:
+        return None
+    try:
+        r = _ig_req(sesion.get, url, headers=_headers(sesion, f"{_BASE}/accounts/login/"),
+                    timeout=15, allow_redirects=False)
+        j = _json(r)
+        print(f"[ig_login] @{username}: challenge GET {r.status_code} "
+              f"step {j.get('step_name')!r} claves {sorted(j.keys())} "
+              f"step_data {sorted((j.get('step_data') or {}).keys())}", flush=True)
+        if _cookies_de(sesion).get("sessionid"):
+            return _ok(sesion, username)
+        step_data = j.get("step_data") or {}
+        choice = str(step_data.get("choice") or "1")
+        r2 = _ig_req(sesion.post, url, data={"choice": choice},
+                     headers=_headers(sesion, url), timeout=20, allow_redirects=False)
+        j2 = _json(r2)
+        print(f"[ig_login] @{username}: challenge choice={choice} → {r2.status_code} "
+              f"step {j2.get('step_name')!r} status {j2.get('status')!r} "
+              f"claves {sorted(j2.keys())}", flush=True)
+    except req.RequestException as e:
+        print(f"[ig_login] @{username}: challenge sin respuesta ({type(e).__name__})", flush=True)
+        return None
+    if _cookies_de(sesion).get("sessionid"):
+        return _ok(sesion, username)
+    if r2.status_code != 200 or j2.get("status") == "fail":
+        return None
+    datos = j2.get("step_data") or step_data
+    destino = (datos.get("contact_point") or datos.get("email")
+               or datos.get("phone_number") or "")
+    login_id = secrets.token_urlsafe(16)
+    with _lock:
+        _pendientes[login_id] = {"sesion": sesion, "username": username,
+                                 "tipo": "challenge", "url": url,
+                                 "vence": time.time() + _TTL_PENDIENTE}
+    metodo = "sms" if choice == "0" else "email"
+    return {"paso": "codigo", "login_id": login_id, "metodo": metodo, "destino": destino}
+
+
+def _ok(sesion: req.Session, username: str) -> dict:
+    with _lock:
+        _dispositivos.pop(username, None)
+    print(f"[ig_login] @{username}: ok", flush=True)
+    return {"paso": "ok", "cookies": _cookies_de(sesion)}
+
+
+def _confirmar_challenge(p: dict, login_id: str, codigo: str) -> dict:
+    sesion = p["sesion"]
+    try:
+        r = _ig_req(sesion.post, p["url"], data={"security_code": codigo},
+                    headers=_headers(sesion, p["url"]), timeout=20, allow_redirects=False)
+    except req.RequestException as e:
+        return {"paso": "error", "login_id": login_id,
+                "detalle": f"No pude hablar con Instagram: {type(e).__name__}"}
+    j = _json(r)
+    print(f"[ig_login] @{p['username']}: challenge código → {r.status_code} "
+          f"status {j.get('status')!r} claves {sorted(j.keys())}", flush=True)
+    if _cookies_de(sesion).get("sessionid"):
+        with _lock:
+            _pendientes.pop(login_id, None)
+        return _ok(sesion, p["username"])
+    return {"paso": "error", "login_id": login_id,
+            "detalle": "Instagram no aceptó el código. Revisalo (o pedí que te "
+                       "llegue de nuevo volviendo a tocar Entrar) y probá otra vez."}
 
 
 def iniciar(username: str, password: str) -> dict:
@@ -196,7 +282,7 @@ def iniciar(username: str, password: str) -> dict:
 
 
 def confirmar_codigo(login_id: str, codigo: str) -> dict:
-    """Segundo paso, solo si Instagram pidió 2FA."""
+    """Segundo paso, si Instagram pidió 2FA o un código para el «Fui yo»."""
     _limpiar_vencidos()
     with _lock:
         p = _pendientes.get(login_id or "")
@@ -207,6 +293,8 @@ def confirmar_codigo(login_id: str, codigo: str) -> dict:
     codigo = "".join(ch for ch in (codigo or "") if ch.isdigit())
     if not codigo:
         return {"paso": "error", "detalle": "Falta el código."}
+    if p.get("tipo") == "challenge":
+        return _confirmar_challenge(p, login_id, codigo)
     sesion = p["sesion"]
     try:
         r = _ig_req(
