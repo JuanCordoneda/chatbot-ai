@@ -2975,9 +2975,13 @@ function igPedirCodigo(pedirlo, metodo, destino) {
   document.getElementById("ig-codigo-field").hidden = !pedirlo;
   document.getElementById("ig-username").disabled = pedirlo;
   if (pedirlo) {
-    document.getElementById("ig-codigo-label").textContent = metodo === "app"
-      ? "Código de tu app de autenticación"
-      : `Código que te llegó por ${metodo === "email" ? "mail" : "SMS"}${destino ? " a " + destino : ""}`;
+    const a = destino ? " a " + destino : "";
+    document.getElementById("ig-codigo-label").textContent =
+      metodo === "app" ? "Código de tu app de autenticación"
+      : metodo === "aprobar" ? "Tocá «Fui yo» en la app de Instagram y después Confirmar (si te llegó un código, ponelo acá)"
+      : metodo === "email" ? `Código que te llegó por mail${a}`
+      : metodo === "sms" ? `Código que te llegó por SMS${a}`
+      : `Código que te mandó Instagram${a}`;
     document.getElementById("ig-codigo").value = "";
     document.getElementById("ig-codigo").focus();
   }
@@ -3001,8 +3005,9 @@ async function loginIgSesion() {
   const username = document.getElementById("ig-username").value.trim().replace(/^@/, "");
   let url, body;
   if (igLoginId) {
+    // Vacío vale: si Instagram solo esperaba el «Fui yo», el server mira si
+    // la página ya entró.
     const codigo = document.getElementById("ig-codigo").value.trim();
-    if (!codigo) { showErr("ig-err", "Falta el código."); return; }
     url = "/api/admin/ig-sesiones/login/codigo";
     body = { login_id: igLoginId, codigo, username };
   } else {

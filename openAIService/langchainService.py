@@ -550,14 +550,16 @@ def _resultado_login_ig(res: dict, username: str, creada_por: str):
 
 @app.route("/admin/ig-sesiones/login", methods=["POST"])
 def admin_ig_sesiones_login():
-    """Renovar una cuenta con usuario y contraseña, sin la Mac. Ver ig_login."""
+    """Renovar una cuenta con usuario y contraseña, sin la Mac. Con un navegador
+    de verdad si está Playwright (ig_login_nav), si no por HTTP (ig_login)."""
     no = _exigir_interno()
     if no:
         return no
-    from modules import ig_login
+    from modules import ig_login, ig_login_nav
     d = request.get_json(silent=True) or {}
     username = (d.get("username") or "").strip().lstrip("@").lower()
-    res = ig_login.iniciar(username, d.get("password") or "")
+    modulo = ig_login_nav if ig_login_nav.disponible() else ig_login
+    res = modulo.iniciar(username, d.get("password") or "")
     return _resultado_login_ig(res, username, d.get("creada_por", ""))
 
 
@@ -566,9 +568,11 @@ def admin_ig_sesiones_login_codigo():
     no = _exigir_interno()
     if no:
         return no
-    from modules import ig_login
+    from modules import ig_login, ig_login_nav
     d = request.get_json(silent=True) or {}
-    res = ig_login.confirmar_codigo(d.get("login_id", ""), d.get("codigo", ""))
+    login_id = d.get("login_id", "")
+    modulo = ig_login_nav if login_id in ig_login_nav._pendientes else ig_login
+    res = modulo.confirmar_codigo(login_id, d.get("codigo", ""))
     return _resultado_login_ig(res, (d.get("username") or "").strip().lstrip("@").lower(),
                                d.get("creada_por", ""))
 

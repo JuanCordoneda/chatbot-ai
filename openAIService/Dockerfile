@@ -14,6 +14,10 @@ RUN pip install -r requirements.txt
 ARG WHISPER_MODEL=small
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')"
 
+# Chromium para renovar la sesión de Instagram desde el panel (ig_login_nav):
+# solo el headless shell, que pesa la mitad que el navegador entero.
+RUN playwright install --with-deps --only-shell chromium
+
 COPY common/ /app/common/
 COPY alembic.ini /app/
 COPY migrations/ /app/migrations/
