@@ -40,9 +40,12 @@ APROBADAS = set()
 LOGIN = b"""<html><body><form method=post action=/accounts/login/>
 <input name=username autocomplete=username><input name=password type=password>
 <button type=submit>Entrar</button></form></body></html>"""
-CODIGO = """<html><body><h2>Ingresa el codigo que enviamos a j***@gmail.com</h2>{err}
-<form method=post><input name=code autocomplete=one-time-code inputmode=numeric>
-<button type=submit>Continuar</button></form></body></html>"""
+# Como la de auth_platform: arranca vacía, se arma con JS, y el input no tiene
+# ningún atributo que diga "código".
+CODIGO = """<html><body><div id=r></div><script>setTimeout(() => {{
+document.getElementById('r').innerHTML = `<h2>Ingresa el codigo que enviamos a j***@gmail.com</h2>{err}
+<form method=post><input name=code dir=ltr>
+<button type=submit>Continuar</button></form>`}}, 1500)</script></body></html>"""
 APROBAR = b"""<html><body><h2>Revisa tus notificaciones en otro dispositivo</h2>
 <script>setInterval(()=>fetch('/estado').then(r=>r.text()).then(t=>{if(t==='si')location='/'}),500)</script>
 </body></html>"""

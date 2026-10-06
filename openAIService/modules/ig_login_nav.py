@@ -51,9 +51,13 @@ _lock = threading.Lock()
 _SEL_USUARIO = ('input[name="username"], input[name="email"], '
                 'input[autocomplete="username"]')
 _SEL_PASSWORD = 'input[name="password"], input[name="pass"], input[type="password"]'
+# En las pantallas de verificación el único campo de texto es el del código.
+# La de auth_platform no le pone ningún atributo distintivo (visto en prod el
+# 2026-10-06), así que vale cualquier input de texto visible.
 _SEL_CODIGO = ('input[name="verificationCode"], input[name="security_code"], '
                'input[autocomplete="one-time-code"], input[inputmode="numeric"], '
-               'input[type="tel"], input[type="number"]')
+               'input[type="tel"], input[type="number"], input[type="text"], '
+               'input:not([type])')
 _RE_COOKIES = re.compile(r"(permitir todas las cookies|allow all cookies|"
                          r"rechazar cookies opcionales|decline optional cookies)", re.I)
 _RE_ENVIAR = re.compile(r"^(enviar código|send security code|send code|enviar|send|"
@@ -140,6 +144,16 @@ class _Login(threading.Thread):
                 pass
         return None
 
+    def _campos(self, page) -> list:
+        """Atributos de los inputs visibles, para el log (nunca el valor)."""
+        try:
+            return page.eval_on_selector_all("input", """els => els
+                .filter(e => e.offsetParent !== null)
+                .map(e => ['type','name','autocomplete','inputmode','aria-label']
+                    .map(a => e.getAttribute(a)).filter(Boolean).join('/'))""")
+        except Exception:
+            return []
+
     def _estado(self, page, ctx) -> dict | None:
         """Mira la página una vez. None = todavía no se sabe, seguir esperando."""
         cookies = self._cookies(ctx)
@@ -156,6 +170,9 @@ class _Login(threading.Thread):
         en_verificacion = any(s in url for s in ("/challenge", "/auth_platform",
                                                  "/two_factor", "/checkpoint"))
         if not en_verificacion:
+            return None
+        if len(texto) < 20:
+            # La pantalla se arma con JS: vacía todavía no dice nada.
             return None
         destino = (_RE_DESTINO.search(texto) or [""])[0] if texto else ""
         if self._visible(page, _SEL_CODIGO):
@@ -215,14 +232,24 @@ class _Login(threading.Thread):
             pass
         res = self._esperar(page, ctx)
         self._log(f"después de la contraseña → {res['paso']}"
-                  + (f" ({res.get('metodo')})" if res["paso"] == "codigo" else ""), page)
+                  + (f" ({res.get('metodo')}, campos {self._campos(page)})"
+                     if res["paso"] == "codigo" else ""), page)
         return res
 
     def _mandar_codigo(self, page, ctx, codigo: str) -> dict:
         if codigo:
             campo = self._visible(page, _SEL_CODIGO)
+            if not campo:
+                self._log(f"no encuentro el campo del código; campos {self._campos(page)}", page)
+                return {"paso": "error", "sigue": True,
+                        "detalle": "No encontré dónde escribir el código en la página de Instagram."}
             if campo:
+                campo.click()
                 campo.fill(codigo)
+                if campo.input_value() != codigo:
+                    # Algunos inputs de React ignoran fill(): se tipea.
+                    campo.fill("")
+                    campo.press_sequentially(codigo, delay=60)
                 campo.press("Enter")
                 page.wait_for_timeout(1500)
                 try:
