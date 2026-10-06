@@ -147,6 +147,17 @@ guion({**PAGINA, "/login/ajax/": [(400, {"message": "checkpoint_required",
 r = ig_login.iniciar("cuenta", PASSWORD)
 chequear("checkpoint se distingue y pide «Fui yo»", r.get("paso") == "checkpoint" and "Fui yo" in r.get("detalle", ""), str(r))
 
+# Después del «Fui yo» se reintenta: tiene que salir del MISMO dispositivo
+# (mismas cookies), si no Instagram lo ve como otro y vuelve a pedir «Fui yo».
+LLAMADAS.clear()
+guion({"instagram.com/accounts/login/": [(200, None, {"csrftoken": "tok1"})],
+       "/login/ajax/": [(200, {"authenticated": True}, {"sessionid": "5%3Aw"})]})
+r = ig_login.iniciar("cuenta", PASSWORD)
+post = [c for c in LLAMADAS if c["metodo"] == "post"][0]
+chequear("el reintento tras «Fui yo» usa el mismo tarro (conserva el mid)",
+         r.get("paso") == "ok" and r["cookies"].get("mid") == "m1", str(r))
+chequear("y una vez adentro lo olvida", "cuenta" not in ig_login._dispositivos)
+
 guion({**PAGINA, "/login/ajax/": [(200, {"user": True, "authenticated": False, "status": "ok"}, {})]})
 r = ig_login.iniciar("cuenta", PASSWORD)
 chequear("contraseña mala", r.get("paso") == "error" and "contraseña" in r.get("detalle", ""), str(r))

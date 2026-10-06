@@ -40,7 +40,17 @@ _APP_ID = "936619743392459"
 # un minuto; más que esto es alguien que se fue y dejó cookies a medio armar.
 _TTL_PENDIENTE = 10 * 60
 
+# Cuánto se recuerda el "dispositivo" (el tarro de cookies) de un login que
+# terminó en «Fui yo», para que el reintento salga del mismo.
+_TTL_DISPOSITIVO = 30 * 60
+
 _pendientes: dict = {}
+# username → {sesion, vence}. Instagram aprueba el «Fui yo» para el dispositivo
+# que intentó entrar, y el dispositivo son las cookies (mid, ig_did, datr). Si
+# cada «Entrar» arranca un tarro vacío, cada reintento es un dispositivo nuevo
+# que pide su propio «Fui yo»: un loop sin salida (pasó el 2026-10-05 desde el
+# iPhone, una docena de intentos). Por eso el reintento reusa el tarro.
+_dispositivos: dict = {}
 _lock = threading.Lock()
 
 
@@ -80,8 +90,9 @@ def _json(r) -> dict:
 def _limpiar_vencidos() -> None:
     ahora = time.time()
     with _lock:
-        for k in [k for k, v in _pendientes.items() if v["vence"] < ahora]:
-            _pendientes.pop(k, None)
+        for tabla in (_pendientes, _dispositivos):
+            for k in [k for k, v in tabla.items() if v["vence"] < ahora]:
+                tabla.pop(k, None)
 
 
 def _preparar(sesion: req.Session) -> None:
@@ -103,6 +114,9 @@ def _interpretar(d: dict, r, sesion: req.Session, username: str) -> dict:
     """La respuesta de Instagram → {paso, ...} para el panel."""
     cookies = _cookies_de(sesion)
     if d.get("authenticated") and cookies.get("sessionid"):
+        with _lock:
+            _dispositivos.pop(username, None)
+        print(f"[ig_login] @{username}: ok", flush=True)
         return {"paso": "ok", "cookies": cookies}
 
     if d.get("two_factor_required"):
@@ -118,10 +132,15 @@ def _interpretar(d: dict, r, sesion: req.Session, username: str) -> dict:
                 "vence": time.time() + _TTL_PENDIENTE,
             }
         destino = info.get("obfuscated_phone_number") or ""
+        print(f"[ig_login] @{username}: pide código ({metodo})", flush=True)
         return {"paso": "codigo", "login_id": login_id, "metodo": metodo,
                 "destino": destino}
 
     if d.get("message") == "checkpoint_required" or d.get("checkpoint_url"):
+        with _lock:
+            _dispositivos[username] = {"sesion": sesion,
+                                       "vence": time.time() + _TTL_DISPOSITIVO}
+        print(f"[ig_login] @{username}: checkpoint (pide «Fui yo»)", flush=True)
         return {"paso": "checkpoint",
                 "detalle": "Instagram quiere confirmar que fuiste vos. Abrí la app "
                            "de Instagram con esa cuenta, tocá «Fui yo» y volvé a "
@@ -149,7 +168,9 @@ def iniciar(username: str, password: str) -> dict:
     if not username or not password:
         return {"paso": "error", "detalle": "Faltan el usuario o la contraseña."}
     _limpiar_vencidos()
-    sesion = req.Session()
+    with _lock:
+        previo = _dispositivos.get(username)
+    sesion = previo["sesion"] if previo else req.Session()
     try:
         _preparar(sesion)
         r = _ig_req(
