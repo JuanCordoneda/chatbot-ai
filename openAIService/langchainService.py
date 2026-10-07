@@ -577,6 +577,43 @@ def admin_ig_sesiones_login_codigo():
                                d.get("creada_por", ""))
 
 
+@app.route("/admin/ig-sesiones/remoto", methods=["POST"])
+def admin_ig_sesiones_remoto_abrir():
+    """Abre el navegador del server para manejarlo a mano desde el panel. Ver
+    ig_remoto."""
+    no = _exigir_interno()
+    if no:
+        return no
+    from modules import ig_remoto
+    d = request.get_json(silent=True) or {}
+    res = ig_remoto.abrir(d.get("username") or "")
+    return jsonify(res), (400 if res.get("error") and not res.get("id") else 200)
+
+
+@app.route("/admin/ig-sesiones/remoto/<rid>", methods=["POST", "DELETE"])
+def admin_ig_sesiones_remoto_accion(rid: str):
+    no = _exigir_interno()
+    if no:
+        return no
+    from modules import ig_remoto
+    if request.method == "DELETE":
+        ig_remoto.cerrar(rid)
+        return jsonify({"ok": True})
+    d = request.get_json(silent=True) or {}
+    res = ig_remoto.accion(rid, d.get("orden") or {"tipo": "mirar"})
+    cookies = res.pop("cookies", None)
+    if cookies:
+        # Las cookies no salen de este servicio: se prueban y se guardan acá.
+        resp = _probar_y_guardar_ig(cookies, res.get("username", ""), d.get("creada_por", ""))
+        cuerpo, status = resp if isinstance(resp, tuple) else (resp, 200)
+        if status == 200:
+            ig_remoto.cerrar(rid)
+            return jsonify({"guardada": True, "sesion": cuerpo.get_json().get("sesion")})
+        res["error"] = (cuerpo.get_json().get("error", "") + ". Si Instagram te muestra "
+                        "algo para confirmar, hacelo y seguí.")
+    return jsonify(res)
+
+
 @app.route("/admin/ig-sesiones/<int:sesion_id>", methods=["PATCH", "DELETE"])
 def admin_ig_sesiones_editar(sesion_id: int):
     no = _exigir_interno()

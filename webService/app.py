@@ -3937,6 +3937,37 @@ def admin_ig_sesiones_login_codigo():
         return jsonify({"error": _mensaje_amigable(e)}), 502
 
 
+@app.route("/api/admin/ig-sesiones/remoto", methods=["POST"])
+@require_admin
+def admin_ig_sesiones_remoto_abrir():
+    """Navegador del server manejado a mano desde el celular (ig_remoto): para
+    cuando Instagram pide captcha o «confirmá que sos una persona»."""
+    d = request.get_json(silent=True) or {}
+    try:
+        return _ig_sesiones("POST", "/remoto", payload={"username": (d.get("username") or "").strip()},
+                            timeout=75)
+    except Exception as e:
+        print(f"[ig-sesiones] error abriendo el navegador: {type(e).__name__}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
+@app.route("/api/admin/ig-sesiones/remoto/<rid>", methods=["POST", "DELETE"])
+@require_admin
+def admin_ig_sesiones_remoto_accion(rid):
+    # El texto que se tipea puede ser la contraseña: pasa de largo, no se loguea.
+    d = request.get_json(silent=True) or {}
+    try:
+        if request.method == "DELETE":
+            return _ig_sesiones("DELETE", f"/remoto/{rid}", timeout=15)
+        return _ig_sesiones("POST", f"/remoto/{rid}", payload={
+            "orden": d.get("orden") or {"tipo": "mirar"},
+            "creada_por": session.get("username", ""),
+        }, timeout=60)
+    except Exception as e:
+        print(f"[ig-sesiones] error en el navegador: {type(e).__name__}", flush=True)
+        return jsonify({"error": _mensaje_amigable(e)}), 502
+
+
 @app.route("/api/admin/ig-sesiones/<int:sesion_id>", methods=["PATCH", "DELETE"])
 @require_admin
 def admin_ig_sesiones_editar(sesion_id):

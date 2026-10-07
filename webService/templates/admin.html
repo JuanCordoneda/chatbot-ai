@@ -1898,6 +1898,7 @@
       <div class="ax-msub">Se prueba contra Instagram antes de guardarla: si no sirve, no pisa la que está.</div>
       <div class="ax-seg" role="tablist" style="margin:4px 0 14px;">
         <button type="button" class="ax-tab ax-on" id="ig-tab-login" role="tab" onclick="igModo('login')">Usuario y contraseña</button>
+        <button type="button" class="ax-tab" id="ig-tab-remoto" role="tab" onclick="igModo('remoto')">Navegador a mano</button>
         <button type="button" class="ax-tab" id="ig-tab-cookie" role="tab" onclick="igModo('cookie')">Pegar la cookie</button>
       </div>
       <div class="ax-err" id="ig-err"></div>
@@ -1920,6 +1921,33 @@
           <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           <span id="ig-login-help">Tené a mano el celular con la app de Instagram de esa cuenta: puede pedirte un código
             o que confirmes <b>«Fui yo»</b>. Si lo pide, confirmás y volvés a tocar <b>Entrar</b>.</span>
+        </div>
+      </div>
+      <!-- Navegador del server manejado con el dedo: para cuando Instagram pide
+           captcha o «confirmá que sos una persona», que lo tiene que hacer uno. -->
+      <div id="ig-modo-remoto" hidden>
+        <div class="ax-help" id="ig-remoto-help">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 5.2v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Abre Instagram en el navegador del server y lo manejás vos: tocá la imagen para hacer clic
+            y usá el campo de abajo para escribir. Hacé el login completo (contraseña, código, captcha);
+            cuando entres, la sesión se prueba y se guarda sola.</span>
+        </div>
+        <div id="ig-remoto-vista" hidden>
+          <div class="ax-hint" id="ig-remoto-estado" style="margin:6px 0;"></div>
+          <img id="ig-pantalla" alt="Pantalla del navegador del server" onclick="igRemotoTap(event)"
+               style="width:100%;max-width:400px;display:block;margin:0 auto;border:1px solid var(--ax-border, #ccc);border-radius:8px;cursor:pointer;touch-action:manipulation;" />
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <input id="ig-remoto-texto" placeholder="Texto a escribir en el campo tocado" autocomplete="off" autocapitalize="none" spellcheck="false" style="flex:1;min-width:0;" />
+            <button type="button" class="ax-btn" onclick="igRemotoTexto()">Escribir</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+            <button type="button" class="ax-btn" onclick="igRemoto({tipo:'tecla',tecla:'Enter'})">Enter</button>
+            <button type="button" class="ax-btn" onclick="igRemoto({tipo:'tecla',tecla:'Backspace'})">Borrar</button>
+            <button type="button" class="ax-btn" onclick="igRemoto({tipo:'scroll',dy:-400})">▲</button>
+            <button type="button" class="ax-btn" onclick="igRemoto({tipo:'scroll',dy:400})">▼</button>
+            <button type="button" class="ax-btn" onclick="igRemoto({tipo:'atras'})">Atrás</button>
+            <button type="button" class="ax-btn" onclick="igRemoto({tipo:'inicio'})">Volver al login</button>
+          </div>
         </div>
       </div>
       <div id="ig-modo-cookie" hidden>
@@ -1964,7 +1992,7 @@
        reemplazan a un error que hay que oír ya. -->
   <div class="ax-toast" id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
   <script src="/static/header-menu.js?v=1785802900"></script>
-  <script src="/static/admin.js?v=1791295000"></script>
+  <script src="/static/admin.js?v=1791400000"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>

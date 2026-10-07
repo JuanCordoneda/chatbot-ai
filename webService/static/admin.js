@@ -2964,10 +2964,118 @@ function igModo(modo) {
   hideErr("ig-err");
   document.getElementById("ig-tab-login").classList.toggle("ax-on", modo === "login");
   document.getElementById("ig-tab-cookie").classList.toggle("ax-on", modo === "cookie");
+  document.getElementById("ig-tab-remoto").classList.toggle("ax-on", modo === "remoto");
   document.getElementById("ig-modo-login").hidden = modo !== "login";
   document.getElementById("ig-modo-cookie").hidden = modo !== "cookie";
-  document.getElementById("ig-save").textContent =
-    modo === "cookie" ? "Probar y guardar" : (igLoginId ? "Confirmar código" : "Entrar");
+  document.getElementById("ig-modo-remoto").hidden = modo !== "remoto";
+  const btn = document.getElementById("ig-save");
+  btn.hidden = modo === "remoto" && !!igRemotoId;
+  btn.textContent = modo === "cookie" ? "Probar y guardar"
+    : modo === "remoto" ? "Abrir navegador"
+    : (igLoginId ? "Confirmar código" : "Entrar");
+}
+
+// ── Navegador a mano ─────────────────────────────────────────────────────────
+// El server tiene un Chromium abierto; acá se ve como imagen. Cada toque o
+// texto viaja como una orden y vuelve una captura nueva. Mientras el modal está
+// abierto se refresca sola, así se ven los cambios que no dependen de un toque
+// (un captcha que carga, una página que redirige).
+let igRemotoId = "";
+let igRemotoCola = Promise.resolve();
+let igRemotoTimer = null;
+
+function igRemotoAbierto() {
+  return document.getElementById("ig-mo").classList.contains("ax-on") && !!igRemotoId;
+}
+
+function igRemotoCerrar() {
+  clearTimeout(igRemotoTimer);
+  if (igRemotoId) fetch(`/api/admin/ig-sesiones/remoto/${igRemotoId}`, { method: "DELETE" }).catch(() => {});
+  igRemotoId = "";
+  document.getElementById("ig-remoto-vista").hidden = true;
+}
+
+function igRemotoMostrar(d) {
+  if (d.img) document.getElementById("ig-pantalla").src = "data:image/jpeg;base64," + d.img;
+  if (d.error) showErr("ig-err", d.error); else hideErr("ig-err");
+  document.getElementById("ig-remoto-estado").textContent = d.ruta ? "Instagram: " + d.ruta : "";
+}
+
+function igRemotoProgramar() {
+  clearTimeout(igRemotoTimer);
+  igRemotoTimer = setTimeout(() => {
+    if (!igRemotoAbierto()) { igRemotoCerrar(); return; }
+    if (document.visibilityState === "visible") igRemoto({ tipo: "mirar" });
+    else igRemotoProgramar();
+  }, 2500);
+}
+
+function igRemoto(orden) {
+  // Una orden por vez y en orden: el server las ejecuta en fila igual, pero así
+  // la captura que se muestra siempre es la de la última.
+  igRemotoCola = igRemotoCola.then(async () => {
+    if (!igRemotoId) return;
+    try {
+      const d = await api("POST", `/api/admin/ig-sesiones/remoto/${igRemotoId}`, { orden }, 65000);
+      if (d.guardada) {
+        igRemotoCerrar();
+        closeMo("ig-mo");
+        toast("Sesión cargada y funcionando", "ok");
+        loadIgSesiones();
+        return;
+      }
+      if (d.cerrada) {
+        igRemotoCerrar();
+        igModo("remoto");
+        showErr("ig-err", "El navegador se cerró (por inactividad o un reinicio). Abrilo de nuevo.");
+        return;
+      }
+      igRemotoMostrar(d);
+    } catch (e) {
+      showErr("ig-err", e.message);
+    }
+    igRemotoProgramar();
+  });
+  return igRemotoCola;
+}
+
+function igRemotoTap(ev) {
+  const img = ev.currentTarget;
+  if (!img.naturalWidth) return;
+  const r = img.getBoundingClientRect();
+  const x = (ev.clientX - r.left) * img.naturalWidth / r.width;
+  const y = (ev.clientY - r.top) * img.naturalHeight / r.height;
+  igRemoto({ tipo: "tap", x: Math.round(x), y: Math.round(y) });
+}
+
+function igRemotoTexto() {
+  const campo = document.getElementById("ig-remoto-texto");
+  if (!campo.value) return;
+  const texto = campo.value;
+  campo.value = "";
+  igRemoto({ tipo: "texto", texto });
+}
+
+async function abrirIgRemoto() {
+  const username = document.getElementById("ig-username").value.trim().replace(/^@/, "");
+  if (!username) { showErr("ig-err", "Poné el @usuario de la cuenta."); return; }
+  const btn = document.getElementById("ig-save");
+  btn.disabled = true;
+  btn.textContent = "Abriendo Instagram…";
+  hideErr("ig-err");
+  try {
+    const d = await api("POST", "/api/admin/ig-sesiones/remoto", { username }, 80000);
+    igRemotoId = d.id;
+    document.getElementById("ig-remoto-vista").hidden = false;
+    igRemotoMostrar(d);
+    igModo("remoto");
+    igRemotoProgramar();
+  } catch (e) {
+    showErr("ig-err", e.message);
+  } finally {
+    btn.disabled = false;
+    if (!igRemotoId) btn.textContent = "Abrir navegador";
+  }
 }
 
 function igPedirCodigo(pedirlo, metodo, destino) {
@@ -2988,6 +3096,7 @@ function igPedirCodigo(pedirlo, metodo, destino) {
 }
 
 function openIgModal(username) {
+  igRemotoCerrar();
   hideErr("ig-err");
   igLoginId = "";
   igPedirCodigo(false);
@@ -3080,6 +3189,7 @@ function parsearCookies(texto) {
 
 async function saveIgSesion() {
   if (igModoActual === "login") return loginIgSesion();
+  if (igModoActual === "remoto") return abrirIgRemoto();
   const btn = document.getElementById("ig-save");
   const sessionid = document.getElementById("ig-sessionid").value.trim().replace(/^["']|["']$/g, "");
   if (!sessionid) { showErr("ig-err", "Falta el sessionid: sin eso no hay sesión."); return; }
