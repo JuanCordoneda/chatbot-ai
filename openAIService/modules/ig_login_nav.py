@@ -235,6 +235,15 @@ class _Login(threading.Thread):
                     page.wait_for_timeout(1500)
         except Exception as e:
             self._log(f"no pude terminar de entrar al inicio ({type(e).__name__})")
+        if "/accounts/suspended" in page.url:
+            # «Confirma que eres una persona real»: Instagram marcó la cuenta
+            # como posible bot. Lo tiene que resolver una persona en la app; la
+            # sesión no sirve hasta entonces (la API da checkpoint_required).
+            self._log("cuenta frenada por Instagram (verificar que es una persona)", page)
+            return {"paso": "error", "detalle": (
+                f"El login anduvo, pero Instagram frenó a @{self.username}: pide "
+                "confirmar que es una persona real. Entrá con esa cuenta en la app de "
+                "Instagram, seguí los pasos que te muestra y después volvé a cargarla acá.")}
         cookies = self._cookies(ctx)
         self._log(f"sesión asentada, cookies {sorted(cookies)}", page)
         return {"paso": "ok", "cookies": cookies}
