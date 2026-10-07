@@ -33,8 +33,10 @@ from urllib.parse import unquote, urlsplit
 
 _BASE = "https://www.instagram.com"
 _DOMINIO = "instagram.com"
+# El mismo que el scraper (post_processor): la sesión nace y se usa con la
+# misma cara.
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+       "(KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36")
 
 # Cuánto espera la página abierta a que llegue el código. Más que esto es
 # alguien que se fue, y un Chromium abierto son ~200 MB.
@@ -67,6 +69,7 @@ _RE_PASS_MALA = re.compile(r"(contraseña.{0,40}(incorrecta|no es correcta)|"
                            r"no pertenece a ninguna cuenta|doesn.t belong to an account)", re.I)
 _RE_FRENO = re.compile(r"(espera unos minutos|wait a few minutes|try again later|"
                        r"vuelve a intentarlo más tarde)", re.I)
+_RE_AHORA_NO = re.compile(r"^(ahora no|not now)$", re.I)
 _RE_DESTINO = re.compile(r"[\w.*]*\*{2,}[\w.*]*@[\w.*-]+|\+?\d[\d* ]{3,}\*{2,}[\d* ]*\d")
 
 
@@ -210,6 +213,32 @@ class _Login(threading.Thread):
         return {"paso": "error", "detalle": "Instagram mostró algo que no sé leer. "
                                             "Volvé a intentar en un rato."}
 
+    def _asentar(self, page, ctx) -> dict:
+        """El sessionid aparece antes de que el login termine: la página todavía
+        está saliendo de la verificación, y csrftoken y compañía cambian en los
+        segundos siguientes. Tomar las cookies en ese instante dio una sesión
+        que Instagram rechazaba con 400 (prod, 2026-10-07). Se espera a que la
+        página salga, se entra al inicio como haría una persona, y recién ahí
+        se toman."""
+        fin = time.time() + 15
+        while time.time() < fin and any(s in page.url for s in ("/challenge", "/auth_platform",
+                                                                "/two_factor", "/checkpoint")):
+            page.wait_for_timeout(1000)
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+            page.goto(f"{_BASE}/", wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(3000)
+            for _ in range(2):
+                boton = page.get_by_role("button", name=_RE_AHORA_NO).first
+                if boton.is_visible():
+                    boton.click()
+                    page.wait_for_timeout(1500)
+        except Exception as e:
+            self._log(f"no pude terminar de entrar al inicio ({type(e).__name__})")
+        cookies = self._cookies(ctx)
+        self._log(f"sesión asentada, cookies {sorted(cookies)}", page)
+        return {"paso": "ok", "cookies": cookies}
+
     # ── pasos ────────────────────────────────────────────────────────────────
     def _entrar(self, page, ctx) -> dict:
         page.goto(f"{_BASE}/accounts/login/", wait_until="domcontentloaded", timeout=30000)
@@ -278,6 +307,8 @@ class _Login(threading.Thread):
                                             viewport={"width": 1280, "height": 900})
                 page = ctx.new_page()
                 res = self._entrar(page, ctx)
+                if res["paso"] == "ok":
+                    res = self._asentar(page, ctx)
                 seguir = res["paso"] == "codigo"
                 self.respuestas.put(res)
                 while seguir:
@@ -289,6 +320,8 @@ class _Login(threading.Thread):
                     if codigo is None:
                         break
                     res = self._mandar_codigo(page, ctx, codigo)
+                    if res["paso"] == "ok":
+                        res = self._asentar(page, ctx)
                     # Un código rechazado no mata el login: se reintenta.
                     seguir = bool(res.get("sigue"))
                     self.respuestas.put(res)

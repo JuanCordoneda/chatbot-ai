@@ -834,7 +834,15 @@ def _fetch_instagram_api_con(shortcode: str, cookies: dict) -> dict:
                     "_error_kind": "sesion_muerta"}
 
         if r.status_code != 200:
-            print(f"[ig_api] status {r.status_code}", flush=True)
+            # Instagram explica los 400 en el JSON (challenge_required,
+            # login_required, ...). Solo las claves cortas: el cuerpo puede
+            # traer la URL del challenge con su token.
+            try:
+                j = r.json() if isinstance(r.json(), dict) else {}
+            except ValueError:
+                j = {}
+            explica = {k: j[k] for k in ("message", "error_type", "status") if k in j}
+            print(f"[ig_api] status {r.status_code} {explica or ''}", flush=True)
             motivo = ("Instagram nos está limitando (rate limit)" if r.status_code == 429
                       else "la sesión de Instagram venció o fue bloqueada" if r.status_code in (401, 403)
                       else f"Instagram respondió {r.status_code}")
