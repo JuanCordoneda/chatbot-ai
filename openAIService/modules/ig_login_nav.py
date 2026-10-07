@@ -174,6 +174,13 @@ class _Login(threading.Thread):
                                                  "/two_factor", "/checkpoint"))
         if not en_verificacion:
             return None
+        if "/recaptcha" in url:
+            # Un captcha es Instagram diciendo «esto parece un bot». No se
+            # resuelve desde acá.
+            return {"paso": "error", "detalle": (
+                f"Instagram pidió un captcha para @{self.username}: está desconfiando "
+                "del server. Entrá con esa cuenta en la app y, si te pide verificar "
+                "algo, hacelo; después esperá unas horas antes de reintentar acá.")}
         if len(texto) < 20:
             # La pantalla se arma con JS: vacía todavía no dice nada.
             return None
@@ -253,7 +260,15 @@ class _Login(threading.Thread):
         page.goto(f"{_BASE}/accounts/login/", wait_until="domcontentloaded", timeout=30000)
         self._aceptar_cookies(page)
         usuario = page.locator(_SEL_USUARIO).first
-        usuario.wait_for(state="visible", timeout=20000)
+        try:
+            usuario.wait_for(state="visible", timeout=20000)
+        except Exception:
+            # Visto en prod después de un captcha: Instagram deja de mostrarle
+            # el formulario a esta IP. Reintentar enseguida lo empeora.
+            self._log("Instagram no mostró el formulario de login", page)
+            return {"paso": "error", "detalle": (
+                "Instagram no mostró el formulario de login: está desconfiando del "
+                "server. No reintentes por unas horas, que insistir lo empeora.")}
         usuario.fill(self.username)
         clave = page.locator(_SEL_PASSWORD).first
         clave.fill(self._password)
