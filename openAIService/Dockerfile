@@ -2,11 +2,13 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY langchainService.py /app
 COPY requirements.txt /app
-COPY config /app/config
-
 RUN pip install -r requirements.txt
+
+COPY langchainService.py db.py prospector.py panel.html /app/
+
+# La base de datos vive en /data: en Railway o Docker montá un volumen ahí.
+ENV DB_PATH=/data/prospector.db
 
 EXPOSE 8000
 

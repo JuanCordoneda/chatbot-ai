@@ -1,3 +1,27 @@
+# Prospector de transportistas (Ignacio)
+
+En esta rama el bot hace prospección: le escribe por WhatsApp a una lista de transportistas, les hace una entrevista corta y deja todo en un panel web.
+
+**Cómo se usa**
+
+1. Entrá al panel: `https://<openai-service>/panel` (usuario `ignacio`, contraseña `PANEL_PASSWORD`).
+2. **Cargar lista**: pegá un contacto por línea (`Nombre, Empresa, Teléfono`) o subí un CSV.
+3. **Escribirles a los nuevos**: el bot manda la plantilla de WhatsApp a cada uno, de a uno.
+4. Cuando contestan, el bot sigue solo: pregunta si tiene camiones o colectivos, cuántas unidades, qué marcas y quién compra los filtros. En el panel ves cada charla y hasta qué paso llegó.
+5. Si un cliente pregunta precios o pide hablar con una persona, el bot pausa y lo marca como "Te necesita". Desde el panel podés escribirle vos (el bot queda pausado) o volver a activar el bot.
+
+**Antes de arrancar**
+
+- Crear y aprobar en Meta (WhatsApp Manager › Plantillas) una plantilla de marketing llamada `prospeccion_filtros`, idioma español (Argentina), con este cuerpo:
+  `Hola {{1}}, ¿cómo va? Soy del equipo de Ignacio, vendemos filtros para camiones y colectivos. ¿Te puedo hacer unas preguntas rápidas sobre tu flota?`
+  Sin plantilla aprobada, WhatsApp no deja escribirle primero a nadie.
+- Variables nuevas del `openai-service`:
+  - `PANEL_PASSWORD`: contraseña del panel (obligatoria en producción).
+  - `WHATSAPP_SERVICE_URL`: URL del `whatsapp-service` (por ejemplo `https://<whatsapp-service>`).
+  - `DB_PATH`: archivo de la base (por defecto `/data/prospector.db`). En Railway montá un volumen en `/data`, si no la base se borra en cada deploy.
+  - Opcionales: `PROSPECT_TEMPLATE`, `PROSPECT_TEMPLATE_LANG`, `PROSPECT_TEMPLATE_TEXT` (si cambiás la plantilla), `ANTHROPIC_MODEL`, `PAUSA_ENTRE_ENVIOS` (segundos entre envíos, por defecto 2).
+- Qué ofrece Ignacio, la zona y desde cuántas unidades un cliente está calificado se cambian desde **Ajustes** en el panel.
+
 # Chatbot de WhatsApp con IA
 
 Este proyecto implementa un chatbot para WhatsApp utilizando la API de WhatsApp Business, Flask para el backend, y la IA de OpenAI para el procesamiento de lenguaje natural.

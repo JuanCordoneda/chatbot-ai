@@ -7,6 +7,7 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - OPENAI_SERVICE_URL=http://openai-service:8000
     depends_on:
       - openai-service
 
@@ -18,5 +19,7 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - WHATSAPP_SERVICE_URL=http://whatsapp-service:8501
+      - DB_PATH=/data/prospector.db
     volumes:
-      - ./admin-key.json:/app/admin-key.json:ro
+      - ./data:/data

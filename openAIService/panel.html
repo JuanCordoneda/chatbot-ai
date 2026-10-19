@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Prospector Ignacio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Panel: lista de prospectos a la izquierda y la conversación del bot a la derecha; en celular, una pantalla por vez. */
+:root {
+  --bg: #f3f5f2; --surface: #fbfcfa; --raised: #ffffff; --fg: #14201c; --muted: #56625d; --line: #d5dcd9;
+  --top: #14201c; --top-fg: #eef2ef; --top-muted: #a9b8b2;
+  --brand: #0f5c46; --brand-fg: #f3f5f2; --amber: #e0a100; --amber-ink: #14201c; --amber-soft: #fff4d6;
+  --chat-bg: #ece5dd; --bubble-in: #ffffff; --bubble-bot: #dcf8c6; --bubble-human: #ffe9b0;
+  --ok: #17794f; --warn: #9a6a00; --off: #8a3b2e; --info: #2b5c9e; --err: #b3261e;
+  --display: "Oswald", "Arial Narrow", Arial, sans-serif;
+  --body: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111814; --surface: #172019; --raised: #1c2621; --fg: #e6ece9; --muted: #9eaba6; --line: #2d3833;
+    --top: #0b100e; --top-fg: #eef2ef; --top-muted: #8fa099;
+    --brand: #1f8a69; --brand-fg: #f3f5f2; --amber: #f2b81d; --amber-ink: #14201c; --amber-soft: #3a2f10;
+    --chat-bg: #0f1613; --bubble-in: #232d29; --bubble-bot: #1d4a37; --bubble-human: #4a3a12;
+    --ok: #4cc28d; --warn: #e3b341; --off: #e48a7a; --info: #7fa9e6; --err: #ff8a80;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 17px; line-height: 1.5; -webkit-text-size-adjust: 100%; }
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+h1, h2, h3, p { margin: 0; }
+
+/* Barra superior */
+.top { background: var(--top); color: var(--top-fg); padding: calc(12px + env(safe-area-inset-top, 0px)) 20px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.brand b { font-family: var(--display); font-weight: 600; font-size: 26px; text-transform: uppercase; letter-spacing: .02em; display: block; line-height: 1.05; }
+.brand span { color: var(--top-muted); font-size: 14px; }
+.top .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); color: var(--fg); font-weight: 600; font-size: 16px; cursor: pointer; white-space: nowrap; text-decoration: none; }
+.btn:hover { border-color: var(--muted); }
+.btn[disabled] { opacity: .55; cursor: default; }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-fg); }
+.btn.amber { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); }
+.btn.dark { background: transparent; color: var(--top-fg); border-color: rgba(238,242,239,.3); }
+.btn.dark:hover { border-color: var(--top-fg); }
+.btn.sm { min-height: 40px; padding: 7px 14px; font-size: 15px; }
+.btn.danger { color: var(--off); }
+.sending { display: none; align-items: center; gap: 8px; font-size: 14px; color: var(--top-muted); }
+.sending.on { display: inline-flex; }
+.spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--amber); border-right-color: transparent; animation: r 1s linear infinite; }
+@keyframes r { to { transform: rotate(360deg); } }
+
+/* Filtros */
+.filters { display: flex; gap: 8px; overflow-x: auto; padding: 14px 20px 4px; }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 16px; }
+.chip b { font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chip.alert b { color: var(--err); }
+.chip.alert[aria-pressed="true"] b { color: var(--bg); }
+
+/* Layout */
+.main { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; padding: 12px 20px 20px; height: calc(100% - 160px); min-height: 520px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.search { padding: 12px; border-bottom: 1px solid var(--line); }
+input[type="search"], input[type="text"], input[type="number"], textarea, select { width: 100%; min-height: 48px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); font-size: 17px; }
+textarea { resize: vertical; }
+
+.list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.item { width: 100%; text-align: left; border: 0; background: none; border-radius: 10px; padding: 12px; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+.item:hover { background: var(--raised); }
+.item[aria-current="true"] { background: var(--raised); box-shadow: inset 4px 0 0 var(--brand); }
+.item .n { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .when { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.item .last { grid-column: 1 / -1; color: var(--muted); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .meta { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.empty { padding: 28px 20px; color: var(--muted); text-align: center; }
+.empty b { display: block; color: var(--fg); font-size: 18px; margin-bottom: 4px; }
+
+.pill { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.st-nuevo { color: var(--muted); } .st-contactado { color: var(--info); } .st-en_charla { color: var(--warn); }
+.st-calificado { color: var(--ok); } .st-descartado { color: var(--off); } .st-error { color: var(--err); }
+.flag { font-size: 12px; font-weight: 700; color: var(--amber-ink); background: var(--amber); border-radius: 6px; padding: 1px 7px; }
+.paused { font-size: 12px; font-weight: 700; color: var(--muted); border: 1px dashed var(--muted); border-radius: 6px; padding: 0 6px; }
+.dots { display: inline-flex; gap: 4px; align-items: center; }
+.dots i { width: 22px; height: 6px; border-radius: 3px; background: var(--line); }
+.dots i.on { background: var(--brand); }
+.dots small { font-size: 12.5px; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+/* Conversación */
+.c-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.c-head h2 { font-family: var(--display); font-weight: 600; font-size: 28px; line-height: 1.1; }
+.c-head .sub { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+.c-head .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.c-head select { width: auto; }
+.back { display: none; }
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; font-size: 15px; min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.switch input { appearance: none; width: 44px; height: 26px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; margin: 0; flex: none; transition: background .15s; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--raised); transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.switch input:checked { background: var(--ok); }
+.switch input:checked::after { left: 21px; }
+
+.steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.step { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.step i { height: 6px; border-radius: 3px; background: var(--line); }
+.step.done i { background: var(--brand); }
+.step.final.done i { background: var(--ok); }
+.step.final.off i { background: var(--off); }
+.step span { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.step b { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step:not(.done) b { color: var(--muted); font-weight: 400; }
+
+.banner { margin: 12px 20px 0; padding: 12px 14px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; font-size: 16px; }
+.banner.alert { background: var(--amber-soft); border: 1px solid var(--amber); }
+.banner.err { border: 1px solid var(--err); color: var(--err); }
+
+.chat { flex: 1; overflow-y: auto; background: var(--chat-bg); padding: 18px; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.msg { max-width: 78%; padding: 9px 13px 6px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+.msg small { display: block; text-align: right; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.msg.cliente { align-self: flex-start; background: var(--bubble-in); border-top-left-radius: 3px; }
+.msg.bot { align-self: flex-end; background: var(--bubble-bot); border-top-right-radius: 3px; }
+.msg.humano { align-self: flex-end; background: var(--bubble-human); border-top-right-radius: 3px; }
+.compose { border-top: 1px solid var(--line); padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 8px; }
+.compose .row { display: flex; gap: 8px; align-items: flex-end; }
+.compose textarea { min-height: 52px; max-height: 160px; }
+.note { font-size: 14px; color: var(--muted); }
+.note.err { color: var(--err); }
+
+/* Diálogos */
+dialog { border: 0; border-radius: 16px; padding: 0; width: min(560px, calc(100% - 32px)); background: var(--surface); color: var(--fg); box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.dlg { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.dlg h3 { font-family: var(--display); font-weight: 600; font-size: 26px; }
+.dlg .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+label.f { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--fg); }
+.preview { background: var(--chat-bg); border-radius: 12px; padding: 12px; display: flex; }
+.preview .msg { margin-left: auto; max-width: 100%; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 12px 18px; border-radius: 10px; font-size: 16px; z-index: 50; max-width: calc(100% - 32px); }
+
+@media (max-width: 860px) {
+  .top { padding-inline: 16px; }
+  .top .row { width: 100%; }
+  .top .row .btn { flex: 1; }
+  .filters { padding-inline: 16px; }
+  .main { grid-template-columns: minmax(0, 1fr); padding: 10px 16px 16px; height: auto; min-height: 0; }
+  .main.detail .list-pane { display: none; }
+  .main:not(.detail) .conv-pane { display: none; }
+  .list { max-height: none; }
+  .conv-pane { height: calc(100dvh - 24px); }
+  .back { display: inline-flex; }
+  .c-head { padding: 12px 14px; }
+  .c-head .row { width: 100%; }
+  .c-head select { flex: 1; }
+  .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 14px; gap: 10px 8px; }
+  .banner { margin-inline: 14px; }
+  .chat { padding: 12px; }
+  .msg { max-width: 88%; }
+}
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><b>Prospector Ignacio</b><span>El bot les escribe a los transportistas y les hace la entrevista</span></div>
+  <div class="row">
+    <span class="sending" id="sending"><span class="spin"></span>Mandando primeros mensajes…</span>
+    <button class="btn dark" type="button" id="btnAjustes">Ajustes</button>
+    <button class="btn dark" type="button" id="btnCargar">Cargar lista</button>
+    <button class="btn amber" type="button" id="btnEnviar" disabled>Escribirles a los nuevos</button>
+  </div>
+</header>
+
+<nav class="filters" id="filters" aria-label="Filtrar"></nav>
+
+<div class="main" id="main">
+  <section class="panel list-pane">
+    <div class="search"><input type="search" id="q" placeholder="Buscar nombre, empresa o teléfono" aria-label="Buscar"></div>
+    <ul class="list" id="list"></ul>
+  </section>
+  <section class="panel conv-pane" id="conv" aria-live="polite"></section>
+</div>
+
+<dialog id="dlgCargar">
+  <form class="dlg" method="dialog" id="formCargar">
+    <h3>Cargar lista de prospectos</h3>
+    <p class="note">Un contacto por línea: <b>Nombre, Empresa, Teléfono</b>. Podés pegar columnas copiadas de Excel o Google Sheets, o subir un archivo CSV.</p>
+    <textarea id="txtLista" rows="7" placeholder="Martín Ferreyra, Transportes del Litoral, 11 5555 0101&#10;Laura Gómez, Expreso Sur, 11 5555 0102"></textarea>
+    <label class="f">O subí un archivo CSV<input type="file" id="fileLista" accept=".csv,.txt,text/csv,text/plain"></label>
+    <p class="note" id="cargarNota"></p>
+    <div class="row">
+      <button class="btn" value="cancel" formnovalidate>Cerrar</button>
+      <button class="btn primary" type="button" id="btnCargarOk">Agregar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgEnviar">
+  <form class="dlg" method="dialog">
+    <h3>Escribirles a los nuevos</h3>
+    <p id="enviarTexto"></p>
+    <div class="preview"><div class="msg bot" id="enviarPreview"></div></div>
+    <p class="note">Es la plantilla aprobada en WhatsApp (<span id="enviarPlantilla"></span>). Cuando contesten, el bot sigue la charla solo.</p>
+    <div class="row">
+      <button class="btn" value="cancel">Cancelar</button>
+      <button class="btn amber" type="button" id="btnEnviarOk">Mandar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgAjustes">
+  <form class="dlg" method="dialog">
+    <h3>Ajustes del bot</h3>
+    <label class="f">Qué ofrece Ignacio (en una frase)<input type="text" id="ajOferta"></label>
+    <label class="f">Zona<input type="text" id="ajZona"></label>
+    <p class="note">El bot usa esto para presentarse. Un prospecto queda calificado cuando acepta que le armes una propuesta. El primer mensaje es la plantilla de WhatsApp y se cambia desde Meta.</p>
+    <p class="note err" id="ajNota"></p>
+    <div class="row">
+      <button class="btn" value="cancel">Cerrar</button>
+      <button class="btn primary" type="button" id="btnAjustesOk">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+  const ESTADOS = { nuevo: "Nuevo", contactado: "Contactado", en_charla: "En charla", calificado: "Calificado", descartado: "Descartado", error: "No se pudo enviar" };
+  const FLOTA = { camiones: "Camiones", colectivos: "Colectivos", ambos: "Los dos", otro: "Otro" };
+  const FILTROS = [["todos", "Todos"], ["atencion", "Te necesitan"], ["en_charla", "En charla"], ["calificado", "Calificados"], ["contactado", "Esperando respuesta"], ["nuevo", "Sin escribir"], ["descartado", "Descartados"], ["error", "Con error"]];
+
+  let data = { prospectos: [], resumen: {}, ajustes: {}, pasos: [], plantilla: {}, enviando: false };
+  let filtro = "todos", sel = null, detalle = null, enviandoMsg = false;
+  const $ = (id) => document.getElementById(id);
+
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) n.append(c.nodeType ? c : String(c));
+    return n;
+  }
+  function toast(t) { const n = $("toast"); n.textContent = t; n.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => (n.hidden = true), 2800); }
+  async function api(path, opts = {}) {
+    const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+    let j = {};
+    try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(j.error || "Algo falló. Probá de nuevo.");
+    return j;
+  }
+  function cuando(iso) {
+    if (!iso) return "";
+    const d = new Date(iso), hoy = new Date();
+    if (d.toDateString() === hoy.toDateString()) return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
+  }
+  const titulo = (p) => p.nombre || ("+" + p.telefono);
+  const visible = (p) => filtro === "todos" ? true : filtro === "atencion" ? !!p.atencion : p.estado === filtro;
+
+  /* ---------- Lista ---------- */
+  function renderFiltros() {
+    const r = data.resumen, box = $("filters"); box.replaceChildren();
+    for (const [k, t] of FILTROS) {
+      const n = k === "todos" ? data.prospectos.length : (r[k] || 0);
+      if (k !== "todos" && !n && filtro !== k) continue;
+      box.append(el("button", { class: "chip" + (k === "atencion" ? " alert" : ""), type: "button", "aria-pressed": String(filtro === k), onclick: () => { filtro = k; renderFiltros(); renderLista(); } }, t, el("b", {}, n)));
+    }
+  }
+
+  function renderLista() {
+    const q = $("q").value.trim().toLowerCase();
+    const list = $("list"); list.replaceChildren();
+    const rows = data.prospectos.filter((p) => visible(p) && (!q || [p.nombre, p.empresa, p.telefono].join(" ").toLowerCase().includes(q)));
+    if (!data.prospectos.length) {
+      list.append(el("li", { class: "empty" }, el("b", {}, "Todavía no hay prospectos"), "Tocá \"Cargar lista\" y pegá los transportistas a los que querés escribirles."));
+      return;
+    }
+    if (!rows.length) { list.append(el("li", { class: "empty" }, "No hay prospectos con este filtro.")); return; }
+    const total = data.pasos.length;
+    for (const p of rows) {
+      const dots = el("span", { class: "dots", title: `${p.paso} de ${total} datos` }, data.pasos.map((_, i) => el("i", { class: i < p.paso ? "on" : "" })), el("small", {}, `${p.paso}/${total}`));
+      const last = p.ultimo_texto ? (p.ultimo_de === "cliente" ? "" : p.ultimo_de === "humano" ? "Vos: " : "Bot: ") + p.ultimo_texto : (p.empresa || "Todavía sin mensajes");
+      list.append(el("li", {}, el("button", { class: "item", type: "button", "aria-current": String(p.clave === sel), onclick: () => abrir(p.clave) },
+        el("span", { class: "n" }, titulo(p)),
+        el("span", { class: "when" }, cuando(p.ultimo_ts)),
+        el("span", { class: "last" }, last),
+        el("span", { class: "meta" }, el("span", { class: "pill st-" + p.estado }, ESTADOS[p.estado] || p.estado), dots,
+          p.atencion ? el("span", { class: "flag" }, "Te necesita") : null,
+          !p.bot_activo && !["nuevo", "descartado"].includes(p.estado) ? el("span", { class: "paused" }, "Bot pausado") : null))));
+    }
+  }
+
+  function renderTop() {
+    const nuevos = (data.resumen.nuevo || 0) + (data.resumen.error || 0);
+    const b = $("btnEnviar");
+    b.disabled = !nuevos || data.enviando;
+    b.textContent = nuevos ? `Escribirles a los nuevos (${nuevos})` : "Escribirles a los nuevos";
+    $("sending").classList.toggle("on", !!data.enviando);
+  }
+
+  /* ---------- Conversación ---------- */
+  function renderConv(scrollAbajo) {
+    const box = $("conv");
+    const chatViejo = box.querySelector(".chat");
+    const estabaAbajo = !chatViejo || chatViejo.scrollHeight - chatViejo.scrollTop - chatViejo.clientHeight < 60;
+    const borrador = $("txtHumano")?.value || "";
+    const escribiendo = document.activeElement?.id === "txtHumano";
+    box.replaceChildren();
+    if (!detalle) {
+      box.append(el("div", { class: "empty" }, el("b", {}, "Elegí un prospecto"), "Vas a ver la charla con el bot y hasta dónde llegó la entrevista."));
+      return;
+    }
+    const p = detalle.prospecto;
+
+    const estadoSel = el("select", { "aria-label": "Estado", onchange: (e) => editar({ estado: e.target.value }) },
+      Object.entries(ESTADOS).map(([k, v]) => el("option", { value: k, selected: p.estado === k }, v)));
+    const sw = el("input", { type: "checkbox", role: "switch", checked: p.bot_activo, onchange: (e) => editar({ bot_activo: e.target.checked }, e.target.checked ? "El bot vuelve a responder" : "Bot pausado: respondés vos") });
+    box.append(el("div", { class: "c-head" },
+      el("div", {}, el("button", { class: "btn sm back", type: "button", onclick: cerrar }, "← Volver"),
+        el("h2", {}, titulo(p)), el("div", { class: "sub" }, [p.empresa, "+" + p.telefono, p.origen === "entrante" ? "Escribió él" : null].filter(Boolean).join(" · "))),
+      el("div", { class: "row" }, estadoSel, el("label", { class: "switch" }, sw, p.bot_activo ? "Bot respondiendo" : "Bot pausado"))));
+
+    // Hasta dónde llegó
+    const f = p.ficha || {};
+    const steps = el("div", { class: "steps", "aria-label": "Avance de la entrevista" });
+    const contactado = p.estado !== "nuevo" && p.estado !== "error";
+    steps.append(el("div", { class: "step" + (contactado ? " done" : "") }, el("i"), el("span", {}, "Contacto"), el("b", {}, contactado ? (p.origen === "entrante" ? "Escribió él" : "Mensaje enviado") : "Sin escribir")));
+    for (const s of data.pasos) {
+      let v = f[s.clave];
+      if (s.clave === "flota") v = [FLOTA[f.flota] || f.flota, f.unidades ? f.unidades + " unid." : "", f.marcas].filter(Boolean).join(" · ");
+      if (s.clave === "propuesta") v = v === "si" ? "Sí, quiere" : v === "no" ? "No" : v;
+      if (s.clave === "quien_compra" && f.contacto_compras) v = (v ? v + " · " : "") + f.contacto_compras;
+      steps.append(el("div", { class: "step" + (v ? " done" : "") }, el("i"), el("span", {}, s.nombre), el("b", { title: v || "" }, v || "Falta")));
+    }
+    const cls = p.estado === "calificado" ? " done" : p.estado === "descartado" ? " off" : "";
+    steps.append(el("div", { class: "step final" + cls }, el("i"), el("span", {}, "Resultado"), el("b", {}, p.estado === "calificado" ? "Calificado" : p.estado === "descartado" ? "Descartado" : "En curso")));
+    box.append(steps);
+
+    if (p.atencion) box.append(el("div", { class: "banner alert" }, el("span", {}, el("b", {}, "Te necesita: "), p.atencion),
+      el("button", { class: "btn sm", type: "button", onclick: () => editar({ atencion: "" }, "Listo") }, "Ya lo vi")));
+    if (p.estado === "error" && p.ultimo_error) box.append(el("div", { class: "banner err" }, p.ultimo_error));
+
+    const chat = el("div", { class: "chat" });
+    if (!detalle.mensajes.length) chat.append(el("p", { class: "empty" }, "Todavía no hay mensajes. Cuando toques \"Escribirles a los nuevos\", el bot le manda el primero."));
+    const quien = { bot: "Bot", humano: "Vos", cliente: p.nombre ? p.nombre.split(" ")[0] : "Cliente" };
+    for (const m of detalle.mensajes) {
+      const d = new Date(m.ts);
+      chat.append(el("div", { class: "msg " + m.de }, m.texto, el("small", {}, quien[m.de] + " · " + d.toLocaleDateString("es-AR", { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }))));
+    }
+    box.append(chat);
+
+    const ta = el("textarea", { id: "txtHumano", rows: "1", placeholder: "Escribile vos (el bot se pausa)", "aria-label": "Mensaje para el cliente",
+      onkeydown: (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) mandarHumano(); } });
+    ta.value = borrador;
+    box.append(el("div", { class: "compose" },
+      el("div", { class: "row" }, ta, el("button", { class: "btn primary", type: "button", disabled: enviandoMsg, onclick: mandarHumano }, enviandoMsg ? "Mandando…" : "Mandar")),
+      el("p", { class: "note", id: "humanoNota" }, "WhatsApp deja mandar texto libre solo si el cliente escribió en las últimas 24 horas.")));
+
+    if (escribiendo) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    if (scrollAbajo || estabaAbajo) requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  }
+
+  async function abrir(clave) {
+    sel = clave; $("main").classList.add("detail");
+    try { history.replaceState(null, "", "#" + clave); } catch (e) {}
+    renderLista();
+    try { detalle = await api("/api/prospectos/" + clave); renderConv(true); } catch (e) { toast(e.message); }
+    if (innerWidth <= 860) scrollTo({ top: 0 });
+  }
+  function cerrar() { try { history.replaceState(null, "", location.pathname); } catch (e) {} $("main").classList.remove("detail"); sel = null; detalle = null; renderLista(); renderConv(); }
+
+  async function editar(cambios, aviso) {
+    try {
+      const r = await api("/api/prospectos/" + sel, { method: "PATCH", body: cambios });
+      detalle.prospecto = r.prospecto; renderConv(); if (aviso) toast(aviso); refrescar();
+    } catch (e) { toast(e.message); }
+  }
+
+  async function mandarHumano() {
+    const ta = $("txtHumano"), texto = ta.value.trim();
+    if (!texto || enviandoMsg) return;
+    enviandoMsg = true; renderConv();
+    try {
+      detalle = await api(`/api/prospectos/${sel}/mensaje`, { method: "POST", body: { texto } });
+      enviandoMsg = false; renderConv(true); $("txtHumano").value = ""; toast("Mandado. El bot quedó pausado.");
+      refrescar();
+    } catch (e) {
+      enviandoMsg = false; renderConv(); const n = $("humanoNota"); n.textContent = e.message; n.className = "note err";
+    }
+  }
+
+  /* ---------- Refresco ---------- */
+  async function refrescar() {
+    try {
+      data = await api("/api/prospectos");
+      renderFiltros(); renderLista(); renderTop();
+      if (sel) {
+        const d = await api("/api/prospectos/" + sel);
+        const cambio = !detalle || d.mensajes.length !== detalle.mensajes.length || JSON.stringify(d.prospecto) !== JSON.stringify(detalle.prospecto);
+        detalle = d; if (cambio) renderConv();
+      }
+    } catch (e) { /* sin conexión momentánea: se reintenta en el próximo ciclo */ }
+  }
+
+  /* ---------- Diálogos ---------- */
+  $("btnCargar").onclick = () => { $("cargarNota").textContent = ""; $("dlgCargar").showModal(); };
+  $("fileLista").onchange = async (e) => { const f = e.target.files[0]; if (f) $("txtLista").value = await f.text(); };
+  $("btnCargarOk").onclick = async () => {
+    const texto = $("txtLista").value.trim(), nota = $("cargarNota");
+    if (!texto) { nota.textContent = "Pegá al menos un contacto."; return; }
+    try {
+      const r = await api("/api/prospectos", { method: "POST", body: { texto } });
+      const partes = [`Agregué ${r.nuevos}`];
+      if (r.repetidos) partes.push(`${r.repetidos} ya estaban`);
+      if (r.invalidos.length) partes.push(`${r.invalidos.length} sin teléfono válido`);
+      nota.textContent = partes.join(" · ") + ".";
+      if (r.nuevos) { $("txtLista").value = ""; $("fileLista").value = ""; filtro = "nuevo"; }
+      refrescar();
+    } catch (e) { nota.textContent = e.message; }
+  };
+
+  $("btnEnviar").onclick = () => {
+    const n = (data.resumen.nuevo || 0) + (data.resumen.error || 0);
+    const ej = data.prospectos.find((p) => p.estado === "nuevo" || p.estado === "error");
+    $("enviarTexto").textContent = `El bot le va a escribir a ${n} prospecto${n === 1 ? "" : "s"}, de a uno. Así le llega a cada uno:`;
+    $("enviarPreview").textContent = (data.plantilla.texto || "").replace("{{1}}", (ej?.nombre || "").split(" ")[0] || "qué tal");
+    $("enviarPlantilla").textContent = data.plantilla.nombre || "";
+    $("dlgEnviar").showModal();
+  };
+  $("btnEnviarOk").onclick = async () => {
+    try { const r = await api("/api/enviar", { method: "POST", body: {} }); $("dlgEnviar").close(); toast(`Mandando a ${r.encolados}…`); refrescar(); }
+    catch (e) { $("dlgEnviar").close(); toast(e.message); }
+  };
+
+  $("btnAjustes").onclick = () => {
+    $("ajOferta").value = data.ajustes.oferta || ""; $("ajZona").value = data.ajustes.zona || "";
+    $("ajNota").textContent = ""; $("dlgAjustes").showModal();
+  };
+  $("btnAjustesOk").onclick = async () => {
+    try {
+      data.ajustes = await api("/api/ajustes", { method: "PUT", body: { oferta: $("ajOferta").value, zona: $("ajZona").value } });
+      $("dlgAjustes").close(); toast("Ajustes guardados");
+    } catch (e) { $("ajNota").textContent = e.message; }
+  };
+
+  $("q").addEventListener("input", renderLista);
+  renderConv();
+  refrescar().then(() => { const h = location.hash.slice(1); if (/^\d{6,}$/.test(h)) abrir(h); });
+  setInterval(refrescar, 4000);
+})();
+</script>
+</body>
+</html>

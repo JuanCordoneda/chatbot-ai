@@ -72,15 +72,21 @@ def received_message():
         message = messages[0]
         number = message["from"]
 
-        # Solo procesamos mensajes de texto
-        if message.get("type") != "text":
-            log.info("Mensaje de tipo '%s' no soportado; se ignora.", message.get("type"))
+        tipo = message.get("type")
+        if tipo == "text":
+            question = message["text"]["body"]
+        elif tipo in ("audio", "image", "video", "document", "sticker", "location", "contacts"):
+            # El bot no puede ver ni escuchar esto: le avisamos para que pida que lo escriban.
+            question = f"[El cliente mandó un mensaje de tipo {tipo} que no podés ver ni escuchar]"
+        else:
+            log.info("Mensaje de tipo '%s' no soportado; se ignora.", tipo)
             return "EVENT_RECEIVED", 200
-
-        question = message["text"]["body"]
-        log.info("Texto recibido de %s: %s", number, question)
+        log.info("Mensaje recibido de %s (%s): %s", number, tipo, question)
 
         body_answer = enviar_mensaje(question, number)
+        if body_answer is None:
+            log.info("El bot no responde a %s (pausado o sin respuesta).", number)
+            return "EVENT_RECEIVED", 200
         send_message = whatsapp_service(body_answer)
 
         if send_message:
@@ -170,6 +176,10 @@ def consultar_ia(text, numero):
 
     log.info("Respuesta openai-service [%s]: %s", resp.status_code, resp.text[:500])
 
+    # 204: el bot decidió no responder (por ejemplo, Ignacio tomó la conversación).
+    if resp.status_code == 204:
+        return None
+
     if resp.status_code != 200:
         log.error(
             "openai-service devolvio %s; se envia el mensaje de fallback en vez del cuerpo.",
@@ -189,6 +199,8 @@ def consultar_ia(text, numero):
 def enviar_mensaje(text, numero):
     numero = normalizar_numero(numero)
     response_gpt = consultar_ia(text, numero)
+    if response_gpt is None:
+        return None
 
     body = {
         "messaging_product": "whatsapp",
@@ -207,18 +219,27 @@ def send_template():
         number = data.get("to")
         template_name = data.get("template", "hello_world")
         language_code = data.get("language", "en_US")
+        params = data.get("params") or []
 
         if not number:
             return {"error": "El campo 'to' es requerido."}, 400
 
+        template = {
+            "name": template_name,
+            "language": {"code": language_code}
+        }
+        if params:
+            # Variables {{1}}, {{2}}... del cuerpo de la plantilla, en orden.
+            template["components"] = [{
+                "type": "body",
+                "parameters": [{"type": "text", "text": str(p)} for p in params],
+            }]
+
         body = {
             "messaging_product": "whatsapp",
-            "to": number,
+            "to": normalizar_numero(number),
             "type": "template",
-            "template": {
-                "name": template_name,
-                "language": {"code": language_code}
-            }
+            "template": template,
         }
 
         success = whatsapp_service(body)
@@ -230,6 +251,31 @@ def send_template():
     except Exception as e:
         print(e)
         return {"error": str(e)}, 500
+
+@app.route("/send-text", methods=["POST"])
+def send_text():
+    """Manda un texto libre (lo usa el panel cuando Ignacio escribe en persona).
+
+    WhatsApp solo deja mandar texto libre dentro de las 24 h desde el último
+    mensaje del cliente; fuera de esa ventana hay que usar una plantilla.
+    """
+    data = request.get_json(silent=True) or {}
+    number = data.get("to")
+    text = (data.get("text") or "").strip()
+    if not number or not text:
+        return {"error": "Los campos 'to' y 'text' son requeridos."}, 400
+
+    body = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": normalizar_numero(number),
+        "type": "text",
+        "text": {"body": text[:MAX_WHATSAPP_TEXT]},
+    }
+    if whatsapp_service(body):
+        return {"status": "ok"}, 200
+    return {"status": "error", "message": "Meta rechazó el mensaje. Si el cliente no escribió en las últimas 24 h, hay que usar una plantilla."}, 502
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8501))
