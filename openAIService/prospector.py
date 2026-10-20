@@ -52,6 +52,8 @@ PLANTILLA_IMAGEN = os.environ.get("PROSPECT_TEMPLATE_IMAGE", "toloache-midi-10.j
 
 STOP = re.compile(r"\s*(stop|arr[eê]te[rz]?|arr[eê]t|d[ée]sinscri\w*|unsubscribe)\s*[.!]*\s*", re.I)
 MENSAJE_BAJA = "C'est noté, vous ne recevrez plus nos messages. Bonne journée !"
+# Si el bot dice esto, el cliente espera a una persona: tiene que quedar avisado el equipo.
+PROMETE_PERSONA = re.compile(r"quelqu.un de (l.|notre )?[ée]quipe", re.I)
 
 
 def primer_nombre(p: dict) -> str:
@@ -133,18 +135,20 @@ Cada vez que el cliente te dé un dato, llamá a actualizar_ficha antes de conte
 
 Según lo que conteste:
 - Si quiere la oferta: anotá interes "si" y estado "calificado".
+- Anotá reserva solo cuando el cliente contesta a tu ofrecimiento de reservar, nunca al hacer el ofrecimiento.
 - Si quiere reservar: anotá reserva "si" y, si los dijo, el día y la hora en dia_reserva. Usá derivar_a_persona con el día, la hora y cuántos son, y cerrá en una frase diciendo que alguien del equipo le confirma la reserva por acá. No confirmes vos la reserva.
 - Si no quiere reservar por ahora: anotá reserva "no", recordale en una frase que alcanza con mostrar el mensaje o decir « Midi Toloache » y que la oferta vale hasta el 18 de diciembre.
 - Si son {GRUPO_GRANDE} o más, o habla de un afterwork, un evento, un cumpleaños o la fiesta de fin de año: anotalo en evento y usá derivar_a_persona para que le ofrezcan privatizar La Playita (hasta 100 personas). Decile que alguien del equipo le escribe para organizarlo.
 - Si dice "Non merci", que no le interesa o que no le escriban más: anotá interes "no" y estado "descartado", agradecé en una frase y no insistas.
 
-Si pregunta algo que la oferta no dice (precios exactos de un plato, alergias, si vale para llevar o con alcohol cuando la oferta no lo aclara, otros horarios): no inventes nada. Usá derivar_a_persona y decile que alguien del equipo le contesta.
+Si pregunta algo que la oferta sí dice (dirección, metro, horario de la oferta, rango de precios, opciones végé o sans gluten, teléfono de reservas): contestalo vos con esos datos, en una o dos frases, y seguí con la pregunta que toque. Eso no se deriva.
+Si pregunta algo que la oferta no dice (precio exacto de un plato, alergias, si vale para llevar o con alcohol cuando la oferta no lo aclara, otros horarios): no inventes nada. Usá derivar_a_persona y contestale: "Bonne question ! Quelqu'un de l'équipe vous répond ici."
 Si pide hablar con una persona: usá derivar_a_persona.
-No prometas tiempos (por ejemplo "dans quelques minutes" o "aujourd'hui"): decí solamente que alguien del equipo le escribe por acá.
+No prometas tiempos (por ejemplo "dans quelques minutes" o "aujourd'hui"): decí solamente que alguien del equipo le escribe por acá ("Quelqu'un de l'équipe vous écrit ici.").
 Si te pregunta directamente si sos un bot, decile la verdad: sos el asistente automático de Toloache y alguien del equipo puede seguir la charla cuando quiera.
 Si te manda audio, fotos u otra cosa que no podés ver, pedile con amabilidad que te lo escriba.
 
-Estilo: en francés, tratando de vous, cálido y directo, como un mensaje de WhatsApp de una o dos frases. Sin listas, sin asteriscos, sin emojis salvo que el cliente los use. Si el cliente escribe en otro idioma, contestale en ese idioma.
+Estilo: todos tus mensajes van en francés correcto, siempre de vous (nunca tu), cálidos y directos, como un mensaje de WhatsApp de una o dos frases. Nunca mezcles palabras en español: estas instrucciones están en español, pero el cliente es francés. Sin listas, sin asteriscos y sin emojis salvo que el cliente los use. Solo si el cliente te escribe entero en otro idioma (inglés, español), contestale en ese idioma.
 
 Ficha actual del cliente: {json.dumps(p['ficha'], ensure_ascii=False)}
 
@@ -275,6 +279,9 @@ def responder(telefono: str, texto: str, enlace: str = "") -> str | None:
     preguntas, ofrecio = _estado_charla(clave)
     mensajes = _historial(clave)
     respuesta = ""
+    # Claude a veces escribe la respuesta en el mismo turno en que llama a una herramienta
+    # y después termina sin texto: ese texto también vale.
+    texto_previo = ""
     for _ in range(6):
         p = db.obtener(clave)
         resp = client.messages.create(
@@ -284,7 +291,9 @@ def responder(telefono: str, texto: str, enlace: str = "") -> str | None:
             tools=TOOLS,
             messages=mensajes,
         )
+        texto_turno = "".join(b.text for b in resp.content if b.type == "text").strip()
         if resp.stop_reason == "tool_use":
+            texto_previo = texto_turno or texto_previo
             mensajes.append({"role": "assistant", "content": resp.content})
             resultados = []
             for bloque in resp.content:
@@ -296,7 +305,7 @@ def responder(telefono: str, texto: str, enlace: str = "") -> str | None:
                     })
             mensajes.append({"role": "user", "content": resultados})
             continue
-        respuesta = "".join(b.text for b in resp.content if b.type == "text").strip()
+        respuesta = texto_turno or texto_previo
         break
 
     p = db.obtener(clave)
@@ -310,6 +319,9 @@ def responder(telefono: str, texto: str, enlace: str = "") -> str | None:
     if motivo and motivo != motivo_antes:
         if not p["atencion"]:
             db.actualizar(clave, atencion=motivo)
+        efectos["pausar"] = True
+    if respuesta and PROMETE_PERSONA.search(respuesta) and not efectos.get("pausar"):
+        db.actualizar(clave, atencion=f"El bot le dijo que le escribe alguien del equipo. Preguntó: «{texto[:150]}»")
         efectos["pausar"] = True
 
     if respuesta:
