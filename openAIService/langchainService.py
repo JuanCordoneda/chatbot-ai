@@ -33,7 +33,7 @@ PANEL_USER = os.environ.get("PANEL_USER", "toloache")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "")
 PAUSA_ENTRE_ENVIOS = float(os.environ.get("PAUSA_ENTRE_ENVIOS", "2"))
 # Meta baja la calidad del número (y puede bloquearlo) si se escribe en frío a muchos por día.
-MAX_ENVIOS_DIA = int(os.environ.get("MAX_ENVIOS_DIA", "40"))
+MAX_ENVIOS_DIA = int(os.environ.get("MAX_ENVIOS_DIA", "25"))
 # URL pública de este servicio (https://...). La necesitan Meta, para bajar la imagen
 # de la plantilla, y el bot, para pasar el link a /midi. Si no está, se toma del
 # dominio con el que se abre el panel.

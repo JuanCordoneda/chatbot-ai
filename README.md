@@ -6,7 +6,7 @@ El bot les escribe por WhatsApp a comercios y oficinas a menos de 10 minutos de 
 
 1. Entrá al panel: `https://<openai-service>/panel` (usuario `toloache`, contraseña `PANEL_PASSWORD`).
 2. **Cargar lista**: pegá un contacto por línea (`Comercio, Teléfono` o `Nombre, Comercio, Teléfono`) o subí un CSV. Solo entran los celulares (06 y 07): los fijos no tienen WhatsApp y se descartan.
-3. **Escribirles a los nuevos**: el bot manda la plantilla con la imagen, de a uno y como mucho 40 por día (`MAX_ENVIOS_DIA`). Al resto les escribe al día siguiente.
+3. **Escribirles a los nuevos**: el bot manda la plantilla con la imagen, de a uno y como mucho 25 por día (`MAX_ENVIOS_DIA`). Al resto les escribe al día siguiente. Antes de cada tanda, revisá la calidad del número en WhatsApp Manager: si no está en verde, pará 2 o 3 días.
 4. Cuando contestan, el bot sigue la charla en francés. Pregunta cuántos son, explica cómo se canjea la oferta («Midi Toloache») y ofrece reservar una mesa.
 5. Si quieren reservar, son 8 o más (y se les ofrece La Playita) o preguntan algo que la oferta no dice, el bot pausa y lo marca como "Te necesita". Desde el panel les escribís vos o volvés a activar el bot.
 6. Si alguien escribe STOP, queda descartado y no se le escribe más.
@@ -26,7 +26,7 @@ La página de la oferta para reenviar está en `https://<openai-service>/midi`. 
   - `PUBLIC_URL`: URL pública del `openai-service` (por ejemplo `https://<openai-service>`). Meta baja de ahí la imagen de la plantilla y el bot arma el link a `/midi`. Si no está, se toma del dominio con el que abrís el panel.
   - `WHATSAPP_SERVICE_URL`: URL del `whatsapp-service`.
   - `DB_PATH`: archivo de la base (por defecto `/data/prospector.db`). En Railway montá un volumen en `/data`; si no, la base se borra en cada deploy.
-  - Opcionales: `MAX_ENVIOS_DIA` (por defecto 40), `PROSPECT_TEMPLATE`, `PROSPECT_TEMPLATE_LANG`, `PROSPECT_TEMPLATE_TEXT`, `PROSPECT_TEMPLATE_IMAGE` (archivo dentro de `midi/`; vacío si la plantilla no lleva imagen), `PANEL_USER`, `ANTHROPIC_MODEL` y `PAUSA_ENTRE_ENVIOS`.
+  - Opcionales: `MAX_ENVIOS_DIA` (por defecto 25), `PROSPECT_TEMPLATE`, `PROSPECT_TEMPLATE_LANG`, `PROSPECT_TEMPLATE_TEXT`, `PROSPECT_TEMPLATE_IMAGE` (archivo dentro de `midi/`; vacío si la plantilla no lleva imagen), `PANEL_USER`, `ANTHROPIC_MODEL` y `PAUSA_ENTRE_ENVIOS`.
 - La oferta y la zona se cambian desde **Ajustes** en el panel. El bot no promete nada que no esté escrito ahí. Hoy dice «sur place, hors boissons alcoolisées». Si el dueño aprueba que valga para llevar o con alcohol, cambialo ahí y también en `openAIService/midi/index.html`.
 - Las imágenes salen de `plantilla-midi/midi-10.html` y `midi-15.html`. Para regenerarlas, corré `plantilla-midi/build.sh` y copiá los `.jpg` a `openAIService/midi/`.
 

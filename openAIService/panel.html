@@ -205,6 +205,8 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
     <h3>Escribirles a los nuevos</h3>
     <p id="enviarTexto"></p>
     <div class="preview"><div class="msg bot"><img id="enviarImagen" alt="" hidden><span id="enviarPreview"></span></div></div>
+    <p class="banner alert" style="margin:0">Antes de mandar, mirá la calidad del número en <a href="https://business.facebook.com/wa/manage/phone-numbers/" target="_blank" rel="noopener">WhatsApp Manager › Números de teléfono</a>. Si no está en verde, pará 2 o 3 días: si mucha gente bloquea, Meta suspende el número.</p>
+    <p class="note" id="enviarCupo"></p>
     <p class="note">Es la plantilla aprobada en WhatsApp (<span id="enviarPlantilla"></span>), con los botones «Oui, avec plaisir» y «Non merci». Cuando contesten, el bot sigue la charla solo.</p>
     <div class="row">
       <button class="btn" value="cancel">Cancelar</button>
@@ -437,6 +439,7 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
     $("enviarTexto").textContent = `El bot le va a escribir a ${n} prospecto${n === 1 ? "" : "s"}, de a uno.` +
       (total > n ? ` Los otros ${total - n} quedan para mañana: son ${data.max_dia} por día como máximo, para cuidar el número.` : "") + " Así le llega a cada uno:";
     $("enviarPreview").textContent = (data.plantilla.texto || "").replace("{{1}}", ej?.saludo || "à toute l'équipe");
+    $("enviarCupo").textContent = `Hoy van ${data.max_dia - data.cupo_hoy} de ${data.max_dia} primeros mensajes.`;
     const img = $("enviarImagen"); img.hidden = !data.plantilla.imagen; if (data.plantilla.imagen) img.src = data.plantilla.imagen;
     $("enviarPlantilla").textContent = data.plantilla.nombre || "";
     $("dlgEnviar").showModal();
