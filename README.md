@@ -1,26 +1,34 @@
-# Prospector de transportistas (Ignacio)
+# Midi Toloache (prospector de WhatsApp)
 
-En esta rama el bot hace prospección: le escribe por WhatsApp a una lista de transportistas, les hace una entrevista corta y deja todo en un panel web.
+El bot les escribe por WhatsApp a comercios y oficinas a menos de 10 minutos de Toloache (49 rue de Clignancourt, 75018). Les ofrece el descuento del mediodía: -10 % en la carta, -15 % desde 4 personas, de martes a viernes de 12h a 15h, hasta el viernes 18 de diciembre. Todo se sigue en un panel web.
 
 **Cómo se usa**
 
-1. Entrá al panel: `https://<openai-service>/panel` (usuario `ignacio`, contraseña `PANEL_PASSWORD`).
-2. **Cargar lista**: pegá un contacto por línea (`Nombre, Empresa, Teléfono`) o subí un CSV.
-3. **Escribirles a los nuevos**: el bot manda la plantilla de WhatsApp a cada uno, de a uno.
-4. Cuando contestan, el bot sigue solo: pregunta si tiene camiones o colectivos, cuántas unidades, qué marcas y quién compra los filtros. En el panel ves cada charla y hasta qué paso llegó.
-5. Si un cliente pregunta precios o pide hablar con una persona, el bot pausa y lo marca como "Te necesita". Desde el panel podés escribirle vos (el bot queda pausado) o volver a activar el bot.
+1. Entrá al panel: `https://<openai-service>/panel` (usuario `toloache`, contraseña `PANEL_PASSWORD`).
+2. **Cargar lista**: pegá un contacto por línea (`Comercio, Teléfono` o `Nombre, Comercio, Teléfono`) o subí un CSV. Solo entran los celulares (06 y 07): los fijos no tienen WhatsApp y se descartan.
+3. **Escribirles a los nuevos**: el bot manda la plantilla con la imagen, de a uno y como mucho 40 por día (`MAX_ENVIOS_DIA`). Al resto les escribe al día siguiente.
+4. Cuando contestan, el bot sigue la charla en francés. Pregunta cuántos son, explica cómo se canjea la oferta («Midi Toloache») y ofrece reservar una mesa.
+5. Si quieren reservar, son 8 o más (y se les ofrece La Playita) o preguntan algo que la oferta no dice, el bot pausa y lo marca como "Te necesita". Desde el panel les escribís vos o volvés a activar el bot.
+6. Si alguien escribe STOP, queda descartado y no se le escribe más.
+
+La página de la oferta para reenviar está en `https://<openai-service>/midi`. El bot la comparte cuando le piden más información.
 
 **Antes de arrancar**
 
-- Crear y aprobar en Meta (WhatsApp Manager › Plantillas) una plantilla de marketing llamada `prospeccion_filtros`, idioma español (Argentina), con este cuerpo:
-  `Hola {{1}}, ¿cómo va? Soy del equipo de Ignacio, vendemos filtros para camiones y colectivos. ¿Te puedo hacer unas preguntas rápidas sobre tu flota?`
-  Sin plantilla aprobada, WhatsApp no deja escribirle primero a nadie.
-- Variables nuevas del `openai-service`:
+- Crear y aprobar en Meta (WhatsApp Manager › Plantillas) una plantilla de categoría Marketing llamada `midi_toloache`, en idioma francés (`fr`):
+  - Cabecera: imagen (subí `openAIService/midi/toloache-midi-10.jpg` como ejemplo).
+  - Cuerpo: `Bonjour {{1}} ! Ici Toloache, le resto mexicain du 49 rue de Clignancourt (M° Château Rouge). Pour ceux qui travaillent dans le quartier, on fait -10 % sur la carte le midi, du mardi au vendredi de 12h à 15h, jusqu'au 18 décembre. Je vous envoie l'offre pour vous et vos collègues ?`
+  - Pie: `Répondez STOP pour ne plus recevoir nos messages`
+  - Botones de respuesta rápida: `Oui, avec plaisir` y `Non merci`
+  - En `{{1}}` el bot pone el nombre de la persona o, si solo tenemos el comercio, «à l'équipe de <comercio>».
+- Variables del `openai-service`:
   - `PANEL_PASSWORD`: contraseña del panel (obligatoria en producción).
-  - `WHATSAPP_SERVICE_URL`: URL del `whatsapp-service` (por ejemplo `https://<whatsapp-service>`).
-  - `DB_PATH`: archivo de la base (por defecto `/data/prospector.db`). En Railway montá un volumen en `/data`, si no la base se borra en cada deploy.
-  - Opcionales: `PROSPECT_TEMPLATE`, `PROSPECT_TEMPLATE_LANG`, `PROSPECT_TEMPLATE_TEXT` (si cambiás la plantilla), `ANTHROPIC_MODEL`, `PAUSA_ENTRE_ENVIOS` (segundos entre envíos, por defecto 2).
-- Qué ofrece Ignacio, la zona y desde cuántas unidades un cliente está calificado se cambian desde **Ajustes** en el panel.
+  - `PUBLIC_URL`: URL pública del `openai-service` (por ejemplo `https://<openai-service>`). Meta baja de ahí la imagen de la plantilla y el bot arma el link a `/midi`. Si no está, se toma del dominio con el que abrís el panel.
+  - `WHATSAPP_SERVICE_URL`: URL del `whatsapp-service`.
+  - `DB_PATH`: archivo de la base (por defecto `/data/prospector.db`). En Railway montá un volumen en `/data`; si no, la base se borra en cada deploy.
+  - Opcionales: `MAX_ENVIOS_DIA` (por defecto 40), `PROSPECT_TEMPLATE`, `PROSPECT_TEMPLATE_LANG`, `PROSPECT_TEMPLATE_TEXT`, `PROSPECT_TEMPLATE_IMAGE` (archivo dentro de `midi/`; vacío si la plantilla no lleva imagen), `PANEL_USER`, `ANTHROPIC_MODEL` y `PAUSA_ENTRE_ENVIOS`.
+- La oferta y la zona se cambian desde **Ajustes** en el panel. El bot no promete nada que no esté escrito ahí. Hoy dice «sur place, hors boissons alcoolisées». Si el dueño aprueba que valga para llevar o con alcohol, cambialo ahí y también en `openAIService/midi/index.html`.
+- Las imágenes salen de `plantilla-midi/midi-10.html` y `midi-15.html`. Para regenerarlas, corré `plantilla-midi/build.sh` y copiá los `.jpg` a `openAIService/midi/`.
 
 # Chatbot de WhatsApp con IA
 

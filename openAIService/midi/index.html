@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Midi Toloache · -10 % le midi</title>
+<meta name="description" content="-10 % sur la carte le midi pour ceux qui travaillent dans le quartier, -15 % dès 4 personnes. Du mardi au vendredi, 12h–15h, au 49 rue de Clignancourt (M° Château Rouge).">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#16110e">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Midi Toloache · -10 % le midi">
+<meta property="og:description" content="Du mardi au vendredi, 12h–15h, jusqu'au 18 décembre. 49 rue de Clignancourt, M° Château Rouge.">
+<meta property="og:image" content="__ORIGIN__/midi/toloache-midi-10.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Instrument+Serif:ital@1&family=DM+Sans:wght@400;500;700&display=swap">
+<style>
+/* Página de la campaña Midi Toloache: misma paleta y tipografías que la web y la miniatura de Toloache. */
+:root {
+  --ink: #16110e; --paper: #f6eee3; --white: #fffaf3; --muted: #6e6158; --line: #e3d6c6;
+  --chile: #cf3a2c; --chile-d: #a92b20; --marigold: #f3a530; --rosa-soft: #f4b9cb; --agave: #1f5e4a;
+  --display: "Big Shoulders Display", Impact, "Arial Narrow", sans-serif;
+  --serif: "Instrument Serif", Georgia, serif;
+  --body: "DM Sans", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 17px/1.55 var(--body); }
+h1, h2, h3, p, ol, ul { margin: 0; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--marigold); outline-offset: 3px; }
+.wrap { width: min(1080px, 100% - 32px); margin-inline: auto; }
+
+/* Portada */
+.hero { position: relative; color: var(--white); background: var(--ink); overflow: hidden; text-align: center; }
+.hero > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background:
+  radial-gradient(ellipse 70% 80% at 50% 50%, rgba(22,17,14,.9) 0%, rgba(22,17,14,.72) 55%, rgba(22,17,14,.4) 100%); }
+.hero .wrap { position: relative; z-index: 2; padding: calc(56px + env(safe-area-inset-top, 0px)) 0 64px; display: flex; flex-direction: column; align-items: center; }
+.eyebrow { font: 700 14px/1 var(--body); letter-spacing: .22em; text-transform: uppercase; color: var(--rosa-soft); }
+.hero h1 { font: 900 clamp(120px, 30vw, 240px)/.8 var(--display); margin-top: 20px; text-shadow: 0 6px 30px rgba(0,0,0,.45); }
+.tag { font: italic clamp(32px, 7vw, 60px)/1.05 var(--serif); color: var(--marigold); margin-top: 10px; }
+.sub { margin-top: 18px; font-size: 18px; max-width: 34ch; color: #f1e6d8; }
+.sub b { color: var(--white); }
+.pill { margin-top: 26px; display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 6px 12px; padding: 12px 22px; border-radius: 999px; background: var(--chile); font: 700 16px/1.2 var(--body); box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.until { margin-top: 16px; font: 700 13px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--rosa-soft); }
+
+/* Bloques */
+section.block { padding: 56px 0; }
+section.block + section.block { border-top: 1px solid var(--line); }
+h2 { font: 800 clamp(34px, 6vw, 48px)/1 var(--display); text-transform: uppercase; letter-spacing: .01em; }
+h2 em { font: italic 400 1em/1 var(--serif); text-transform: none; color: var(--chile); letter-spacing: 0; }
+.lead { margin-top: 10px; color: var(--muted); max-width: 60ch; }
+
+.steps { list-style: none; padding: 0; margin-top: 28px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; counter-reset: s; }
+.steps li { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 22px; counter-increment: s; }
+.steps li::before { content: counter(s); display: block; font: 900 44px/1 var(--display); color: var(--chile); }
+.steps b { display: block; margin-top: 8px; font-size: 18px; }
+.steps p { margin-top: 4px; color: var(--muted); }
+
+.prices { margin-top: 28px; width: 100%; border-collapse: collapse; background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; font-variant-numeric: tabular-nums; }
+.prices th, .prices td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--line); }
+.prices tr:last-child td { border-bottom: 0; }
+.prices th { font: 700 12px/1.2 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.prices td:not(:first-child), .prices th:not(:first-child) { text-align: right; white-space: nowrap; }
+.prices td:first-child { font-weight: 700; }
+.prices .deal { color: var(--chile-d); font-weight: 700; }
+.note { margin-top: 12px; font-size: 15px; color: var(--muted); }
+
+.info { margin-top: 28px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 6px; }
+.card h3 { font: 700 12px/1.2 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.card p { font-size: 18px; }
+.actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 10px 20px; border-radius: 999px; font: 700 16px/1 var(--body); text-decoration: none; border: 2px solid var(--ink); }
+.btn.solid { background: var(--chile); border-color: var(--chile); color: var(--white); }
+.btn.solid:hover { background: var(--chile-d); border-color: var(--chile-d); }
+.btn:not(.solid):hover { background: var(--ink); color: var(--white); }
+
+.groups { background: var(--agave); color: var(--white); border-radius: 20px; padding: 32px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; }
+.groups h2 em { color: var(--marigold); }
+.groups p { margin-top: 8px; color: #dcebe4; max-width: 56ch; }
+.groups .btn { border-color: var(--white); color: var(--white); }
+.groups .btn:hover { background: var(--white); color: var(--agave); }
+
+footer { padding: 32px 0 calc(40px + env(safe-area-inset-bottom, 0px)); font-size: 14px; color: var(--muted); }
+footer p + p { margin-top: 6px; }
+
+@media (max-width: 760px) {
+  section.block { padding: 44px 0; }
+  .steps, .info { grid-template-columns: minmax(0, 1fr); }
+  .groups { grid-template-columns: minmax(0, 1fr); padding: 24px; }
+  .prices th, .prices td { padding: 12px 12px; }
+  .pill { border-radius: 18px; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <img src="/midi/tacos.jpg" alt="">
+  <div class="wrap">
+    <p class="eyebrow">Toloache · Montmartre</p>
+    <h1>−10 %</h1>
+    <p class="tag">le midi, du mardi au vendredi</p>
+    <p class="sub">Pour ceux qui travaillent dans le quartier. <b>−15 % dès 4 personnes.</b></p>
+    <p class="pill"><span>12h – 15h</span><span>49 rue de Clignancourt</span><span>M° Château Rouge</span></p>
+    <p class="until">Jusqu'au vendredi 18 décembre</p>
+  </div>
+</header>
+
+<main>
+  <section class="block">
+    <div class="wrap">
+      <h2>Comment <em>ça marche</em></h2>
+      <ol class="steps">
+        <li><b>Venez le midi</b><p>Du mardi au vendredi, entre 12h et 15h.</p></li>
+        <li><b>Dites « Midi Toloache »</b><p>Ou montrez notre message WhatsApp en commandant.</p></li>
+        <li><b>C'est −10 % pour chacun</b><p>Et −15 % sur toute la table dès 4 personnes.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Le midi <em>à la carte</em></h2>
+      <p class="lead">Tacos, tortas et burritos, avec des options végé et sans gluten.</p>
+      <table class="prices">
+        <thead><tr><th scope="col">Plat</th><th scope="col">Prix</th><th scope="col">Avec l'offre</th></tr></thead>
+        <tbody>
+          <tr><td>Tacos, tortas, burritos</td><td>14 – 15 €</td><td class="deal">dès 12,60 €</td></tr>
+          <tr><td>À 4 ou plus</td><td>14 – 15 €</td><td class="deal">dès 11,90 €</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Offre valable sur place, sur la carte, hors boissons alcoolisées.</p>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Venir <em>chez nous</em></h2>
+      <div class="info">
+        <div class="card">
+          <h3>Adresse</h3>
+          <p>49 rue de Clignancourt, 75018 Paris</p>
+          <p class="note">M° Château Rouge (ligne 4) ou Barbès–Rochechouart (lignes 2 et 4), tout près.</p>
+          <div class="actions"><a class="btn" href="https://www.google.com/maps/dir/?api=1&amp;destination=49+rue+de+Clignancourt+75018+Paris" target="_blank" rel="noopener">Itinéraire</a></div>
+        </div>
+        <div class="card">
+          <h3>Réserver une table</h3>
+          <p>07 84 60 09 11</p>
+          <p class="note">Par téléphone ou par WhatsApp.</p>
+          <div class="actions">
+            <a class="btn solid" href="https://wa.me/33784600911?text=Bonjour%2C%20je%20voudrais%20r%C3%A9server%20pour%20le%20Midi%20Toloache." target="_blank" rel="noopener">WhatsApp</a>
+            <a class="btn" href="tel:+33784600911">Appeler</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="groups">
+        <div>
+          <h2>Vous êtes <em>plus nombreux ?</em></h2>
+          <p>Afterwork, pot de départ ou fête de fin d'année : on privatise La Playita, juste en dessous, jusqu'à 100 personnes. On s'occupe de tout.</p>
+        </div>
+        <a class="btn" href="https://wa.me/33784600911?text=Bonjour%2C%20je%20voudrais%20des%20infos%20pour%20privatiser%20La%20Playita." target="_blank" rel="noopener">Nous écrire</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Offre Midi Toloache valable du mardi au vendredi de 12h à 15h, jusqu'au vendredi 18 décembre 2026, sur place, hors boissons alcoolisées. −15 % à partir de 4 personnes à la même table.</p>
+    <p>Toloache · 49 rue de Clignancourt, 75018 Paris</p>
+  </div>
+</footer>
+
+</body>
+</html>

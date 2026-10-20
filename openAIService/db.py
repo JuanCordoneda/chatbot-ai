@@ -4,8 +4,8 @@ SQLite en un solo archivo (DB_PATH). En Railway hay que montar un volumen en la
 carpeta de DB_PATH para que los datos sobrevivan a cada deploy.
 
 Cada prospecto se identifica por su `clave`: los últimos 10 dígitos del
-teléfono (código de área + número). Así un mismo número escrito como
-5491155550101, 1155550101 o 011 15 5555 0101 cae siempre en el mismo prospecto.
+teléfono ya normalizado. Así un mismo número escrito como 06 12 34 56 78,
++33 6 12 34 56 78 o 0033612345678 cae siempre en el mismo prospecto.
 """
 
 import json
@@ -14,17 +14,30 @@ import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "prospector.db"))
 
 ESTADOS = ("nuevo", "contactado", "en_charla", "calificado", "descartado", "error")
-CAMPOS_FICHA = ("flota", "unidades", "marcas", "quien_compra", "contacto_compras", "propuesta", "zona")
+CAMPOS_FICHA = ("interes", "personas", "modalidad", "reserva", "dia_reserva", "evento", "zona")
+# Campos de la ficha que solo aceptan "si" o "no".
+CAMPOS_SI_NO = ("interes", "reserva")
 
 DEFAULT_AJUSTES = {
-    "oferta": "vendemos filtros para camiones y colectivos: gasoil, aceite y aire",
-    "zona": "Boedo, CABA y GBA",
-    "minimo": 5,
+    "oferta": (
+        "Toloache, restaurant mexicain, 49 rue de Clignancourt 75018 (M° Château Rouge / Barbès). "
+        "Le midi du mardi au vendredi, 12h–15h, jusqu'au vendredi 18 décembre : -10 % sur la carte pour ceux "
+        "qui travaillent dans le quartier, -15 % dès 4 personnes, sur place, hors boissons alcoolisées. "
+        "Il suffit de montrer ce message ou de dire « Midi Toloache ». Tacos, tortas et burritos entre 14 et 15 €, "
+        "options végé et sans gluten. Réservations : 07 84 60 09 11."
+    ),
+    "zona": (
+        "Château Rouge, Barbès, Goutte d'Or, bas de Montmartre, Anvers, Pigalle, Marcadet, Jules Joffrin (18e), "
+        "et le 9e et le 10e tout proches"
+    ),
 }
+
+PARIS = ZoneInfo("Europe/Paris")
 
 _lock = threading.Lock()
 
@@ -79,27 +92,29 @@ def init():
 # ---------------------------------------------------------------------------
 
 def normalizar_telefono(tel: str) -> str:
-    """Devuelve el número en formato WhatsApp para Argentina (549 + área + número).
+    """Devuelve el número en formato WhatsApp (código de país + número, sin el 0).
 
-    Acepta 11 5555 0101, 011 15 5555 0101, +54 9 11 5555 0101, etc. Si el número
-    ya viene con código de país 54 se respeta tal cual.
+    Acepta 06 12 34 56 78, +33 6 12 34 56 78, 0033 6 12 34 56 78, etc. Un número
+    escrito con + o 00 adelante se respeta tal cual (sirve para otros países).
     """
-    d = re.sub(r"\D", "", tel or "")
+    crudo = (tel or "").strip()
+    d = re.sub(r"\D", "", crudo)
     if not d:
         return ""
     if d.startswith("00"):
-        d = d[2:]
-    if d.startswith("54"):
+        return d[2:]
+    if crudo.startswith("+") or d.startswith("33"):
         return d
-    if d.startswith("0"):
-        d = d[1:]
-    # Celular con 15 escrito a la argentina: área (2 a 4 dígitos) + 15 + número.
-    if len(d) == 12:
-        for largo_area in (2, 3, 4):
-            if d[largo_area:largo_area + 2] == "15":
-                d = d[:largo_area] + d[largo_area + 2:]
-                break
-    return "549" + d
+    if len(d) == 10 and d.startswith("0"):
+        return "33" + d[1:]
+    if len(d) == 9:
+        return "33" + d
+    return d
+
+
+def es_celular(tel: str) -> bool:
+    """En Francia solo los celulares (06 y 07) tienen WhatsApp. Los de otros países no se filtran."""
+    return not tel.startswith("33") or tel[2:3] in ("6", "7")
 
 
 def clave_de(tel: str) -> str:
@@ -145,9 +160,10 @@ def cargar_lista(texto: str) -> dict:
 
     Cada línea tiene nombre, empresa y teléfono separados por coma, punto y coma
     o tabulación (así sirve pegar columnas de Excel o Google Sheets). El teléfono
-    se detecta solo, en cualquier columna.
+    se detecta solo, en cualquier columna. Si además del teléfono hay un solo
+    dato, es el nombre del comercio. Los fijos se descartan: no tienen WhatsApp.
     """
-    nuevos, repetidos, invalidos = 0, 0, []
+    nuevos, repetidos, invalidos, fijos = 0, 0, [], 0
     for linea in (texto or "").splitlines():
         linea = linea.strip()
         if not linea:
@@ -160,8 +176,14 @@ def cargar_lista(texto: str) -> dict:
                 invalidos.append(linea)
             continue
         tel = normalizar_telefono(partes.pop(idx))
-        nombre = partes[0] if partes else ""
-        empresa = partes[1] if len(partes) > 1 else ""
+        if not es_celular(tel):
+            fijos += 1
+            continue
+        if len(partes) == 1:
+            nombre, empresa = "", partes[0]
+        else:
+            nombre = partes[0] if partes else ""
+            empresa = partes[1] if len(partes) > 1 else ""
         clave = clave_de(tel)
         with _lock, _conn() as c:
             cur = c.execute(
@@ -173,7 +195,7 @@ def cargar_lista(texto: str) -> dict:
             nuevos += 1
         else:
             repetidos += 1
-    return {"nuevos": nuevos, "repetidos": repetidos, "invalidos": invalidos}
+    return {"nuevos": nuevos, "repetidos": repetidos, "invalidos": invalidos, "fijos": fijos}
 
 
 def listar() -> list[dict]:
@@ -217,7 +239,7 @@ def actualizar_ficha(clave: str, datos: dict) -> dict:
         v = datos.get(k)
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
-        if k == "unidades":
+        if k == "personas":
             try:
                 v = int(v)
             except (TypeError, ValueError):
@@ -226,7 +248,7 @@ def actualizar_ficha(clave: str, datos: dict) -> dict:
                 continue
         elif isinstance(v, str):
             v = v.strip()
-            if k == "propuesta":
+            if k in CAMPOS_SI_NO:
                 v = v.lower()
                 if v not in ("si", "no"):
                     continue
@@ -255,6 +277,18 @@ def agregar_mensaje(clave: str, de: str, texto: str):
         c.execute("UPDATE prospectos SET actualizado = ? WHERE clave = ?", (ahora(), clave))
 
 
+def enviados_hoy() -> int:
+    """Cuántos primeros mensajes (la plantilla) se mandaron hoy, contando el día en hora de París."""
+    inicio = datetime.now(PARIS).replace(hour=0, minute=0, second=0, microsecond=0)
+    desde = inicio.astimezone(timezone.utc).isoformat(timespec="seconds")
+    with _conn() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM mensajes m WHERE m.de = 'bot' AND m.ts >= ? "
+            "AND m.id = (SELECT MIN(id) FROM mensajes WHERE clave = m.clave)",
+            (desde,),
+        ).fetchone()[0]
+
+
 def mensajes(clave: str, limite: int = 500) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
@@ -281,12 +315,9 @@ def guardar_ajustes(nuevos: dict) -> dict:
         for k in DEFAULT_AJUSTES:
             if k in nuevos:
                 v = nuevos[k]
-                if k == "minimo":
-                    v = max(1, int(v))
-                else:
-                    v = str(v).strip()
-                    if not v:
-                        continue
+                v = str(v).strip()
+                if not v:
+                    continue
                 c.execute(
                     "INSERT INTO ajustes (clave, valor) VALUES (?, ?) "
                     "ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",

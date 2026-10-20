@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Prospector Ignacio</title>
+<title>Midi Toloache</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
@@ -140,6 +140,7 @@ label.f { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font
 label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--fg); }
 .preview { background: var(--chat-bg); border-radius: 12px; padding: 12px; display: flex; }
 .preview .msg { margin-left: auto; max-width: 100%; }
+.preview img { display: block; width: 100%; border-radius: 8px; margin-bottom: 8px; }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 12px 18px; border-radius: 10px; font-size: 16px; z-index: 50; max-width: calc(100% - 32px); }
 
 @media (max-width: 860px) {
@@ -166,7 +167,7 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
 </head>
 <body>
 <header class="top">
-  <div class="brand"><b>Prospector Ignacio</b><span>El bot les escribe a los transportistas y les hace la entrevista</span></div>
+  <div class="brand"><b>Midi Toloache</b><span>El bot les escribe a los que trabajan en el barrio y les ofrece el descuento del mediodía</span></div>
   <div class="row">
     <span class="sending" id="sending"><span class="spin"></span>Mandando primeros mensajes…</span>
     <button class="btn dark" type="button" id="btnAjustes">Ajustes</button>
@@ -188,8 +189,8 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
 <dialog id="dlgCargar">
   <form class="dlg" method="dialog" id="formCargar">
     <h3>Cargar lista de prospectos</h3>
-    <p class="note">Un contacto por línea: <b>Nombre, Empresa, Teléfono</b>. Podés pegar columnas copiadas de Excel o Google Sheets, o subir un archivo CSV.</p>
-    <textarea id="txtLista" rows="7" placeholder="Martín Ferreyra, Transportes del Litoral, 11 5555 0101&#10;Laura Gómez, Expreso Sur, 11 5555 0102"></textarea>
+    <p class="note">Un contacto por línea: <b>Comercio, Teléfono</b> o <b>Nombre, Comercio, Teléfono</b>. Podés pegar columnas copiadas de Excel o Google Sheets, o subir un archivo CSV. Solo celulares (06 o 07): los fijos no tienen WhatsApp y se descartan.</p>
+    <textarea id="txtLista" rows="7" placeholder="Salon Château Rouge, 06 12 34 56 78&#10;Claire Martin, Agence Lumière, 07 98 76 54 32"></textarea>
     <label class="f">O subí un archivo CSV<input type="file" id="fileLista" accept=".csv,.txt,text/csv,text/plain"></label>
     <p class="note" id="cargarNota"></p>
     <div class="row">
@@ -203,8 +204,8 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
   <form class="dlg" method="dialog">
     <h3>Escribirles a los nuevos</h3>
     <p id="enviarTexto"></p>
-    <div class="preview"><div class="msg bot" id="enviarPreview"></div></div>
-    <p class="note">Es la plantilla aprobada en WhatsApp (<span id="enviarPlantilla"></span>). Cuando contesten, el bot sigue la charla solo.</p>
+    <div class="preview"><div class="msg bot"><img id="enviarImagen" alt="" hidden><span id="enviarPreview"></span></div></div>
+    <p class="note">Es la plantilla aprobada en WhatsApp (<span id="enviarPlantilla"></span>), con los botones «Oui, avec plaisir» y «Non merci». Cuando contesten, el bot sigue la charla solo.</p>
     <div class="row">
       <button class="btn" value="cancel">Cancelar</button>
       <button class="btn amber" type="button" id="btnEnviarOk">Mandar</button>
@@ -215,9 +216,9 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
 <dialog id="dlgAjustes">
   <form class="dlg" method="dialog">
     <h3>Ajustes del bot</h3>
-    <label class="f">Qué ofrece Ignacio (en una frase)<input type="text" id="ajOferta"></label>
+    <label class="f">La oferta (en francés, tal cual la puede contar el bot)<textarea id="ajOferta" rows="7"></textarea></label>
     <label class="f">Zona<input type="text" id="ajZona"></label>
-    <p class="note">El bot usa esto para presentarse. Un prospecto queda calificado cuando acepta que le armes una propuesta. El primer mensaje es la plantilla de WhatsApp y se cambia desde Meta.</p>
+    <p class="note">El bot no promete nada que no esté en la oferta: si el dueño aprueba que valga para llevar o con alcohol, agregalo acá. Un prospecto queda calificado cuando quiere la oferta. El primer mensaje es la plantilla de WhatsApp y se cambia desde Meta.</p>
     <p class="note err" id="ajNota"></p>
     <div class="row">
       <button class="btn" value="cancel">Cerrar</button>
@@ -231,10 +232,10 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
 <script>
 (() => {
   const ESTADOS = { nuevo: "Nuevo", contactado: "Contactado", en_charla: "En charla", calificado: "Calificado", descartado: "Descartado", error: "No se pudo enviar" };
-  const FLOTA = { camiones: "Camiones", colectivos: "Colectivos", ambos: "Los dos", otro: "Otro" };
+  const MODALIDAD = { sur_place: "en el local", a_emporter: "para llevar", les_deux: "local y para llevar" };
   const FILTROS = [["todos", "Todos"], ["atencion", "Te necesitan"], ["en_charla", "En charla"], ["calificado", "Calificados"], ["contactado", "Esperando respuesta"], ["nuevo", "Sin escribir"], ["descartado", "Descartados"], ["error", "Con error"]];
 
-  let data = { prospectos: [], resumen: {}, ajustes: {}, pasos: [], plantilla: {}, enviando: false };
+  let data = { prospectos: [], resumen: {}, ajustes: {}, pasos: [], plantilla: {}, enviando: false, cupo_hoy: 0, max_dia: 0 };
   let filtro = "todos", sel = null, detalle = null, enviandoMsg = false;
   const $ = (id) => document.getElementById(id);
 
@@ -263,7 +264,7 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
     if (d.toDateString() === hoy.toDateString()) return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
     return d.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
   }
-  const titulo = (p) => p.nombre || ("+" + p.telefono);
+  const titulo = (p) => p.nombre || p.empresa || ("+" + p.telefono);
   const visible = (p) => filtro === "todos" ? true : filtro === "atencion" ? !!p.atencion : p.estado === filtro;
 
   /* ---------- Lista ---------- */
@@ -281,7 +282,7 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
     const list = $("list"); list.replaceChildren();
     const rows = data.prospectos.filter((p) => visible(p) && (!q || [p.nombre, p.empresa, p.telefono].join(" ").toLowerCase().includes(q)));
     if (!data.prospectos.length) {
-      list.append(el("li", { class: "empty" }, el("b", {}, "Todavía no hay prospectos"), "Tocá \"Cargar lista\" y pegá los transportistas a los que querés escribirles."));
+      list.append(el("li", { class: "empty" }, el("b", {}, "Todavía no hay prospectos"), "Tocá \"Cargar lista\" y pegá los comercios y oficinas del barrio a los que querés escribirles."));
       return;
     }
     if (!rows.length) { list.append(el("li", { class: "empty" }, "No hay prospectos con este filtro.")); return; }
@@ -302,8 +303,9 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
   function renderTop() {
     const nuevos = (data.resumen.nuevo || 0) + (data.resumen.error || 0);
     const b = $("btnEnviar");
-    b.disabled = !nuevos || data.enviando;
-    b.textContent = nuevos ? `Escribirles a los nuevos (${nuevos})` : "Escribirles a los nuevos";
+    b.disabled = !nuevos || !data.cupo_hoy || data.enviando;
+    b.textContent = !nuevos ? "Escribirles a los nuevos" : data.cupo_hoy ? `Escribirles a los nuevos (${Math.min(nuevos, data.cupo_hoy)})` : "Cupo de hoy completo";
+    b.title = data.cupo_hoy ? "" : `Ya se mandaron ${data.max_dia} primeros mensajes hoy. Seguí mañana para cuidar el número.`;
     $("sending").classList.toggle("on", !!data.enviando);
   }
 
@@ -326,19 +328,19 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
     const sw = el("input", { type: "checkbox", role: "switch", checked: p.bot_activo, onchange: (e) => editar({ bot_activo: e.target.checked }, e.target.checked ? "El bot vuelve a responder" : "Bot pausado: respondés vos") });
     box.append(el("div", { class: "c-head" },
       el("div", {}, el("button", { class: "btn sm back", type: "button", onclick: cerrar }, "← Volver"),
-        el("h2", {}, titulo(p)), el("div", { class: "sub" }, [p.empresa, "+" + p.telefono, p.origen === "entrante" ? "Escribió él" : null].filter(Boolean).join(" · "))),
+        el("h2", {}, titulo(p)), el("div", { class: "sub" }, [p.empresa, "+" + p.telefono, p.origen === "entrante" ? "Escribió primero" : null].filter(Boolean).join(" · "))),
       el("div", { class: "row" }, estadoSel, el("label", { class: "switch" }, sw, p.bot_activo ? "Bot respondiendo" : "Bot pausado"))));
 
     // Hasta dónde llegó
     const f = p.ficha || {};
     const steps = el("div", { class: "steps", "aria-label": "Avance de la entrevista" });
     const contactado = p.estado !== "nuevo" && p.estado !== "error";
-    steps.append(el("div", { class: "step" + (contactado ? " done" : "") }, el("i"), el("span", {}, "Contacto"), el("b", {}, contactado ? (p.origen === "entrante" ? "Escribió él" : "Mensaje enviado") : "Sin escribir")));
+    steps.append(el("div", { class: "step" + (contactado ? " done" : "") }, el("i"), el("span", {}, "Contacto"), el("b", {}, contactado ? (p.origen === "entrante" ? "Escribió primero" : "Mensaje enviado") : "Sin escribir")));
     for (const s of data.pasos) {
       let v = f[s.clave];
-      if (s.clave === "flota") v = [FLOTA[f.flota] || f.flota, f.unidades ? f.unidades + " unid." : "", f.marcas].filter(Boolean).join(" · ");
-      if (s.clave === "propuesta") v = v === "si" ? "Sí, quiere" : v === "no" ? "No" : v;
-      if (s.clave === "quien_compra" && f.contacto_compras) v = (v ? v + " · " : "") + f.contacto_compras;
+      if (s.clave === "interes") v = v === "si" ? "Sí, quiere" : v === "no" ? "No" : v;
+      if (s.clave === "personas") v = [f.personas ? f.personas + " pers." : "", MODALIDAD[f.modalidad] || f.modalidad].filter(Boolean).join(" · ");
+      if (s.clave === "reserva") v = [v === "si" ? "Sí" : v === "no" ? "No" : v, f.dia_reserva, f.evento ? "Evento: " + f.evento : ""].filter(Boolean).join(" · ");
       steps.append(el("div", { class: "step" + (v ? " done" : "") }, el("i"), el("span", {}, s.nombre), el("b", { title: v || "" }, v || "Falta")));
     }
     const cls = p.estado === "calificado" ? " done" : p.estado === "descartado" ? " off" : "";
@@ -421,6 +423,7 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
       const r = await api("/api/prospectos", { method: "POST", body: { texto } });
       const partes = [`Agregué ${r.nuevos}`];
       if (r.repetidos) partes.push(`${r.repetidos} ya estaban`);
+      if (r.fijos) partes.push(`${r.fijos} eran fijos (sin WhatsApp)`);
       if (r.invalidos.length) partes.push(`${r.invalidos.length} sin teléfono válido`);
       nota.textContent = partes.join(" · ") + ".";
       if (r.nuevos) { $("txtLista").value = ""; $("fileLista").value = ""; filtro = "nuevo"; }
@@ -429,15 +432,17 @@ label.f > * { text-transform: none; letter-spacing: 0; font-weight: 400; color: 
   };
 
   $("btnEnviar").onclick = () => {
-    const n = (data.resumen.nuevo || 0) + (data.resumen.error || 0);
+    const total = (data.resumen.nuevo || 0) + (data.resumen.error || 0), n = Math.min(total, data.cupo_hoy);
     const ej = data.prospectos.find((p) => p.estado === "nuevo" || p.estado === "error");
-    $("enviarTexto").textContent = `El bot le va a escribir a ${n} prospecto${n === 1 ? "" : "s"}, de a uno. Así le llega a cada uno:`;
-    $("enviarPreview").textContent = (data.plantilla.texto || "").replace("{{1}}", (ej?.nombre || "").split(" ")[0] || "qué tal");
+    $("enviarTexto").textContent = `El bot le va a escribir a ${n} prospecto${n === 1 ? "" : "s"}, de a uno.` +
+      (total > n ? ` Los otros ${total - n} quedan para mañana: son ${data.max_dia} por día como máximo, para cuidar el número.` : "") + " Así le llega a cada uno:";
+    $("enviarPreview").textContent = (data.plantilla.texto || "").replace("{{1}}", ej?.saludo || "à toute l'équipe");
+    const img = $("enviarImagen"); img.hidden = !data.plantilla.imagen; if (data.plantilla.imagen) img.src = data.plantilla.imagen;
     $("enviarPlantilla").textContent = data.plantilla.nombre || "";
     $("dlgEnviar").showModal();
   };
   $("btnEnviarOk").onclick = async () => {
-    try { const r = await api("/api/enviar", { method: "POST", body: {} }); $("dlgEnviar").close(); toast(`Mandando a ${r.encolados}…`); refrescar(); }
+    try { const r = await api("/api/enviar", { method: "POST", body: {} }); $("dlgEnviar").close(); toast(`Mandando a ${r.encolados}…` + (r.quedan ? ` Los otros ${r.quedan}, mañana.` : "")); refrescar(); }
     catch (e) { $("dlgEnviar").close(); toast(e.message); }
   };
 

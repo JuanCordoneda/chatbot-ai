@@ -1,13 +1,14 @@
-"""Bot prospector: entrevista a transportistas por WhatsApp y completa su ficha.
+"""Bot de la campaña Midi Toloache: les ofrece el descuento del mediodía a los que trabajan en el barrio.
 
 Flujo de cada mensaje entrante (lo llama /getresponsegpt):
   1. Se guarda el mensaje del cliente.
-  2. Si el bot está pausado para ese prospecto (Ignacio tomó la charla, o el
-     cliente pidió que no le escriban), no se responde.
-  3. Si no, Claude arma la respuesta con el historial guardado. Mientras
+  2. Si escribe STOP, se lo da de baja y no se le escribe más.
+  3. Si el bot está pausado para ese prospecto (alguien del equipo tomó la
+     charla, o el cliente dijo que no), no se responde.
+  4. Si no, Claude arma la respuesta con el historial guardado. Mientras
      conversa usa `actualizar_ficha` para anotar lo que averigua y
-     `derivar_a_ignacio` cuando hace falta una persona.
-  4. Se guarda la respuesta del bot y se devuelve para mandarla por WhatsApp.
+     `derivar_a_persona` cuando hace falta alguien del equipo.
+  5. Se guarda la respuesta del bot y se devuelve para mandarla por WhatsApp.
 """
 
 import json
@@ -25,92 +26,125 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 # Lo que el bot tiene que averiguar, en orden. El último paso es ofrecer la
-# propuesta de filtros: si dice que sí, sigue Ignacio en persona.
+# reserva: si dice que sí, sigue una persona del equipo.
 PASOS = [
-    ("flota", "Flota"),
-    ("quien_compra", "Compras / taller"),
-    ("propuesta", "Propuesta"),
+    ("interes", "Interés"),
+    ("personas", "Personas"),
+    ("reserva", "Reserva"),
 ]
+
+# Desde cuántas personas el grupo pasa a una persona para ofrecerle La Playita.
+GRUPO_GRANDE = 8
 
 # Texto de la plantilla aprobada en Meta para el primer mensaje. Tiene que
 # coincidir con la plantilla real: se usa para guardar en la conversación lo
-# que efectivamente le llegó al cliente. {{1}} es el nombre del contacto.
-PLANTILLA_NOMBRE = os.environ.get("PROSPECT_TEMPLATE", "prospeccion_filtros")
-PLANTILLA_IDIOMA = os.environ.get("PROSPECT_TEMPLATE_LANG", "es_AR")
+# que efectivamente le llegó al cliente. {{1}} es el saludo (ver saludo()).
+PLANTILLA_NOMBRE = os.environ.get("PROSPECT_TEMPLATE", "midi_toloache")
+PLANTILLA_IDIOMA = os.environ.get("PROSPECT_TEMPLATE_LANG", "fr")
 PLANTILLA_TEXTO = os.environ.get(
     "PROSPECT_TEMPLATE_TEXT",
-    "Hola {{1}}, ¿cómo va? Soy del equipo de Ignacio, vendemos filtros para camiones y "
-    "colectivos. ¿Te puedo hacer unas preguntas rápidas sobre tu flota?",
+    "Bonjour {{1}} ! Ici Toloache, le resto mexicain du 49 rue de Clignancourt (M° Château Rouge). "
+    "Pour ceux qui travaillent dans le quartier, on fait -10 % sur la carte le midi, du mardi au vendredi "
+    "de 12h à 15h, jusqu'au 18 décembre. Je vous envoie l'offre pour vous et vos collègues ?",
 )
+# Imagen de la cabecera de la plantilla, dentro de midi/. Vacío si la plantilla no lleva imagen.
+PLANTILLA_IMAGEN = os.environ.get("PROSPECT_TEMPLATE_IMAGE", "toloache-midi-10.jpg")
+
+STOP = re.compile(r"\s*(stop|arr[eê]te[rz]?|arr[eê]t|d[ée]sinscri\w*|unsubscribe)\s*[.!]*\s*", re.I)
+MENSAJE_BAJA = "C'est noté, vous ne recevrez plus nos messages. Bonne journée !"
 
 
 def primer_nombre(p: dict) -> str:
     return (p.get("nombre") or "").strip().split(" ")[0]
 
 
+def _de(empresa: str) -> str:
+    """'de' + nombre del comercio, con la contracción del francés (du Trianon, des Abbesses, de La Cigale)."""
+    for art, contraccion in (("le ", "du "), ("les ", "des ")):
+        if empresa.lower().startswith(art):
+            return contraccion + empresa[len(art):]
+    return "de " + empresa
+
+
+def saludo(p: dict) -> str:
+    """Lo que va después de 'Bonjour': el nombre de la persona o, si no lo tenemos, el equipo del comercio."""
+    if primer_nombre(p):
+        return primer_nombre(p)
+    empresa = (p.get("empresa") or "").strip()
+    if empresa:
+        return "à l'équipe " + _de(empresa)
+    return "à toute l'équipe"
+
+
 def texto_plantilla(p: dict) -> str:
-    return PLANTILLA_TEXTO.replace("{{1}}", primer_nombre(p) or "qué tal")
+    return PLANTILLA_TEXTO.replace("{{1}}", saludo(p))
 
 
 def paso_actual(ficha: dict) -> int:
-    """Cuántos pasos de la entrevista ya están completos en la ficha."""
+    """Cuántos pasos de la charla ya están completos en la ficha."""
     return sum(1 for k, _ in PASOS if ficha.get(k) not in (None, "", 0))
 
 
 def _estado_charla(clave: str) -> tuple[int, bool]:
-    """Cuántas preguntas hizo el bot (sin contar la plantilla) y si ya ofreció la propuesta."""
+    """Cuántas preguntas hizo el bot (sin contar la plantilla) y si ya ofreció la reserva."""
     msgs = db.mensajes(clave)
     del_bot = [m["texto"] for m in msgs if m["de"] == "bot"]
     if msgs and msgs[0]["de"] == "bot":
         del_bot = del_bot[1:]  # el primero es la plantilla
-    ofrecio = any("propuesta" in t.lower() for t in del_bot)
+    ofrecio = any("midi toloache" in t.lower() or "réserve" in t.lower() for t in del_bot)
     return len(del_bot), ofrecio
 
 
-HABLA_DE_FLOTA = re.compile(r"cami[oó]n|camiones|colectiv|micro|[oó]mnibus|unidades|semi|chasis|\d", re.I)
+HABLA_DE_PERSONAS = re.compile(r"\d|personne|coll[eè]gue|on est|nous sommes|seul|tout seul|deux|trois|quatre|cinq|six|sept|huit|dix", re.I)
 
 
 def _paso_siguiente(preguntas: int, ofrecio: bool, ultimo_texto: str = "") -> str:
     if ofrecio:
-        return ("Ya le ofreciste la propuesta. No hagas ninguna pregunta más: interpretá su respuesta "
-                "(sí, no o una duda), anotala y cerrá en una frase.")
+        return ("Ya le confirmaste la oferta y le ofreciste reservar. No hagas ninguna pregunta más: interpretá su "
+                "respuesta (sí, no o una duda), anotala y cerrá en una frase.")
     if preguntas >= 1:
-        return ("Ya hiciste la primera pregunta. Tu mensaje ahora TIENE que ser la oferta de la propuesta "
-                "(pregunta 2), aunque la respuesta sobre la flota esté incompleta. No repreguntes nada de la flota.")
-    if HABLA_DE_FLOTA.search(ultimo_texto or ""):
-        return ("Todavía no hiciste ninguna pregunta, pero ya te contó algo de su flota. Tu mensaje ahora TIENE que "
-                "ser la oferta de la propuesta (pregunta 2). No preguntes marcas ni nada más de la flota.")
-    return "Todavía no hiciste ninguna pregunta: mandá la pregunta 1."
+        return ("Ya hiciste la primera pregunta. Tu mensaje ahora TIENE que ser la confirmación de la oferta con el "
+                "ofrecimiento de reservar (pregunta 2), aunque la respuesta esté incompleta. No repreguntes nada.")
+    if HABLA_DE_PERSONAS.search(ultimo_texto or ""):
+        return ("Todavía no hiciste ninguna pregunta, pero ya te dijo cuántos son o algo parecido. Tu mensaje ahora "
+                "TIENE que ser la confirmación de la oferta con el ofrecimiento de reservar (pregunta 2).")
+    return "Todavía no hiciste ninguna pregunta: si quiere la oferta, mandá la pregunta 1."
 
 
-def _system_prompt(p: dict, aj: dict, preguntas: int = 0, ofrecio: bool = False, ultimo_texto: str = "") -> str:
+def _system_prompt(p: dict, aj: dict, preguntas: int = 0, ofrecio: bool = False, ultimo_texto: str = "",
+                   enlace: str = "") -> str:
     nombre = p.get("nombre") or "sin nombre todavía"
     empresa = f", de {p['empresa']}" if p.get("empresa") else ""
-    return f"""Respondés el WhatsApp de prospección de Ignacio. Ignacio {aj['oferta']}. Zona: {aj['zona']}.
+    link = (f"\nSi te pide más información o para reenviarla a sus compañeros, pasale este link con la oferta: {enlace}"
+            if enlace else "")
+    return f"""Respondés el WhatsApp de Toloache, un restaurante mexicano de París, para la campaña de mediodía "Midi Toloache".
 
-Estás hablando con alguien de una empresa de transporte ({nombre}{empresa}). Ya le mandamos un primer mensaje presentándonos y preguntando si podíamos hacerle unas preguntas sobre su flota. Tu objetivo es conocer su flota a grandes rasgos y ofrecerle que Ignacio le arme una propuesta de filtros. La persona ideal es quien maneja las compras o el taller.
+La oferta, tal cual (no prometas nada que no esté acá): {aj['oferta']}
+Zona de la campaña: {aj['zona']}.{link}
+
+Estás hablando con alguien que trabaja en el barrio ({nombre}{empresa}). Ya le mandamos un primer mensaje con la oferta (-10 % en la carta al mediodía, de martes a viernes) preguntando si le mandábamos la oferta para él y sus compañeros. Tu objetivo es que venga a almorzar: saber cuántos son y ofrecerle reservar una mesa.
 
 La charla tiene que ser cortísima: hacés como máximo DOS preguntas en total.
-1. Primera pregunta, abierta y en un solo mensaje: pedile que te cuente a grandes rasgos su flota (si son camiones o colectivos, más o menos cuántas unidades y de qué marcas) y si es quien ve las compras de filtros o el taller. Por ejemplo: "¡Buenísimo! Contame a grandes rasgos: ¿qué manejan, camiones o colectivos, más o menos cuántas unidades y de qué marcas? ¿Y vos ves las compras de filtros?"
-2. Segunda pregunta: con lo que haya contestado, aunque esté incompleto, agradecé en pocas palabras y preguntale si quiere que Ignacio le arme una propuesta de filtros para su flota. Si no es quien compra y no te pasó el contacto, en ese mismo mensaje pedile con quién conviene hablar (nombre y celular).
-Si en su respuesta ya aparece algo de la flota, aunque sea solo el tipo o la cantidad, no hagas la primera pregunta: andá directo a la segunda. Si todavía no sabés quién ve las compras, sumalo en esa misma pregunta. Nunca repreguntes detalles de la flota (marcas, cantidades, modelos): lo que falte lo completa Ignacio.
-No digas qué productos, marcas o stock tenemos: eso lo habla Ignacio.
-No prometas tiempos (por ejemplo "en unos minutos" o "hoy"): decí solamente que Ignacio le escribe en persona.
-La pregunta 2 es corta, por ejemplo: "¡Gracias! ¿Querés que Ignacio te arme una propuesta de filtros para tu flota?" (si no sabés quién ve las compras, agregá "¿Y con quién hablo de compras?").
+1. Primera pregunta, si dice que sí: preguntale cuántos son, más o menos, para almorzar por la zona. Solo si la oferta dice que vale para llevar ("à emporter"), sumá si prefieren comer en el local o para llevar. Por ejemplo: "Super ! Vous êtes combien à déjeuner dans le coin, à peu près ?"
+2. Segunda pregunta: con lo que haya contestado, confirmale cómo se usa la oferta y ofrecele reservar una mesa un día de esta semana. Por ejemplo: "Parfait ! Montrez ce message ou dites « Midi Toloache » : -10 % pour chacun, -15 % dès 4. Je vous réserve une table un jour cette semaine ?"
+Si en su respuesta ya dice cuántos son, no hagas la primera pregunta: andá directo a la segunda.
 
 Cada vez que el cliente te dé un dato, llamá a actualizar_ficha antes de contestar.
 
-Según la respuesta a la propuesta:
-- Si dice que sí: anotá propuesta "si" y estado "calificado", usá derivar_a_ignacio con un resumen de la flota, y cerrá en una frase diciendo que Ignacio le escribe en persona.
-- Si dice que no o que por ahora no: anotá propuesta "no" y estado "descartado", agradecé en una frase y dejale la puerta abierta para cuando necesite filtros.
+Según lo que conteste:
+- Si quiere la oferta: anotá interes "si" y estado "calificado".
+- Si quiere reservar: anotá reserva "si" y, si los dijo, el día y la hora en dia_reserva. Usá derivar_a_persona con el día, la hora y cuántos son, y cerrá en una frase diciendo que alguien del equipo le confirma la reserva por acá. No confirmes vos la reserva.
+- Si no quiere reservar por ahora: anotá reserva "no", recordale en una frase que alcanza con mostrar el mensaje o decir « Midi Toloache » y que la oferta vale hasta el 18 de diciembre.
+- Si son {GRUPO_GRANDE} o más, o habla de un afterwork, un evento, un cumpleaños o la fiesta de fin de año: anotalo en evento y usá derivar_a_persona para que le ofrezcan privatizar La Playita (hasta 100 personas). Decile que alguien del equipo le escribe para organizarlo.
+- Si dice "Non merci", que no le interesa o que no le escriban más: anotá interes "no" y estado "descartado", agradecé en una frase y no insistas.
 
-Si dice que no le interesa o que no le escriban más: marcá estado "descartado", despedite con amabilidad en una frase y no insistas.
-Si pregunta precios, stock, marcas de filtros, plazos de entrega o algo que no sabés: no inventes nada. Usá derivar_a_ignacio y decile que Ignacio le contesta eso personalmente.
-Si quiere hacer un pedido o pide hablar con una persona: usá derivar_a_ignacio.
-Si te pregunta directamente si sos un bot, decile la verdad: sos el asistente automático de Ignacio y él puede seguir la charla cuando quiera.
+Si pregunta algo que la oferta no dice (precios exactos de un plato, alergias, si vale para llevar o con alcohol cuando la oferta no lo aclara, otros horarios): no inventes nada. Usá derivar_a_persona y decile que alguien del equipo le contesta.
+Si pide hablar con una persona: usá derivar_a_persona.
+No prometas tiempos (por ejemplo "dans quelques minutes" o "aujourd'hui"): decí solamente que alguien del equipo le escribe por acá.
+Si te pregunta directamente si sos un bot, decile la verdad: sos el asistente automático de Toloache y alguien del equipo puede seguir la charla cuando quiera.
 Si te manda audio, fotos u otra cosa que no podés ver, pedile con amabilidad que te lo escriba.
 
-Estilo: español rioplatense con voseo, cordial y directo, como un mensaje de WhatsApp de una o dos frases. Sin listas, sin asteriscos, sin emojis salvo que el cliente los use.
+Estilo: en francés, tratando de vous, cálido y directo, como un mensaje de WhatsApp de una o dos frases. Sin listas, sin asteriscos, sin emojis salvo que el cliente los use. Si el cliente escribe en otro idioma, contestale en ese idioma.
 
 Ficha actual del cliente: {json.dumps(p['ficha'], ensure_ascii=False)}
 
@@ -128,31 +162,32 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "flota": {"type": "string", "enum": ["camiones", "colectivos", "ambos", "otro"],
-                          "description": "Qué tipo de unidades tiene."},
-                "unidades": {"type": "integer", "description": "Cantidad de unidades andando."},
-                "marcas": {"type": "string", "description": "Marcas de las unidades, como las dijo el cliente."},
-                "quien_compra": {"type": "string", "description": "Quién maneja las compras o el taller, solo si el cliente lo dijo (por ejemplo 'él mismo', 'Marcela'). No lo supongas."},
-                "contacto_compras": {"type": "string", "description": "Nombre y teléfono de la persona de compras o taller, si no es con quien hablás."},
-                "propuesta": {"type": "string", "enum": ["si", "no"], "description": "Si quiere que Ignacio le arme una propuesta de filtros."},
-                "zona": {"type": "string", "description": "Barrio, localidad o zona donde trabaja."},
+                "interes": {"type": "string", "enum": ["si", "no"], "description": "Si quiere la oferta del mediodía."},
+                "personas": {"type": "integer", "description": "Cuántos son para almorzar, más o menos."},
+                "modalidad": {"type": "string", "enum": ["sur_place", "a_emporter", "les_deux"],
+                              "description": "Si comerían en el local, para llevar o las dos cosas, solo si lo dijo."},
+                "reserva": {"type": "string", "enum": ["si", "no"], "description": "Si quiere reservar una mesa."},
+                "dia_reserva": {"type": "string", "description": "Día y hora de la reserva, como lo dijo el cliente."},
+                "evento": {"type": "string", "description": "Si habla de un grupo grande, afterwork o fiesta: qué y para cuántos."},
+                "zona": {"type": "string", "description": "Dónde trabaja (calle, barrio o estación)."},
                 "nombre": {"type": "string", "description": "Nombre del cliente, si lo dijo y no lo teníamos."},
-                "empresa": {"type": "string", "description": "Nombre de la empresa, si lo dijo y no lo teníamos."},
+                "empresa": {"type": "string", "description": "Nombre de la empresa o comercio, si lo dijo y no lo teníamos."},
                 "estado": {"type": "string", "enum": ["en_charla", "calificado", "descartado"]},
             },
             "required": [],
         },
     },
     {
-        "name": "derivar_a_ignacio",
+        "name": "derivar_a_persona",
         "description": (
-            "Avisa a Ignacio que tiene que seguir él esta conversación y pausa las respuestas automáticas. "
-            "Usala cuando el cliente pregunta precios, stock o plazos, quiere hacer un pedido o pide hablar con una persona."
+            "Avisa al equipo de Toloache que tiene que seguir una persona esta conversación y pausa las respuestas "
+            "automáticas. Usala cuando el cliente quiere reservar, es un grupo grande o un evento, pregunta algo que "
+            "la oferta no dice o pide hablar con una persona."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "motivo": {"type": "string", "description": "Qué necesita el cliente, en una frase para Ignacio."},
+                "motivo": {"type": "string", "description": "Qué necesita el cliente, en una frase para el equipo (con día, hora y cuántos son si es una reserva)."},
             },
             "required": ["motivo"],
         },
@@ -176,19 +211,19 @@ def _ejecutar_herramienta(clave: str, nombre: str, datos: dict, efectos: dict) -
         if cambios:
             db.actualizar(clave, **cambios)
         return json.dumps({"ok": True, "ficha": ficha}, ensure_ascii=False)
-    if nombre == "derivar_a_ignacio":
-        db.actualizar(clave, atencion=(datos.get("motivo") or "El cliente necesita hablar con Ignacio").strip())
+    if nombre == "derivar_a_persona":
+        db.actualizar(clave, atencion=(datos.get("motivo") or "El cliente necesita hablar con alguien del equipo").strip())
         efectos["pausar"] = True
-        return json.dumps({"ok": True, "nota": "Ignacio ya está avisado. Decile al cliente que Ignacio le escribe."})
+        return json.dumps({"ok": True, "nota": "El equipo ya está avisado. Decile al cliente que alguien del equipo le escribe por acá."})
     return json.dumps({"error": f"Herramienta desconocida: {nombre}"})
 
 
 def _historial(clave: str) -> list[dict]:
-    """Arma los mensajes para Claude desde lo guardado: cliente = user, bot e Ignacio = assistant."""
+    """Arma los mensajes para Claude desde lo guardado: cliente = user, bot y equipo = assistant."""
     turnos: list[dict] = []
     for m in db.mensajes(clave, limite=40):
         rol = "user" if m["de"] == "cliente" else "assistant"
-        texto = m["texto"] if m["de"] != "humano" else f"(Ignacio escribió en persona) {m['texto']}"
+        texto = m["texto"] if m["de"] != "humano" else f"(Alguien del equipo escribió en persona) {m['texto']}"
         if turnos and turnos[-1]["role"] == rol:
             turnos[-1]["content"] += "\n" + texto
         else:
@@ -199,19 +234,44 @@ def _historial(clave: str) -> list[dict]:
     return turnos
 
 
-def responder(telefono: str, texto: str) -> str | None:
-    """Procesa un mensaje del cliente. Devuelve el texto a mandarle, o None si no hay que responder."""
+def _motivo_derivacion(ficha: dict) -> str:
+    """Qué tiene que hacer el equipo, armado desde la ficha (red de seguridad si el bot no derivó)."""
+    personas = ficha.get("personas")
+    if ficha.get("evento") or (personas or 0) >= GRUPO_GRANDE:
+        detalle = ficha.get("evento") or f"grupo de {personas} personas"
+        return f"Grupo o evento ({detalle}): ofrecerle privatizar La Playita"
+    if ficha.get("reserva") == "si":
+        partes = [ficha.get("dia_reserva") or "día a confirmar", f"{personas} pers." if personas else ""]
+        return "Quiere reservar: " + " · ".join(x for x in partes if x)
+    return ""
+
+
+def responder(telefono: str, texto: str, enlace: str = "") -> str | None:
+    """Procesa un mensaje del cliente. Devuelve el texto a mandarle, o None si no hay que responder.
+
+    `enlace` es la URL pública de la página de la oferta (/midi); vacío si no se conoce.
+    """
     p = db.obtener_o_crear(telefono)
     clave = p["clave"]
     db.agregar_mensaje(clave, "cliente", texto)
+
+    if STOP.fullmatch(texto):
+        # Baja pedida: no se le vuelve a escribir. Se confirma una sola vez.
+        db.actualizar(clave, estado="descartado", bot_activo=False, atencion="")
+        if p["estado"] == "descartado" and not p["bot_activo"]:
+            return None
+        db.agregar_mensaje(clave, "bot", MENSAJE_BAJA)
+        return MENSAJE_BAJA
+
     if p["estado"] in ("nuevo", "contactado", "error"):
         db.actualizar(clave, estado="en_charla", ultimo_error="")
 
     if not p["bot_activo"]:
-        log.info("Bot pausado para %s; el mensaje queda para Ignacio.", clave)
+        log.info("Bot pausado para %s; el mensaje queda para el equipo.", clave)
         return None
 
     efectos: dict = {}
+    motivo_antes = _motivo_derivacion(p["ficha"])
     preguntas, ofrecio = _estado_charla(clave)
     mensajes = _historial(clave)
     respuesta = ""
@@ -220,7 +280,7 @@ def responder(telefono: str, texto: str) -> str | None:
         resp = client.messages.create(
             model=MODEL,
             max_tokens=1024,
-            system=_system_prompt(p, db.ajustes(), preguntas, ofrecio, texto),
+            system=_system_prompt(p, db.ajustes(), preguntas, ofrecio, texto, enlace),
             tools=TOOLS,
             messages=mensajes,
         )
@@ -240,12 +300,16 @@ def responder(telefono: str, texto: str) -> str | None:
         break
 
     p = db.obtener(clave)
-    # Red de seguridad: si aceptó la propuesta, queda calificado y le avisa a Ignacio.
-    if p["ficha"].get("propuesta") == "si" and p["estado"] != "calificado":
+    ficha = p["ficha"]
+    # Red de seguridad: si quiere la oferta queda calificado; si recién pidió reservar o
+    # resultó ser un grupo grande, se le avisa al equipo y el bot se pausa. Solo cuando
+    # cambia, para que el equipo pueda volver a activar el bot.
+    if ficha.get("interes") == "si" and p["estado"] not in ("calificado", "descartado"):
         db.actualizar(clave, estado="calificado")
-    if p["ficha"].get("propuesta") == "si":
+    motivo = _motivo_derivacion(ficha)
+    if motivo and motivo != motivo_antes:
         if not p["atencion"]:
-            db.actualizar(clave, atencion="Quiere una propuesta de filtros para su flota")
+            db.actualizar(clave, atencion=motivo)
         efectos["pausar"] = True
 
     if respuesta:

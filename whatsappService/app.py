@@ -30,8 +30,8 @@ TOKEN_ERROR_SUBCODES = {
 # Lo que ve el cliente si el servicio de IA falla. Preferimos un mensaje cuidado
 # antes que reenviar lo que devuelva el servicio (ante un 500 seria HTML crudo).
 FALLBACK_MESSAGE = (
-    "Perdona, estamos teniendo un problema tecnico en este momento. "
-    "Vuelve a escribirnos en unos minutos, por favor."
+    "Désolés, nous avons un petit souci technique. "
+    "Réécrivez-nous dans quelques minutes, s'il vous plaît."
 )
 
 # Limite de caracteres de un mensaje de texto de WhatsApp.
@@ -75,6 +75,13 @@ def received_message():
         tipo = message.get("type")
         if tipo == "text":
             question = message["text"]["body"]
+        elif tipo == "button":
+            # Toque en un botón de respuesta rápida de una plantilla ("Oui, avec plaisir").
+            question = message["button"].get("text") or message["button"].get("payload", "")
+        elif tipo == "interactive":
+            interactivo = message["interactive"]
+            respuesta = interactivo.get("button_reply") or interactivo.get("list_reply") or {}
+            question = respuesta.get("title", "")
         elif tipo in ("audio", "image", "video", "document", "sticker", "location", "contacts"):
             # El bot no puede ver ni escuchar esto: le avisamos para que pida que lo escriban.
             question = f"[El cliente mandó un mensaje de tipo {tipo} que no podés ver ni escuchar]"
@@ -176,7 +183,7 @@ def consultar_ia(text, numero):
 
     log.info("Respuesta openai-service [%s]: %s", resp.status_code, resp.text[:500])
 
-    # 204: el bot decidió no responder (por ejemplo, Ignacio tomó la conversación).
+    # 204: el bot decidió no responder (por ejemplo, alguien del equipo tomó la conversación).
     if resp.status_code == 204:
         return None
 
@@ -220,6 +227,7 @@ def send_template():
         template_name = data.get("template", "hello_world")
         language_code = data.get("language", "en_US")
         params = data.get("params") or []
+        header_image = data.get("header_image")
 
         if not number:
             return {"error": "El campo 'to' es requerido."}, 400
@@ -228,12 +236,21 @@ def send_template():
             "name": template_name,
             "language": {"code": language_code}
         }
+        components = []
+        if header_image:
+            # Cabecera de tipo imagen: Meta la baja de esta URL pública.
+            components.append({
+                "type": "header",
+                "parameters": [{"type": "image", "image": {"link": header_image}}],
+            })
         if params:
             # Variables {{1}}, {{2}}... del cuerpo de la plantilla, en orden.
-            template["components"] = [{
+            components.append({
                 "type": "body",
                 "parameters": [{"type": "text", "text": str(p)} for p in params],
-            }]
+            })
+        if components:
+            template["components"] = components
 
         body = {
             "messaging_product": "whatsapp",
@@ -254,7 +271,7 @@ def send_template():
 
 @app.route("/send-text", methods=["POST"])
 def send_text():
-    """Manda un texto libre (lo usa el panel cuando Ignacio escribe en persona).
+    """Manda un texto libre (lo usa el panel cuando alguien del equipo escribe en persona).
 
     WhatsApp solo deja mandar texto libre dentro de las 24 h desde el último
     mensaje del cliente; fuera de esa ventana hay que usar una plantilla.

@@ -1,9 +1,10 @@
-"""Servicio del prospector de Ignacio.
+"""Servicio del prospector de Toloache (campaña Midi Toloache).
 
 - /getresponsegpt: lo llama el whatsapp-service con cada mensaje entrante y
   devuelve la respuesta del bot (204 si no hay que responder).
 - /panel: el panel web para cargar la lista y seguir las conversaciones.
 - /api/...: lo que usa el panel. Protegido con PANEL_PASSWORD.
+- /midi: la página pública de la oferta y las imágenes de la plantilla.
 """
 
 import functools
@@ -28,10 +29,33 @@ app = Flask(__name__)
 db.init()
 
 WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://whatsapp-service:8501").rstrip("/")
-PANEL_USER = os.environ.get("PANEL_USER", "ignacio")
+PANEL_USER = os.environ.get("PANEL_USER", "toloache")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "")
 PAUSA_ENTRE_ENVIOS = float(os.environ.get("PAUSA_ENTRE_ENVIOS", "2"))
+# Meta baja la calidad del número (y puede bloquearlo) si se escribe en frío a muchos por día.
+MAX_ENVIOS_DIA = int(os.environ.get("MAX_ENVIOS_DIA", "40"))
+# URL pública de este servicio (https://...). La necesitan Meta, para bajar la imagen
+# de la plantilla, y el bot, para pasar el link a /midi. Si no está, se toma del
+# dominio con el que se abre el panel.
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 AQUI = os.path.dirname(os.path.abspath(__file__))
+MIDI = os.path.join(AQUI, "midi")
+_base = {"url": PUBLIC_URL}
+
+
+def base_publica() -> str:
+    return PUBLIC_URL or _base["url"]
+
+
+def _recordar_base():
+    """Guarda el dominio público con el que se abrió el panel (Railway pasa el esquema en X-Forwarded-Proto)."""
+    if PUBLIC_URL:
+        return
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    if host.split(":")[0] in ("localhost", "127.0.0.1", "0.0.0.0") or "." not in host:
+        return
+    proto = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    _base["url"] = f"{proto}://{host}"
 
 
 # ---------------------------------------------------------------------------
@@ -44,10 +68,34 @@ def get_response_gpt():
     telefono = request.args.get("phone_number", "").strip()
     if not texto or not telefono:
         return "", 204
-    respuesta = prospector.responder(telefono, texto)
+    base = base_publica()
+    respuesta = prospector.responder(telefono, texto, base + "/midi" if base else "")
     if not respuesta:
         return "", 204
     return respuesta
+
+
+# ---------------------------------------------------------------------------
+# Página pública de la oferta
+# ---------------------------------------------------------------------------
+
+@app.route("/midi")
+@app.route("/midi/")
+def midi():
+    with open(os.path.join(MIDI, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    # WhatsApp exige URLs absolutas en og:image: se completan con el dominio de la petición.
+    proto = (request.headers.get("X-Forwarded-Proto") or request.scheme).split(",")[0].strip()
+    origen = f"{proto}://{request.headers.get('X-Forwarded-Host') or request.host}"
+    return Response(html.replace("__ORIGIN__", origen), mimetype="text/html",
+                    headers={"Cache-Control": "public, max-age=300", "X-Robots-Tag": "noindex, nofollow"})
+
+
+@app.route("/midi/<path:archivo>")
+def midi_archivo(archivo):
+    resp = send_from_directory(MIDI, archivo, max_age=86400)
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +110,7 @@ def requiere_clave(f):
             auth = request.authorization
             if not auth or auth.username != PANEL_USER or auth.password != PANEL_PASSWORD:
                 return Response("Necesitás usuario y contraseña.", 401, {"WWW-Authenticate": 'Basic realm="Prospector"'})
+        _recordar_base()
         return f(*args, **kwargs)
     return envoltura
 
@@ -84,7 +133,16 @@ def _resumen(prospectos):
 def _publico(p):
     p = dict(p)
     p["paso"] = prospector.paso_actual(p["ficha"])
+    p["saludo"] = prospector.saludo(p)
     return p
+
+
+def _imagen_plantilla() -> str:
+    """URL pública de la imagen de cabecera de la plantilla, o "" si la plantilla no lleva imagen."""
+    if not prospector.PLANTILLA_IMAGEN:
+        return ""
+    base = base_publica()
+    return f"{base}/midi/{prospector.PLANTILLA_IMAGEN}" if base else ""
 
 
 @app.route("/api/prospectos", methods=["GET"])
@@ -96,8 +154,11 @@ def api_listar():
         "resumen": _resumen(ps),
         "ajustes": db.ajustes(),
         "pasos": [{"clave": k, "nombre": n} for k, n in prospector.PASOS],
-        "plantilla": {"nombre": prospector.PLANTILLA_NOMBRE, "texto": prospector.PLANTILLA_TEXTO},
+        "plantilla": {"nombre": prospector.PLANTILLA_NOMBRE, "texto": prospector.PLANTILLA_TEXTO,
+                      "imagen": prospector.PLANTILLA_IMAGEN and f"/midi/{prospector.PLANTILLA_IMAGEN}"},
         "enviando": _campania["activa"],
+        "cupo_hoy": max(0, MAX_ENVIOS_DIA - db.enviados_hoy()),
+        "max_dia": MAX_ENVIOS_DIA,
     })
 
 
@@ -140,7 +201,7 @@ def api_borrar(clave):
 @app.route("/api/prospectos/<clave>/mensaje", methods=["POST"])
 @requiere_clave
 def api_mensaje_humano(clave):
-    """Ignacio escribe en persona. El bot queda pausado para no pisarlo."""
+    """Alguien del equipo escribe en persona. El bot queda pausado para no pisarlo."""
     p = db.obtener(clave)
     if not p:
         return jsonify({"error": "No existe ese prospecto."}), 404
@@ -161,7 +222,7 @@ def api_ajustes():
     try:
         return jsonify(db.guardar_ajustes(request.get_json(silent=True) or {}))
     except (TypeError, ValueError):
-        return jsonify({"error": "El mínimo de unidades tiene que ser un número."}), 400
+        return jsonify({"error": "No se pudieron guardar los ajustes."}), 400
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +250,7 @@ def _whatsapp(ruta, cuerpo):
     return False, f"WhatsApp rechazó el mensaje: {detalle}"[:300]
 
 
-def _enviar_campania(claves):
+def _enviar_campania(claves, imagen):
     try:
         for clave in claves:
             p = db.obtener(clave)
@@ -199,8 +260,9 @@ def _enviar_campania(claves):
                 "to": p["telefono"],
                 "template": prospector.PLANTILLA_NOMBRE,
                 "language": prospector.PLANTILLA_IDIOMA,
-                # Solo se manda el nombre si la plantilla tiene la variable {{1}}.
-                "params": [prospector.primer_nombre(p) or "qué tal"] if "{{1}}" in prospector.PLANTILLA_TEXTO else [],
+                # Solo se manda el saludo si la plantilla tiene la variable {{1}}.
+                "params": [prospector.saludo(p)] if "{{1}}" in prospector.PLANTILLA_TEXTO else [],
+                "header_image": imagen,
             })
             if ok:
                 db.agregar_mensaje(clave, "bot", prospector.texto_plantilla(p))
@@ -222,14 +284,23 @@ def api_enviar():
     with _campania_lock:
         if _campania["activa"]:
             return jsonify({"error": "Ya se están mandando mensajes. Esperá a que termine."}), 409
-        candidatos = [p["clave"] for p in db.listar() if p["estado"] in ("nuevo", "error")]
+        imagen = _imagen_plantilla()
+        if prospector.PLANTILLA_IMAGEN and not imagen:
+            return jsonify({"error": "Falta PUBLIC_URL: sin la dirección pública del servicio, Meta no puede bajar la imagen de la plantilla."}), 400
+        # La lista se recorre de la más vieja a la más nueva: primero los que se cargaron antes.
+        candidatos = [p["clave"] for p in reversed(db.listar()) if p["estado"] in ("nuevo", "error")]
         if pedidas:
             candidatos = [c for c in candidatos if c in set(pedidas)]
         if not candidatos:
             return jsonify({"error": "No hay prospectos nuevos para escribirles."}), 400
+        cupo = MAX_ENVIOS_DIA - db.enviados_hoy()
+        if cupo <= 0:
+            return jsonify({"error": f"Hoy ya se mandaron {MAX_ENVIOS_DIA} primeros mensajes. Seguí mañana para cuidar el número."}), 409
+        quedan = max(0, len(candidatos) - cupo)
+        candidatos = candidatos[:cupo]
         _campania["activa"] = True
-    threading.Thread(target=_enviar_campania, args=(candidatos,), daemon=True).start()
-    return jsonify({"encolados": len(candidatos)})
+    threading.Thread(target=_enviar_campania, args=(candidatos, imagen), daemon=True).start()
+    return jsonify({"encolados": len(candidatos), "quedan": quedan})
 
 
 @app.errorhandler(Exception)
