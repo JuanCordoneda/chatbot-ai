@@ -29,7 +29,6 @@ app = Flask(__name__)
 db.init()
 
 WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://whatsapp-service:8501").rstrip("/")
-PANEL_USER = os.environ.get("PANEL_USER", "toloache")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "")
 PAUSA_ENTRE_ENVIOS = float(os.environ.get("PAUSA_ENTRE_ENVIOS", "2"))
 # Meta baja la calidad del número (y puede bloquearlo) si se escribe en frío a muchos por día.
@@ -103,13 +102,13 @@ def midi_archivo(archivo):
 # ---------------------------------------------------------------------------
 
 def requiere_clave(f):
-    """Pide usuario y contraseña (HTTP Basic) si PANEL_PASSWORD está configurada."""
+    """Pide la contraseña (HTTP Basic) si PANEL_PASSWORD está configurada. El usuario da igual."""
     @functools.wraps(f)
     def envoltura(*args, **kwargs):
         if PANEL_PASSWORD:
             auth = request.authorization
-            if not auth or auth.username != PANEL_USER or auth.password != PANEL_PASSWORD:
-                return Response("Necesitás usuario y contraseña.", 401, {"WWW-Authenticate": 'Basic realm="Prospector"'})
+            if not auth or auth.password != PANEL_PASSWORD:
+                return Response("Necesitás la contraseña.", 401, {"WWW-Authenticate": 'Basic realm="Prospector"'})
         _recordar_base()
         return f(*args, **kwargs)
     return envoltura
