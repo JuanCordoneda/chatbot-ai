@@ -5,6 +5,7 @@ import os
 import sys
 import logging
 import traceback
+from functools import wraps
 from urllib.parse import quote
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(message)s")
@@ -17,6 +18,19 @@ ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN')
 VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN')
 WHATSAPP_API_URL = os.environ.get('WHATSAPP_API_URL')
 OPENAI_SERVICE_URL = os.environ.get('OPENAI_SERVICE_URL')
+# Clave compartida con el openai-service. Sin ella, cualquiera que conozca la URL
+# podría mandar mensajes de WhatsApp con nuestro número.
+SERVICE_TOKEN = os.environ.get('SERVICE_TOKEN', '')
+
+
+def solo_servicio(f):
+    """Deja pasar solo las llamadas del openai-service (header X-Service-Token)."""
+    @wraps(f)
+    def envoltura(*args, **kwargs):
+        if SERVICE_TOKEN and request.headers.get("X-Service-Token") != SERVICE_TOKEN:
+            return {"error": "No autorizado."}, 401
+        return f(*args, **kwargs)
+    return envoltura
 
 # Meta devuelve code=190 (OAuthException) cuando el access token ya no sirve.
 # El subcode dice por que, para no tener que interpretar el JSON a mano.
@@ -176,7 +190,7 @@ def consultar_ia(text, numero):
     log.info("Consultando openai-service: %s params=%s", url, params)
 
     try:
-        resp = requests.get(url, params=params, timeout=60)
+        resp = requests.get(url, params=params, headers={"X-Service-Token": SERVICE_TOKEN}, timeout=60)
     except Exception:
         log.error("Excepcion consultando openai-service:\n%s", traceback.format_exc())
         return FALLBACK_MESSAGE
@@ -220,6 +234,7 @@ def enviar_mensaje(text, numero):
     return body
 
 @app.route("/send-template", methods=["POST"])
+@solo_servicio
 def send_template():
     try:
         data = request.get_json()
@@ -270,6 +285,7 @@ def send_template():
         return {"error": str(e)}, 500
 
 @app.route("/send-text", methods=["POST"])
+@solo_servicio
 def send_text():
     """Manda un texto libre (lo usa el panel cuando alguien del equipo escribe en persona).
 

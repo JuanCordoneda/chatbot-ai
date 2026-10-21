@@ -30,6 +30,8 @@ db.init()
 
 WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "http://whatsapp-service:8501").rstrip("/")
 PANEL_PASSWORD = os.environ.get("PANEL_PASSWORD", "")
+# Clave compartida con el whatsapp-service: protege /getresponsegpt y la usan los envíos.
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "")
 PAUSA_ENTRE_ENVIOS = float(os.environ.get("PAUSA_ENTRE_ENVIOS", "2"))
 # Meta baja la calidad del número (y puede bloquearlo) si se escribe en frío a muchos por día.
 MAX_ENVIOS_DIA = int(os.environ.get("MAX_ENVIOS_DIA", "25"))
@@ -63,6 +65,8 @@ def _recordar_base():
 
 @app.route("/getresponsegpt", methods=["GET"])
 def get_response_gpt():
+    if SERVICE_TOKEN and request.headers.get("X-Service-Token") != SERVICE_TOKEN:
+        return "", 401
     texto = request.args.get("user_prompt", "").strip()
     telefono = request.args.get("phone_number", "").strip()
     if not texto or not telefono:
@@ -235,7 +239,7 @@ _campania_lock = threading.Lock()
 def _whatsapp(ruta, cuerpo):
     """Llama al whatsapp-service. Devuelve (ok, mensaje de error legible)."""
     try:
-        r = requests.post(WHATSAPP_SERVICE_URL + ruta, json=cuerpo, timeout=30)
+        r = requests.post(WHATSAPP_SERVICE_URL + ruta, json=cuerpo, headers={"X-Service-Token": SERVICE_TOKEN}, timeout=30)
     except requests.RequestException as e:
         log.error("No se pudo conectar con el whatsapp-service: %s", e)
         return False, "No se pudo conectar con el servicio de WhatsApp."
