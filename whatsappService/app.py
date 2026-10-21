@@ -84,7 +84,7 @@ def received_message():
             question = respuesta.get("title", "")
         elif tipo in ("audio", "image", "video", "document", "sticker", "location", "contacts"):
             # El bot no puede ver ni escuchar esto: le avisamos para que pida que lo escriban.
-            question = f"[El cliente mandó un mensaje de tipo {tipo} que no podés ver ni escuchar]"
+            question = f"[Le client a envoyé un contenu de type {tipo} que tu ne peux ni voir ni écouter]"
         else:
             log.info("Mensaje de tipo '%s' no soportado; se ignora.", tipo)
             return "EVENT_RECEIVED", 200
