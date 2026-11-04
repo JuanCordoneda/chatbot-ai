@@ -3144,6 +3144,7 @@ function _syncComentariosObs() {
       label.innerHTML = 'Observaciones <span class="orden-label-opt">— opcional</span>';
       obs.placeholder = "Notas para el trafficker...";
       obs.classList.remove("orden-textarea--coms", "orden-input--error");
+      obs.removeAttribute("wrap");
       cantEl.readOnly = false;
       cantEl.classList.remove("orden-input--readonly");
       cantEl.value = "";
@@ -3160,6 +3161,9 @@ function _syncComentariosObs() {
     label.innerHTML = 'Comentarios <span class="orden-label-opt">— uno debajo del otro</span>';
     obs.placeholder = "Pegá los comentarios, uno por línea...";
     obs.classList.add("orden-textarea--coms");
+    // Un comentario = un renglón, también a la vista: con el ajuste de línea
+    // uno largo se veía partido en dos y parecían dos comentarios.
+    obs.setAttribute("wrap", "off");
     cantEl.readOnly = true;
     cantEl.classList.add("orden-input--readonly");
     box.classList.remove("hidden");

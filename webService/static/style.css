@@ -3071,6 +3071,8 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
 #orden-obs.orden-textarea--coms {
   min-height: 160px;
   resize: vertical;
+  white-space: pre;
+  overflow-x: auto;
 }
 .orden-card-coms summary {
   cursor: pointer;
