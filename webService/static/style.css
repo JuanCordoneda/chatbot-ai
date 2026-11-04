@@ -3030,6 +3030,62 @@ body.light .comentario-item.selected .comentario-texto { color: #000; font-weigh
   font-weight: 500;
 }
 
+/* Comentarios de panel (1759 JAP, custom): la observación es la lista. */
+.obs-coms-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--yellow-md);
+  border-radius: 10px;
+  background: var(--yellow-lo);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.obs-coms-box--alerta {
+  border-color: var(--red, #ef4444);
+  background: rgba(239, 68, 68, 0.10);
+}
+.obs-coms-traer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.obs-coms-n {
+  width: 70px !important;
+  padding: 5px 8px !important;
+  font-size: 0.8rem !important;
+}
+.obs-coms-btn {
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+#orden-obs.orden-textarea--coms {
+  min-height: 160px;
+  resize: vertical;
+}
+.orden-card-coms summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--muted2);
+}
+.orden-card-coms ol {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  font-size: 0.74rem;
+  color: var(--muted2);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 /* Aviso de orden repetida (arriba del botón de agregar). */
 .orden-dup-alerta {
   margin: 0 0 10px;

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=1787093000" />
+  <link rel="stylesheet" href="/static/style.css?v=1793800000" />
   <link rel="icon" type="image/jpeg" href="/static/logo_mini.jpg" />
   <!-- "Añadir a pantalla de inicio" en Safari: icono y nombre del atajo.
        El apple-touch-icon va con el fondo relleno de amarillo porque iOS le
@@ -619,9 +619,21 @@
           </div>
 
           <!-- Observaciones -->
+          <!-- Con los productos de comentarios de panel (Comments 1759 JAP,
+               custom...) este mismo campo pasa a ser la lista de comentarios,
+               uno por línea: así los pide el CRM. Ver _modoComentariosObs. -->
           <div class="orden-field">
-            <label class="orden-label">Observaciones <span class="orden-label-opt">— opcional</span></label>
-            <textarea id="orden-obs" class="orden-textarea" placeholder="Notas para el trafficker..."></textarea>
+            <label class="orden-label" id="orden-obs-label">Observaciones <span class="orden-label-opt">— opcional</span></label>
+            <textarea id="orden-obs" class="orden-textarea" placeholder="Notas para el trafficker..." oninput="_syncComentariosObs()"></textarea>
+            <div id="obs-coms-box" class="obs-coms-box hidden">
+              <span id="obs-coms-cartel" class="obs-coms-cartel"></span>
+              <div id="obs-coms-traer" class="obs-coms-traer hidden">
+                Traer
+                <input type="number" id="obs-coms-n" class="orden-input obs-coms-n" min="1" />
+                <span id="obs-coms-disp"></span>
+                <button type="button" class="obs-coms-btn" onclick="traerComentariosObs()">↓ Traer</button>
+              </div>
+            </div>
           </div>
 
           <!-- Aviso de orden repetida: mismo producto, link y cantidad que una
@@ -821,7 +833,7 @@
   <div id="copy-toast" class="copy-toast">✓ Copiado</div>
 
   <script src="/static/header-menu.js?v=1786880000"></script>
-  <script src="/static/app.js?v=1789459509"></script>
+  <script src="/static/app.js?v=1793800000"></script>
   <script src="/static/sesion.js?v=1786900000"></script>
 </body>
 </html>

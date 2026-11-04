@@ -2752,6 +2752,7 @@ async function irAOrdenes() {
   // reemplazamos las de comentarios (pueden ser 2: verificados y no verificados).
   ordenes = ordenes.filter(o => o.tipo !== "comentarios");
   comentariosParaPublicar = [];
+  _comsObsGuardados = "";   // una lista guardada de otra tanda no vuelve sola
   let _oid = Date.now();
 
   const pushOrdenComentarios = (indices, productoId, productoNombre, spec, turno) => {
@@ -2910,7 +2911,12 @@ async function actualizarProductos() {
             throw new Error(data?.error || `Error al cargar productos (HTTP ${resp.status})`);
           _productosCache[rsId] = Object.entries(data).map(([grupo, items]) => ({
             grupo,
-            items: items.map(p => ({ id: p.id, nombre: p.label })),
+            // obscoment: comentarios de PANEL (Comments 1759 JAP, custom...),
+            // que van en la observación uno por línea. Si el CRM marcara un
+            // producto con las dos cosas gana `comentario` (los del equipo),
+            // igual que en su propia pantalla.
+            items: items.map(p => ({ id: p.id, nombre: p.label,
+                                     obscoment: !!p.obscoment && !p.comentario })),
           }));
         }
 
@@ -2923,6 +2929,7 @@ async function actualizarProductos() {
             const opt = document.createElement("option");
             opt.value = item.id;
             opt.textContent = item.nombre;
+            if (item.obscoment) opt.dataset.obscoment = "1";
             og.appendChild(opt);
           }
           select.appendChild(og);
@@ -2961,6 +2968,9 @@ let _lastCantMax = null; // último cantmax fetched, para el clamp al salir del 
 function _ajustarCantidadAlRango() {
   const cantEl = document.getElementById("orden-cantidad");
   if (!cantEl || !cantEl.value) return;
+  // Comentarios de panel: la cantidad ES la lista. Llevarla al mínimo dejaría
+  // una orden de 50 con 30 comentarios adentro; ahí se avisa (ver el cartel).
+  if (_productoEsComentariosObs()) return;
   const min = _lastCantMin || 0;
   const max = _lastCantMax || 0;
   if (!min && !max) return;
@@ -3027,6 +3037,8 @@ async function _fetchCosto() {
       const costo = parseFloat(data.costoTrafico);
       costoField.value = costo === 0 ? "$0.00" : `$${costo.toFixed(4)}`;
     }
+    // Llegó el rango del producto: el cartel de la lista puede tener que avisar.
+    if (_comsObsActivo) _syncComentariosObs();
   } catch { /* silencioso */ }
 }
 
@@ -3035,7 +3047,10 @@ function onProductoChange() {
   const prodSelect = document.getElementById("orden-producto");
   const prodId = parseInt(prodSelect.value);
   const prodNombre = (prodSelect.options[prodSelect.selectedIndex]?.text || "").toLowerCase();
-  const isComment = (prodNombre.includes("comentario") || prodNombre.includes("comment")) && !prodNombre.includes("custom");
+  // Los de panel (1759, custom) tampoco: cada parte se llevaría la lista de
+  // comentarios ENTERA en la observación, con un tercio de la cantidad.
+  const isComment = _productoEsComentariosObs()
+    || ((prodNombre.includes("comentario") || prodNombre.includes("comment")) && !prodNombre.includes("custom"));
   document.getElementById("opt-split3").style.display = isComment ? "none" : "";
   document.getElementById("opt-split5").style.display = isComment ? "none" : "";
   const cuandoVal = document.getElementById("orden-cuando-val")?.value;
@@ -3052,11 +3067,170 @@ function onProductoChange() {
   // TAREA 6: si el producto es like/view/share y el cliente tiene rango, mostramos
   // el botón 🎲 y autocompletamos la cantidad (solo si está vacía, para no pisar
   // lo que el vendedor haya cargado al editar una orden).
+  // Antes del 🎲: al salir de un producto de panel la cantidad (que era el
+  // conteo de la lista) se borra, y recién ahí el rango puede autocompletarla.
+  _syncComentariosObs();
   const r = _rangoDelProducto();
   const cantEl = document.getElementById("orden-cantidad");
   if (r && !cantEl.value) rollCantidad();
 
   obtenerCosto();
+}
+
+// ── Comentarios de panel (Comments 1759 JAP, Comments custom...) ─────────────
+// Pedido de Lautaro (nov-26): mandarle a un cliente comentarios por el código
+// 1759 del panel en vez de por los nuestros. El CRM marca esos productos con
+// `obscoment`: los textos viajan en la observación, uno por línea, y el panel
+// cobra por línea. Con uno de esos elegido, la observación pasa a ser la lista
+// y la cantidad se cuenta de ahí: escribir 30 y pegar 28 es justo el desajuste
+// que el CRM ya tuvo que empezar a frenar del lado suyo.
+let _comsObsActivo = false;
+let _comsObsUltimoN = null;
+// La lista que había al cambiar a un producto que no es de panel: no puede
+// quedar en la observación (saldría como "nota" de una orden de likes), pero
+// tampoco se tira por un click de más. Vuelve si se elige otra vez uno de panel.
+let _comsObsGuardados = "";
+
+function _productoEsComentariosObs() {
+  const sel = document.getElementById("orden-producto");
+  return sel?.options[sel.selectedIndex]?.dataset.obscoment === "1";
+}
+
+// Mismo conteo que el CRM (parsearComentariosDeObservacion): una línea por
+// comentario, sin las vacías, recortando solo lo que recorta el trim() de PHP.
+// Si contáramos distinto, acá se vería bien y el CRM rebotaría la orden.
+function _lineasComentariosObs(texto) {
+  return String(texto || "").replace(/\r\n?/g, "\n").split("\n")
+    .map(l => l.replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, ""))
+    .filter(l => l !== "");
+}
+
+// Generados que todavía no salieron por ningún lado: ni elegidos en un paso
+// (verificados, comunes, Telegram, WhatsApp), ni cargados en otra orden de
+// panel, ni ya pegados en la lista que se está armando.
+function _comentariosSinUsar() {
+  const usados = new Set();
+  for (const n of [1, 2, 3, 4]) (etapaSel[n] || []).forEach(i => usados.add(i));
+  const vistos = new Set();
+  ordenes.forEach(o => (o.comentariosObs || []).forEach(t => vistos.add(normComentario(t))));
+  _lineasComentariosObs(document.getElementById("orden-obs")?.value)
+    .forEach(t => vistos.add(normComentario(t)));
+  const libres = [];
+  comentariosGenerados.forEach((t, i) => {
+    if (usados.has(i) || generosGenerados[i] === "__header__" || generoDeHeader(t)) return;
+    const texto = String(t || "").replace(/\s*[\r\n]+\s*/g, " ").trim();
+    const clave = normComentario(texto);
+    if (!clave || vistos.has(clave)) return;
+    vistos.add(clave);
+    libres.push(texto);
+  });
+  return libres;
+}
+
+// Prende/apaga el modo según el producto elegido y, prendido, recuenta la
+// lista. Se llama al cambiar de producto, al tipear en la lista, al llegar el
+// rango del producto y al limpiar el formulario.
+function _syncComentariosObs() {
+  const obs    = document.getElementById("orden-obs");
+  const box    = document.getElementById("obs-coms-box");
+  const label  = document.getElementById("orden-obs-label");
+  const cantEl = document.getElementById("orden-cantidad");
+  if (!obs || !box || !cantEl) return;
+
+  if (!_productoEsComentariosObs()) {
+    if (_comsObsActivo) {
+      // Se devuelve el formulario como estaba. La cantidad se borra: era un
+      // conteo de una lista que con este producto ya no significa nada.
+      label.innerHTML = 'Observaciones <span class="orden-label-opt">— opcional</span>';
+      obs.placeholder = "Notas para el trafficker...";
+      obs.classList.remove("orden-textarea--coms", "orden-input--error");
+      cantEl.readOnly = false;
+      cantEl.classList.remove("orden-input--readonly");
+      cantEl.value = "";
+      box.classList.add("hidden");
+      _comsObsGuardados = obs.value;
+      obs.value = "";
+    }
+    _comsObsActivo = false;
+    _comsObsUltimoN = null;
+    return;
+  }
+
+  if (!_comsObsActivo) {
+    label.innerHTML = 'Comentarios <span class="orden-label-opt">— uno debajo del otro</span>';
+    obs.placeholder = "Pegá los comentarios, uno por línea...";
+    obs.classList.add("orden-textarea--coms");
+    cantEl.readOnly = true;
+    cantEl.classList.add("orden-input--readonly");
+    box.classList.remove("hidden");
+    _comsObsActivo = true;
+    if (!obs.value.trim() && _comsObsGuardados) obs.value = _comsObsGuardados;
+    _comsObsGuardados = "";
+  }
+
+  const lineas = _lineasComentariosObs(obs.value);
+  const n = lineas.length;
+  cantEl.value = n || "";
+  if (n) {
+    clearFieldError("orden-cantidad");
+    obs.classList.remove("orden-input--error");
+  }
+  // El costo y el rango del panel dependen de la cantidad: se piden de nuevo
+  // solo si cambió (esto también corre cuando llega la respuesta del costo).
+  if (n !== _comsObsUltimoN) {
+    _comsObsUltimoN = n;
+    obtenerCosto();
+  }
+
+  // El cartel: cuántos van, y si el panel no los acepta, por qué.
+  const min = _lastCantMin || 0, max = _lastCantMax || 0;
+  const claves = lineas.map(normComentario);
+  const repetidos = claves.length - new Set(claves).size;
+  let html, alerta = false;
+  if (!n) {
+    html = "Los comentarios de este producto van <b>acá arriba</b>, uno debajo del otro. La cantidad se cuenta sola.";
+  } else if ((min && n < min) || (max && n > max)) {
+    alerta = true;
+    html = `⚠ Hay <b>${n}</b> comentarios y este producto va de <b>${min.toLocaleString("es-AR")}</b> a <b>${max.toLocaleString("es-AR")}</b> por orden.`;
+  } else {
+    html = `✓ <b>${n}</b> comentarios · la orden sale de <b>${n}</b>.`;
+  }
+  if (repetidos) {
+    alerta = true;
+    html += ` ⚠ Hay <b>${repetidos}</b> repetido${repetidos === 1 ? "" : "s"}: el panel los publicaría dos veces.`;
+  }
+  document.getElementById("obs-coms-cartel").innerHTML = html;
+  box.classList.toggle("obs-coms-box--alerta", alerta);
+
+  // "Traer N de los que sobraron": solo si hay generados sin usar.
+  const libres = _comentariosSinUsar();
+  const traer = document.getElementById("obs-coms-traer");
+  traer.classList.toggle("hidden", !libres.length);
+  if (libres.length) {
+    const inpN = document.getElementById("obs-coms-n");
+    inpN.max = libres.length;
+    const actual = parseInt(inpN.value) || 0;
+    if (!actual || actual > libres.length) inpN.value = libres.length;
+    document.getElementById("obs-coms-disp").textContent =
+      `de ${libres.length === 1 ? "el generado" : `los ${libres.length} generados`} que no usaste`;
+  }
+}
+
+// Suma a la lista N generados sin usar, sorteados: tomar siempre los primeros
+// dejaría el mismo arranque de tanda en cada orden.
+function traerComentariosObs() {
+  const libres = _comentariosSinUsar();
+  if (!libres.length) return;
+  const k = Math.min(Math.max(parseInt(document.getElementById("obs-coms-n").value) || 0, 1), libres.length);
+  for (let i = libres.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [libres[i], libres[j]] = [libres[j], libres[i]];
+  }
+  const obs = document.getElementById("orden-obs");
+  const previos = _lineasComentariosObs(obs.value);
+  obs.value = [...previos, ...libres.slice(0, k)].join("\n");
+  document.getElementById("obs-coms-n").value = "";
+  _syncComentariosObs();
 }
 
 // ── Cantidad automática por rango (TAREA 6) ──────────────────────────────────
@@ -3760,10 +3934,21 @@ function agregarOrden() {
   // El número ya está completo: ahora sí se lo lleva al rango del producto
   // (durante la carga no se toca, ver _ajustarCantidadAlRango).
   _ajustarCantidadAlRango();
+  const esComsObs = _productoEsComentariosObs();
+  const comsObs = esComsObs ? _lineasComentariosObs(obsEl.value) : null;
+  if (esComsObs) cantidadEl.value = comsObs.length || "";
   const cantidad = parseInt(cantidadEl.value);
   const tipoOrden = _tipoProducto(prodSelect.options[prodSelect.selectedIndex]?.text || "");
   const pisoViews = _pisoViewsActual();
-  if (!cantidad || cantidad < 1) {
+  if (esComsObs && !comsObs.length) {
+    setFieldError("orden-cantidad", "Cargá los comentarios abajo, uno por línea");
+    obsEl.classList.add("orden-input--error");
+    valid = false;
+  } else if (esComsObs && ((_lastCantMin && cantidad < _lastCantMin) || (_lastCantMax && cantidad > _lastCantMax))) {
+    setFieldError("orden-cantidad",
+      `Este producto va de ${(_lastCantMin || 0).toLocaleString("es-AR")} a ${(_lastCantMax || 0).toLocaleString("es-AR")} comentarios por orden y cargaste ${cantidad}`);
+    valid = false;
+  } else if (!cantidad || cantidad < 1) {
     setFieldError("orden-cantidad", "Ingresá una cantidad válida");
     valid = false;
   } else if (tipoOrden === "views" && cantidad < pisoViews) {
@@ -3819,7 +4004,10 @@ function agregarOrden() {
     productoId: parseInt(prodSelect.value),
     productoNombre: prodSelect.selectedIndex >= 0 ? prodSelect.options[prodSelect.selectedIndex].text : "",
     link,
-    obs: obsEl.value.trim(),
+    // Comentarios de panel: la lista limpia (sin líneas vacías) es la obs, y
+    // se guarda aparte para mostrarla y no volver a ofrecer esos textos.
+    obs: esComsObs ? comsObs.join("\n") : obsEl.value.trim(),
+    ...(esComsObs ? { comentariosObs: comsObs } : {}),
     tipo: "normal",
   };
 
@@ -3884,6 +4072,7 @@ function agregarOrden() {
   _lastCosto = null;
   _lastCantMin = null;
   _lastCantMax = null;
+  _syncComentariosObs();   // sin producto elegido: apaga el modo de lista
 
   renderOrdenes();
 
@@ -3938,6 +4127,7 @@ function editarOrden(id) {
   document.getElementById("orden-cantidad").value = o.cantidad;
   document.getElementById("orden-link").value = o.link;
   document.getElementById("orden-obs").value = o.obs || "";
+  if (o.comentariosObs) _comsObsUltimoN = null;   // fuerza recontar y recotizar
 
   // Cuándo
   document.getElementById("orden-cuando-val").value = o.cuando;
@@ -3954,6 +4144,7 @@ function editarOrden(id) {
   // Eliminar la orden (se re-agrega al guardar)
   ordenes = ordenes.filter(ord => ord.id !== id);
   renderOrdenes();
+  _syncComentariosObs();
 
   // Scroll al form
   document.querySelector(".orden-form-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4013,7 +4204,7 @@ function renderOrdenes() {
             ${rsIconHtml} ${escapeHtml(rs.label)}
           </span>
           <span class="orden-card-nombre">${escapeHtml(o.productoNombre)}</span>
-          <span class="orden-card-pill orden-card-pill--qty">${o.tipo === "comentarios"
+          <span class="orden-card-pill orden-card-pill--qty">${(o.tipo === "comentarios" || o.comentariosObs)
             ? `<b>${o.cantidad}</b> comentarios`
             : `<b>${o.cantidad.toLocaleString("es-AR")}</b> unidades`}</span>
           ${o.splitTotal ? `<span class="orden-card-pill orden-card-pill--split">${o.splitIndex}/${o.splitTotal}</span>` : ""}
@@ -4027,7 +4218,9 @@ function renderOrdenes() {
           ${o.flojo ? `<span class="orden-card-pill orden-card-pill--split" title="A este post le tocó salir por debajo del rango, a propósito: así el perfil no mantiene siempre la misma media">📉 Post flojo</span>` : ""}
         </div>
         <div class="orden-card-link">${escapeHtml(o.link)}</div>
-        ${o.obs ? `<div class="orden-card-obs">"${escapeHtml(o.obs)}"</div>` : ""}
+        ${o.comentariosObs
+          ? `<details class="orden-card-coms"><summary>Ver los ${o.comentariosObs.length} comentarios</summary><ol>${o.comentariosObs.map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ol></details>`
+          : (o.obs ? `<div class="orden-card-obs">"${escapeHtml(o.obs)}"</div>` : "")}
       </div>
       <div class="orden-card-remove">
         <button class="orden-card-btn-edit" onclick="editarOrden(${o.id})" title="Editar">✎</button>
@@ -4363,7 +4556,7 @@ function _bloqueOrdenes() {
   const filas = ordenes.map(o => {
     const rs = (typeof RS_META !== "undefined" && RS_META[o.redsocialId]) || { icon: "🌐", label: o.redsocial || "", color: "#a0a0a0" };
     const prog = o.cuando !== "ahora";
-    const cant = o.tipo === "comentarios"
+    const cant = (o.tipo === "comentarios" || o.comentariosObs)
       ? `${o.cantidad} comentarios`
       : `${Number(o.cantidad || 0).toLocaleString("es-AR")} unidades`;
     return `
