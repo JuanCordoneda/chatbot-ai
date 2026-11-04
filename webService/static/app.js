@@ -3164,7 +3164,10 @@ function _syncComentariosObs() {
     cantEl.classList.add("orden-input--readonly");
     box.classList.remove("hidden");
     _comsObsActivo = true;
-    if (!obs.value.trim() && _comsObsGuardados) obs.value = _comsObsGuardados;
+    // La lista arranca con TODOS los generados que sobraron (pedido de
+    // Lautaro: "los extras de una y chau"); el que no va, se borra. Si había
+    // una lista a medio armar de antes, vuelve esa.
+    if (!obs.value.trim()) obs.value = _comsObsGuardados || _comentariosSinUsar().join("\n");
     _comsObsGuardados = "";
   }
 
@@ -3186,14 +3189,17 @@ function _syncComentariosObs() {
   const min = _lastCantMin || 0, max = _lastCantMax || 0;
   const claves = lineas.map(normComentario);
   const repetidos = claves.length - new Set(claves).size;
+  const libres = _comentariosSinUsar();
   let html, alerta = false;
-  if (!n) {
+  if (!n && !libres.length) {
+    html = "No quedan comentarios generados sin usar. Pegalos <b>acá arriba</b>, uno debajo del otro, o volvé y generá más.";
+  } else if (!n) {
     html = "Los comentarios de este producto van <b>acá arriba</b>, uno debajo del otro. La cantidad se cuenta sola.";
   } else if ((min && n < min) || (max && n > max)) {
     alerta = true;
-    html = `⚠ Hay <b>${n}</b> comentarios y este producto va de <b>${min.toLocaleString("es-AR")}</b> a <b>${max.toLocaleString("es-AR")}</b> por orden.`;
+    html = `⚠ Hay <b>${n}</b> comentario${n === 1 ? "" : "s"} y este producto va de <b>${min.toLocaleString("es-AR")}</b> a <b>${max.toLocaleString("es-AR")}</b> por orden.`;
   } else {
-    html = `✓ <b>${n}</b> comentarios · la orden sale de <b>${n}</b>.`;
+    html = `✓ <b>${n}</b> comentario${n === 1 ? "" : "s"} · la orden sale de <b>${n}</b>.`;
   }
   if (repetidos) {
     alerta = true;
@@ -3202,8 +3208,8 @@ function _syncComentariosObs() {
   document.getElementById("obs-coms-cartel").innerHTML = html;
   box.classList.toggle("obs-coms-box--alerta", alerta);
 
-  // "Traer N de los que sobraron": solo si hay generados sin usar.
-  const libres = _comentariosSinUsar();
+  // "Traer N de los que sobraron": solo si hay generados sin usar (o sea, si
+  // se borró alguno de los que se cargaron solos).
   const traer = document.getElementById("obs-coms-traer");
   traer.classList.toggle("hidden", !libres.length);
   if (libres.length) {
@@ -3212,7 +3218,7 @@ function _syncComentariosObs() {
     const actual = parseInt(inpN.value) || 0;
     if (!actual || actual > libres.length) inpN.value = libres.length;
     document.getElementById("obs-coms-disp").textContent =
-      `de ${libres.length === 1 ? "el generado" : `los ${libres.length} generados`} que no usaste`;
+      libres.length === 1 ? "del único generado que no usaste" : `de los ${libres.length} generados que no usaste`;
   }
 }
 
